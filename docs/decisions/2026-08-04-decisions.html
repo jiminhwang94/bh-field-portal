@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>결정 문서 — 2026-08-04</title>
+<style>
+  :root {
+    --bg:#eef1f5; --surface:#fff; --surface2:#f7f9fb; --text:#111823; --muted:#5c6875;
+    --border:#d8dfe7; --primary:#1f6feb; --ok:#0f9d58; --warn:#b45309; --danger:#d92b3f;
+    --rec:#e8f1ff; --rec-border:#1f6feb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0d1218; --surface:#161d26; --surface2:#1d252f; --text:#eaf0f6; --muted:#9aa7b4;
+      --border:#2b3542; --primary:#4c8dff; --ok:#3ddc97; --warn:#f2b656; --danger:#ff6b7d;
+      --rec:#14243d; --rec-border:#4c8dff;
+    }
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--text); line-height:1.65;
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
+  }
+  .wrap { max-width:820px; margin:0 auto; padding:28px 16px 80px; }
+  h1 { font-size:1.5rem; letter-spacing:-.02em; margin:0 0 6px; }
+  .sub { color:var(--muted); font-size:.95rem; margin-bottom:24px; }
+  .howto {
+    background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    padding:16px 18px; margin-bottom:28px; font-size:.95rem;
+  }
+  .howto strong { color:var(--primary); }
+  .card {
+    background:var(--surface); border:1px solid var(--border); border-radius:16px;
+    padding:22px; margin-bottom:26px; box-shadow:0 1px 2px rgba(16,24,40,.06);
+  }
+  .card h2 { margin:0 0 4px; font-size:1.15rem; }
+  .card .why { color:var(--muted); font-size:.92rem; margin:0 0 16px; }
+  .opt {
+    border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:10px;
+    background:var(--surface2);
+  }
+  .opt.rec { background:var(--rec); border:2px solid var(--rec-border); }
+  .opt h3 { margin:0 0 6px; font-size:1rem; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .tag {
+    font-size:.72rem; font-weight:800; padding:2px 10px; border-radius:999px;
+    background:var(--primary); color:#fff;
+  }
+  .opt ul { margin:6px 0 0; padding-left:20px; font-size:.9rem; }
+  .good::marker { color:var(--ok); }
+  .bad::marker { color:var(--danger); }
+  .cost { font-size:.82rem; color:var(--muted); margin-top:8px; }
+  .badge-id {
+    display:inline-block; background:var(--text); color:var(--bg); font-weight:800;
+    border-radius:8px; padding:2px 10px; font-size:.85rem; margin-right:6px;
+  }
+  .reply {
+    background:var(--surface); border:2px dashed var(--border); border-radius:14px;
+    padding:18px; font-size:.95rem;
+  }
+  .reply code {
+    display:block; background:var(--surface2); border-radius:8px; padding:12px 14px;
+    margin-top:10px; font-family:ui-monospace,Menlo,monospace; font-size:.9rem;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧭 결정 문서 — 5건</h1>
+  <div class="sub">2026-08-04 · 코드 리뷰(docs/CODE_REVIEW.md)에서 도출된 의사결정 항목 ·
+    각 항목의 <b>파란 테두리</b>가 제 추천안입니다.</div>
+
+  <div class="howto">
+    읽으신 뒤 채팅으로 <strong>"D-1은 B, D-2는 A…"</strong> 처럼 알려주시면
+    선택된 안으로 plan.md 를 갱신하고 구현을 시작합니다. 일부만 정하셔도 됩니다.
+  </div>
+
+  <!-- D-1 -->
+  <div class="card">
+    <h2><span class="badge-id">D-1</span> 접근 보호를 넣을까?</h2>
+    <p class="why">지금은 주소만 알면 누구나 열람·수정·[업데이트]가 가능합니다.
+      사내 Wi-Fi 전용인 동안은 낮은 위험, 도메인 공개 시 필수.</p>
+    <div class="opt">
+      <h3>A. 지금처럼 없음</h3>
+      <ul>
+        <li class="good">설정 0, 현장에서 가장 빠른 진입</li>
+        <li class="bad">같은 네트워크 손님/외부인도 접근 가능</li>
+      </ul>
+      <div class="cost">비용: 없음 · 조건: 사내망 전용 유지</div>
+    </div>
+    <div class="opt rec">
+      <h3>B. 공용 PIN 1개 <span class="tag">추천</span></h3>
+      <ul>
+        <li class="good">첫 접속에 4~6자리 1회 입력, 기기에 기억됨 → 현장 불편 거의 없음</li>
+        <li class="good">구현 반나절, 도메인 공개 준비도 됨</li>
+        <li class="bad">퇴사자 발생 시 PIN 교체 필요(전 기기 재입력)</li>
+      </ul>
+      <div class="cost">비용: 구현 1회 · 사용 부담: 기기당 1회 입력</div>
+    </div>
+    <div class="opt">
+      <h3>C. 사용자별 계정(아이디/비밀번호)</h3>
+      <ul>
+        <li class="good">누가 무엇을 했는지 정확한 기록, 개별 권한 가능</li>
+        <li class="bad">구현·관리 비용이 커짐(가입/초기화/분실), 소수 인원엔 과함</li>
+      </ul>
+      <div class="cost">비용: 큼 · 인원이 10명+ 로 늘면 재검토</div>
+    </div>
+  </div>
+
+  <!-- D-2 -->
+  <div class="card">
+    <h2><span class="badge-id">D-2</span> 서버를 어디서 돌릴까?</h2>
+    <p class="why">지금은 작업용 맥에서 실행 중 — 맥이 잠자거나 꺼지면 전 팀이 접속 불가.
+      리뷰에서 가장 큰 운영 리스크로 지목된 항목.</p>
+    <div class="opt">
+      <h3>A. 현행 유지 (작업용 PC)</h3>
+      <ul>
+        <li class="good">추가 비용·작업 없음</li>
+        <li class="bad">PC 재부팅/이동/절전 = 서비스 중단, 사무실 밖에서 접속 불가</li>
+      </ul>
+      <div class="cost">비용: 0 · 시험 사용 기간에만 적합</div>
+    </div>
+    <div class="opt rec">
+      <h3>B. 사내 상시 가동 PC/서버 + 자동 시작 <span class="tag">추천</span></h3>
+      <ul>
+        <li class="good">폴더 복사만으로 이전 끝(의존성 0), 자동 재시작 등록 포함</li>
+        <li class="good">자동 백업(백로그 B-3)과 함께 구성하면 운영 체계 완성</li>
+        <li class="bad">여전히 사내망 안에서만 접속 (현장 밖 접속 불가)</li>
+      </ul>
+      <div class="cost">비용: 남는 PC 1대 · 이전 작업 1시간</div>
+    </div>
+    <div class="opt">
+      <h3>C. 클라우드 (고정 https 주소)</h3>
+      <ul>
+        <li class="good">현장 어디서나 접속, 도메인(errorcode.…) 연결 가능</li>
+        <li class="bad">월 비용(약 5천~1만원), D-1 접근 보호가 선행 필수</li>
+      </ul>
+      <div class="cost">비용: 월 소액 + 초기 설정 · 현장 외부 접속이 꼭 필요해지면</div>
+    </div>
+  </div>
+
+  <!-- D-3 -->
+  <div class="card">
+    <h2><span class="badge-id">D-3</span> 재고 변경도 [업데이트]를 기다릴까?</h2>
+    <p class="why">현장 관점 리뷰 지적: 부품을 쓰고 [-]를 눌러도 [업데이트] 전까지는
+      동료에게 안 보임 → 같은 부품을 서로 있다고 착각할 수 있음.</p>
+    <div class="opt">
+      <h3>A. 현행 유지 — 모든 변경이 [업데이트] 일괄</h3>
+      <ul>
+        <li class="good">규칙이 하나라 단순, 실수로 누른 [-]도 업데이트 전 취소 가능</li>
+        <li class="bad">업데이트를 잊으면 재고 어긋남</li>
+      </ul>
+    </div>
+    <div class="opt rec">
+      <h3>B. 재고 수량만 즉시 공유 <span class="tag">추천</span></h3>
+      <ul>
+        <li class="good">재고는 "실물 상태 기록"이라 즉시성이 자연스러움</li>
+        <li class="good">가이드/항목 같은 "문서성 데이터"만 [업데이트] 검토를 거침</li>
+        <li class="bad">규칙이 두 가지가 됨 (화면에 안내 문구로 완화)</li>
+      </ul>
+      <div class="cost">구현: 반나절 · 품목/차량 추가·삭제는 계속 [업데이트] 대상</div>
+    </div>
+  </div>
+
+  <!-- D-4 -->
+  <div class="card">
+    <h2><span class="badge-id">D-4</span> 최소 오프라인 완충을 둘까?</h2>
+    <p class="why">온라인 전용은 확정된 방향. 다만 식당 지하 등에서 신호가 끊겼을 때
+      "방금까지 보던 가이드"조차 안 열리는 상황에 대한 보험 여부.</p>
+    <div class="opt">
+      <h3>A. 없음 — 완전 온라인 전용 (현행)</h3>
+      <ul>
+        <li class="good">코드 단순, 이전에 오프라인 기능을 제거한 결정과 일관</li>
+        <li class="bad">신호 끊기면 아무것도 못 봄</li>
+      </ul>
+    </div>
+    <div class="opt rec">
+      <h3>B. 최근 본 가이드 20개만 기기 보관 <span class="tag">추천</span></h3>
+      <ul>
+        <li class="good">서비스워커 없이 localStorage 만 사용 — 이전에 문제됐던 복잡한
+          오프라인 구조와 무관한 가벼운 방식</li>
+        <li class="good">"신호 끊김 → 방금 보던 SOP는 계속 보임" 시나리오 해결</li>
+        <li class="bad">검색·재고·리포트 업로드는 여전히 온라인 필요(안내 표시)</li>
+      </ul>
+      <div class="cost">구현: 1일 · 저장 용량: 수백 KB 수준</div>
+    </div>
+  </div>
+
+  <!-- D-5 -->
+  <div class="card">
+    <h2><span class="badge-id">D-5</span> 상단 메뉴를 하단 탭바로 바꿀까?</h2>
+    <p class="why">디자이너 관점 지적: 좁은 화면에서 상단 메뉴가 🚐🗂🧩⚙️ 이모지만 남아
+      처음 쓰는 사람이 의미를 추측해야 함.</p>
+    <div class="opt">
+      <h3>A. 현행 유지 (상단 칩 메뉴)</h3>
+      <ul>
+        <li class="good">변경 없음, 기존 사용자는 이미 익숙</li>
+        <li class="bad">신규 사용자 학습 장벽, 태블릿 세로 모드에서 라벨 소실</li>
+      </ul>
+    </div>
+    <div class="opt rec">
+      <h3>B. 하단 탭바 (아이콘+라벨 항상 표시) <span class="tag">추천</span></h3>
+      <ul>
+        <li class="good">홈/재고/리포트/항목/설정 라벨이 항상 보임 — 모바일 앱 관례와 일치</li>
+        <li class="good">엄지 닿는 위치라 태블릿 한 손 조작에 유리</li>
+        <li class="bad">[업데이트] 버튼 위치 재배치 필요, 화면 하단 공간 소모</li>
+      </ul>
+      <div class="cost">구현: 1일 · [새 리포트] 버튼과의 배치는 시안으로 먼저 확인</div>
+    </div>
+  </div>
+
+  <div class="reply">
+    <b>회신 방법</b> — 채팅에 이렇게 보내주세요 (일부만 정해도 됩니다):
+    <code>D-1: B, D-2: B, D-3: B, D-4: A, D-5: 보류</code>
+    선택하시면 plan.md 를 갱신하고, 결정 불필요 백로그(B-1~B-7)와 함께 진행 순서를 제안드립니다.
+  </div>
+</div>
+</body>
+</html>
