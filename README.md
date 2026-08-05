@@ -222,3 +222,23 @@ POST   /api/media?filename=...      GET  /media/{filename}
   기본 인증이나 사내망 제한을 두는 것을 권장한다.
 - **업로드 제한**: 파일 1개당 40MB, 이미지/영상/음성/PDF 만 허용.
 - **화면 코드 갱신**: 서버 코드가 바뀌면 태블릿이 다음 이동/복귀 시 자동으로 새로 받는다.
+
+---
+
+## 9. GitHub 원격 연결 (최초 1회)
+
+로컬 git 저장소는 준비되어 있다(커밋 이력 포함). 원격 연결 순서:
+
+1. github.com 에서 **New repository** → 이름 `bh-field-portal` → **Private** →
+   (README/.gitignore 추가하지 말 것) → Create
+2. 터미널에서:
+
+```bash
+cd "/Users/hwangjimin/Documents/비욘드허니컴/오류 코드 앱/코드"
+git remote add origin https://github.com/<계정명>/bh-field-portal.git
+git push -u origin main
+```
+
+- push 시 로그인 창이 뜨면 GitHub 비밀번호가 아니라 **Personal Access Token** 을 사용
+  (github.com → Settings → Developer settings → Tokens → repo 권한).
+- 이후에는 작업 후 `git add -A && git commit && git push` 만 반복하면 된다.
