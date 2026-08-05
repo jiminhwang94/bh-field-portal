@@ -1,0 +1,21 @@
+{
+  "name": "로봇 현장 대응 포털",
+  "short_name": "현장 포털",
+  "description": "로봇 필드 엔지니어용 오류코드·HW SOP·SW 명령어 매뉴얼, 차량 재고, 노션 리포트 전송",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "새 현장 리포트", "url": "/#/report/new" },
+    { "name": "스타리아 재고", "url": "/#/inventory" }
+  ]
+}
