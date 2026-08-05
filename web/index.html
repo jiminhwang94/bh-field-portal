@@ -25,19 +25,28 @@
               title="내가 만든/수정한 내용을 모든 사용자에게 적용">
         ⬆️ <span class="chip__label">업데이트</span>
       </button>
-      <span class="appbar__divider"></span>
-      <a class="chip" href="#/inventory">🚐 <span class="chip__label">재고</span></a>
-      <a class="chip" href="#/reports">🗂 <span class="chip__label">리포트</span></a>
-      <a class="chip" href="#/fields">🧩 <span class="chip__label">항목 설정</span></a>
-      <a class="chip" href="#/settings">⚙️ <span class="chip__label">설정</span></a>
     </nav>
   </header>
 
   <main id="view" class="view" aria-live="polite"></main>
 
-  <div class="bottombar">
-    <a class="btn btn--primary btn--xl" href="#/report/new">📝 새 현장 리포트 작성하기</a>
-  </div>
+  <nav class="tabbar" aria-label="주요 화면">
+    <a class="tabbar__item" data-tab="home" href="#/">
+      <span class="tabbar__icon">🏠</span><span class="tabbar__label">홈</span>
+    </a>
+    <a class="tabbar__item" data-tab="inventory" href="#/inventory">
+      <span class="tabbar__icon">🚐</span><span class="tabbar__label">재고</span>
+    </a>
+    <a class="tabbar__item tabbar__item--primary" data-tab="new" href="#/report/new">
+      <span class="tabbar__icon">📝</span><span class="tabbar__label">새 리포트</span>
+    </a>
+    <a class="tabbar__item" data-tab="reports" href="#/reports">
+      <span class="tabbar__icon">🗂</span><span class="tabbar__label">이력</span>
+    </a>
+    <a class="tabbar__item" data-tab="settings" href="#/settings">
+      <span class="tabbar__icon">⚙️</span><span class="tabbar__label">설정</span>
+    </a>
+  </nav>
 
   <div id="toasts" class="toasts" aria-live="assertive"></div>
   <div id="modalRoot"></div>

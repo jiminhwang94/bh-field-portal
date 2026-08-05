@@ -12,8 +12,12 @@ function deviceId() {
   return id;
 }
 
+let onUnauthorized = null;
+export function setUnauthorizedHandler(fn) { onUnauthorized = fn; }
+
 async function request(method, path, body) {
-  const opts = { method, headers: { 'X-Device-Id': deviceId() } };
+  const opts = { method, headers: { 'X-Device-Id': deviceId() },
+                 credentials: 'same-origin' };
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -30,7 +34,13 @@ async function request(method, path, body) {
     try { data = JSON.parse(text); } catch { data = null; }
   }
   if (!res.ok) {
-    throw new Error((data && data.error) || `요청 실패 (${res.status})`);
+    // PIN 이 새로 설정되었거나 만료된 경우 잠금 화면을 띄운다.
+    if (res.status === 401 && onUnauthorized && !path.startsWith('/api/auth')) {
+      onUnauthorized();
+    }
+    const error = new Error((data && data.error) || `요청 실패 (${res.status})`);
+    error.status = res.status;
+    throw error;
   }
   return data;
 }
@@ -39,6 +49,9 @@ export const api = {
   deviceId,
 
   version: () => request('GET', '/api/version'),
+
+  authStatus: () => request('GET', '/api/auth/status'),
+  authLogin: (pin) => request('POST', '/api/auth', { pin }),
   meta: () => request('GET', '/api/meta'),
 
   // 업데이트(모든 사용자에게 적용)

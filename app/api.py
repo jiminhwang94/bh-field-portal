@@ -66,6 +66,29 @@ def _safe_filename(name: str) -> str:
     return f"{time.strftime('%Y%m%d-%H%M%S')}-{db.new_id()[:8]}-{stem}{ext}"
 
 
+AUTH_COOKIE = "bh_access"
+# 인증 없이 접근 가능한 경로 (로그인 화면 자체와 버전 확인)
+OPEN_PATHS = ("auth", "version")
+
+
+def _cookie_token(headers) -> str:
+    raw = headers.get("Cookie") or headers.get("cookie") or ""
+    for part in raw.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == AUTH_COOKIE:
+            return value.strip()
+    return ""
+
+
+def authorized(headers, device_id="") -> bool:
+    """PIN 이 설정돼 있으면 유효한 토큰(쿠키 또는 헤더)이 있어야 한다."""
+    if not db.access_pin():
+        return True
+    token = (_cookie_token(headers)
+             or headers.get("X-Access-Token") or headers.get("x-access-token") or "")
+    return db.token_valid(token, device_id)
+
+
 # ------------------------------------------------------------------ 라우터
 
 def handle(method: str, path: str, query: dict, body, content_type="",
@@ -100,6 +123,22 @@ def handle(method: str, path: str, query: dict, body, content_type="",
 
     head = segments[0] if segments else ""
     rest = segments[1:]
+
+    # -------------------------------------------------------- 접근 보호 (PIN)
+    if head == "auth":
+        if rest == ["status"] and method == "GET":
+            return 200, {"required": bool(db.access_pin()),
+                         "authorized": authorized(headers, device_id)}
+        if not rest and method == "POST":
+            if not device_id:
+                raise ApiError(400, "기기를 확인할 수 없습니다. 앱을 새로고침해 주세요.")
+            token = db.verify_pin(json_body().get("pin"), device_id)
+            if not token:
+                raise ApiError(401, "PIN 이 맞지 않습니다.")
+            return 200, {"ok": True, "token": token, "setCookie": token}
+
+    if head not in OPEN_PATHS and not authorized(headers, device_id):
+        raise ApiError(401, "접근 PIN 이 필요합니다.")
 
     # ---------------------------------------------------------- 메타 / 버전
     if head == "meta" and method == "GET":
@@ -303,7 +342,18 @@ def handle(method: str, path: str, query: dict, body, content_type="",
                         data["sheets_webapp_url"])
                 if "site_url" in data:
                     data["site_url"] = str(data["site_url"] or "").strip().rstrip("/")
+                new_pin = data.pop("access_pin", None)
                 db.save_settings(data)
+                if new_pin is not None:
+                    try:
+                        db.set_access_pin(new_pin)
+                    except ValueError as exc:
+                        raise ApiError(400, str(exc))
+                    # PIN 이 바뀌면 이 기기 토큰을 새로 발급해 로그아웃되지 않게 한다
+                    payload = _settings_payload()
+                    if device_id:
+                        payload["newToken"] = db.access_token(device_id)
+                    return 200, payload
                 return 200, _settings_payload()
         elif rest == ["sheets-test"] and method == "POST":
             try:
@@ -324,6 +374,10 @@ def _settings_payload() -> dict:
     settings = db.get_settings()
     settings["spreadsheetUrl"] = sheets.spreadsheet_url(settings)
     settings["sheetsReady"] = bool((settings.get("sheets_webapp_url") or "").strip())
+    # PIN 값 자체는 절대 내보내지 않는다 (설정 여부만)
+    settings.pop("access_pin", None)
+    settings.pop("auth_secret", None)
+    settings["pinEnabled"] = bool(db.access_pin())
     return settings
 
 

@@ -28,7 +28,7 @@ CATEGORY_TYPES = ("ERROR_CODE", "HARDWARE_SOP", "SOFTWARE_CMD")
 FIELD_TYPES = ("TEXT", "TEXTAREA", "NUMBER", "DROPDOWN", "MEDIA")
 VEHICLES = ("스타리아 1호차", "스타리아 2호차")
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 
 # [업데이트] 로 모든 사용자에게 반영되는 공유 테이블 (순서 = 삭제/삽입 순서)
 SHARED_TABLES = (
@@ -76,6 +76,16 @@ CREATE TABLE IF NOT EXISTS vehicle_inventory (
     UNIQUE(vehicle_name, part_name)
 );
 
+-- 재고 "수량" 은 실물 상태 기록이므로 공개본에 바로 반영한다([업데이트] 불필요).
+-- 품목 정의(이름·최소 보유)는 vehicle_inventory 에 남고 [업데이트] 대상이다.
+CREATE TABLE IF NOT EXISTS inventory_quantity (
+    vehicle_name TEXT NOT NULL,
+    part_name    TEXT NOT NULL,
+    quantity     INTEGER NOT NULL DEFAULT 0,
+    updated_at   TEXT NOT NULL,
+    PRIMARY KEY (vehicle_name, part_name)
+);
+
 CREATE TABLE IF NOT EXISTS report_field_config (
     id             TEXT PRIMARY KEY,
     field_label    TEXT NOT NULL,
@@ -118,6 +128,8 @@ GLOBAL_SETTINGS = {
     "sheets_webapp_url": "",
     "sheets_spreadsheet_id": "1ywec2wKj0thmI0uPZeqNwCGpbD75TJ9s7Yc20iP_0z4",
     "site_url": "",        # 비우면 접속한 서버 주소를 자동 사용
+    "access_pin": "",      # 비우면 접근 보호 없음 (팀 공용 PIN)
+    "auth_secret": "",     # 토큰 서명용 비밀값 (자동 생성)
     "published_revision": "0",
     "published_at": "",
     "published_by": "",
@@ -133,6 +145,8 @@ DEVICE_SETTINGS = {
 DEFAULT_SETTINGS = {**GLOBAL_SETTINGS, **DEVICE_SETTINGS}
 
 _local = threading.local()
+# 공개본을 건드리는 작업(업데이트 / 최신 받기)은 한 번에 하나만 수행한다.
+_PUBLISH_LOCK = threading.Lock()
 
 
 # ------------------------------------------------------------------ 기기 컨텍스트
@@ -266,6 +280,19 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
         # 이전 전송 상태는 '저장됨' 으로 되돌린다(전송 대상이 바뀌었으므로).
         conn.execute("UPDATE report SET status = 'DRAFT' WHERE status = 'SENT'")
 
+    # 재고 수량을 공개본 전용 테이블로 이전 (v2.1)
+    try:
+        moved = conn.execute(
+            "SELECT COUNT(*) FROM inventory_quantity").fetchone()[0]
+        if not moved:
+            conn.execute(
+                "INSERT OR IGNORE INTO inventory_quantity "
+                "(vehicle_name, part_name, quantity, updated_at) "
+                "SELECT vehicle_name, part_name, quantity, updated_at "
+                "FROM vehicle_inventory")
+    except sqlite3.DatabaseError:
+        pass
+
     # 더 이상 사용하지 않는 설정 제거
     conn.execute(
         "DELETE FROM app_setting WHERE key IN "
@@ -346,6 +373,57 @@ def save_settings(values: dict) -> dict:
     if device_values and current_device():
         _write_settings(current_db_path(), device_values)
     return get_settings()
+
+
+# ------------------------------------------------------- 접근 보호 (공용 PIN)
+
+def access_pin() -> str:
+    return (_read_setting(DB_PATH, "access_pin") or "").strip()
+
+
+def set_access_pin(pin) -> None:
+    """PIN 을 저장한다. 빈 값이면 보호 해제."""
+    pin = str(pin or "").strip()
+    if pin and not (4 <= len(pin) <= 12 and pin.isdigit()):
+        raise ValueError("PIN 은 숫자 4~12자리로 정해 주세요.")
+    _write_settings(DB_PATH, {"access_pin": pin})
+
+
+def _auth_secret() -> str:
+    secret = (_read_setting(DB_PATH, "auth_secret") or "").strip()
+    if not secret:
+        secret = new_id() + new_id()
+        _write_settings(DB_PATH, {"auth_secret": secret})
+    return secret
+
+
+def access_token(device_id: str) -> str:
+    """기기별 접근 토큰. PIN 이 바뀌면 기존 토큰은 자동으로 무효가 된다."""
+    import hashlib
+    import hmac
+
+    message = f"{_safe_device_id(device_id)}|{access_pin()}".encode()
+    return hmac.new(_auth_secret().encode(), message, hashlib.sha256).hexdigest()[:40]
+
+
+def verify_pin(pin, device_id: str):
+    """PIN 이 맞으면 토큰을 돌려준다. 틀리면 None."""
+    import hmac
+
+    expected = access_pin()
+    if not expected:
+        return access_token(device_id)      # 보호가 없으면 항상 통과
+    if not hmac.compare_digest(str(pin or "").strip(), expected):
+        return None
+    return access_token(device_id)
+
+
+def token_valid(token, device_id: str) -> bool:
+    import hmac
+
+    if not access_pin():
+        return True                          # 보호 미설정
+    return hmac.compare_digest(str(token or ""), access_token(device_id))
 
 
 # ------------------------------------------------------------------ guides
@@ -508,7 +586,53 @@ def delete_guide(guide_id: str) -> bool:
 
 # --------------------------------------------------------------- inventory
 
+def _live_quantities() -> dict:
+    """공개본에 기록된 실시간 수량. (차량, 부품) → (수량, 갱신시각)"""
+    conn = _connect_path(DB_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT vehicle_name, part_name, quantity, updated_at "
+            "FROM inventory_quantity").fetchall()
+    except sqlite3.DatabaseError:
+        return {}
+    finally:
+        conn.close()
+    return {(r["vehicle_name"], r["part_name"]): (r["quantity"], r["updated_at"])
+            for r in rows}
+
+
+def _set_live_quantity(vehicle_name, part_name, quantity, stamp=None) -> None:
+    """수량을 공개본에 바로 기록한다(모든 사용자에게 즉시 반영)."""
+    conn = _connect_path(DB_PATH)
+    try:
+        conn.execute(
+            "INSERT INTO inventory_quantity (vehicle_name, part_name, quantity, "
+            "updated_at) VALUES (?,?,?,?) "
+            "ON CONFLICT(vehicle_name, part_name) DO UPDATE SET "
+            "quantity = excluded.quantity, updated_at = excluded.updated_at",
+            (vehicle_name, part_name, max(0, int(quantity)), stamp or now()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _delete_live_quantity(vehicle_name, part_name=None) -> None:
+    conn = _connect_path(DB_PATH)
+    try:
+        if part_name is None:
+            conn.execute("DELETE FROM inventory_quantity WHERE vehicle_name = ?",
+                         (vehicle_name,))
+        else:
+            conn.execute(
+                "DELETE FROM inventory_quantity WHERE vehicle_name = ? "
+                "AND part_name = ?", (vehicle_name, part_name))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def list_inventory(vehicle_name=None) -> list:
+    """품목 정의는 내 작업본에서, 수량은 공개본(실시간)에서 읽어 합친다."""
     sql = "SELECT * FROM vehicle_inventory"
     params = []
     if vehicle_name:
@@ -520,11 +644,17 @@ def list_inventory(vehicle_name=None) -> list:
         rows = conn.execute(sql, params).fetchall()
     finally:
         conn.close()
-    return [{
-        "id": r["id"], "vehicleName": r["vehicle_name"], "partName": r["part_name"],
-        "quantity": r["quantity"], "minQuantity": r["min_quantity"],
-        "updatedAt": r["updated_at"],
-    } for r in rows]
+    live = _live_quantities()
+    out = []
+    for r in rows:
+        key = (r["vehicle_name"], r["part_name"])
+        quantity, stamp = live.get(key, (r["quantity"], r["updated_at"]))
+        out.append({
+            "id": r["id"], "vehicleName": r["vehicle_name"],
+            "partName": r["part_name"], "quantity": quantity,
+            "minQuantity": r["min_quantity"], "updatedAt": stamp,
+        })
+    return out
 
 
 def list_vehicles() -> list:
@@ -577,6 +707,7 @@ def delete_vehicle(name: str):
         conn.commit()
     finally:
         conn.close()
+    _delete_live_quantity(name)
     return {"name": name, "deletedItems": has_items}
 
 
@@ -613,6 +744,8 @@ def add_inventory_item(vehicle_name: str, part_name: str, quantity=0,
         conn.commit()
     finally:
         conn.close()
+    # 수량은 공개본에 바로 기록 (품목 자체는 [업데이트] 후 다른 사람에게 보인다)
+    _set_live_quantity(vehicle_name, part_name, quantity)
     return {"id": item_id, "vehicleName": vehicle_name, "partName": part_name,
             "quantity": max(0, int(quantity)),
             "minQuantity": max(0, int(min_quantity)), "updatedAt": now()}
@@ -620,40 +753,56 @@ def add_inventory_item(vehicle_name: str, part_name: str, quantity=0,
 
 def update_inventory_item(item_id: str, delta=None, quantity=None,
                           min_quantity=None, part_name=None):
+    """수량은 공개본에 즉시 반영, 이름·최소 보유는 작업본([업데이트] 대상)."""
+    live = _live_quantities()
     conn = connect()
     try:
         row = conn.execute("SELECT * FROM vehicle_inventory WHERE id = ?",
                            (item_id,)).fetchone()
         if row is None:
             return None
-        new_qty = row["quantity"]
+        old_key = (row["vehicle_name"], row["part_name"])
+        current = live.get(old_key, (row["quantity"], row["updated_at"]))[0]
+
+        new_qty = current
         if delta is not None:
-            new_qty = row["quantity"] + int(delta)
+            new_qty = current + int(delta)
         if quantity is not None:
             new_qty = int(quantity)
         new_qty = max(0, new_qty)
         new_min = row["min_quantity"] if min_quantity is None else max(0, int(min_quantity))
         new_name = row["part_name"] if not part_name else part_name.strip()
+
         conn.execute(
-            "UPDATE vehicle_inventory SET quantity = ?, min_quantity = ?, "
-            "part_name = ?, updated_at = ? WHERE id = ?",
-            (new_qty, new_min, new_name, now(), item_id))
+            "UPDATE vehicle_inventory SET min_quantity = ?, part_name = ?, "
+            "updated_at = ? WHERE id = ?", (new_min, new_name, now(), item_id))
         conn.commit()
     finally:
         conn.close()
+
+    stamp = now()
+    if new_name != row["part_name"]:
+        _delete_live_quantity(row["vehicle_name"], row["part_name"])
+    _set_live_quantity(row["vehicle_name"], new_name, new_qty, stamp)
     return {"id": item_id, "vehicleName": row["vehicle_name"],
             "partName": new_name, "quantity": new_qty, "minQuantity": new_min,
-            "updatedAt": now()}
+            "updatedAt": stamp}
 
 
 def delete_inventory_item(item_id: str) -> bool:
     conn = connect()
     try:
+        row = conn.execute(
+            "SELECT vehicle_name, part_name FROM vehicle_inventory WHERE id = ?",
+            (item_id,)).fetchone()
         cur = conn.execute("DELETE FROM vehicle_inventory WHERE id = ?", (item_id,))
         conn.commit()
-        return cur.rowcount > 0
+        removed = cur.rowcount > 0
     finally:
         conn.close()
+    if removed and row:
+        _delete_live_quantity(row["vehicle_name"], row["part_name"])
+    return removed
 
 
 # ----------------------------------------------------- 리포트 입력 항목 설정
@@ -848,9 +997,16 @@ def delete_report(report_id: str) -> bool:
     try:
         cur = conn.execute("DELETE FROM report WHERE id = ?", (report_id,))
         conn.commit()
-        return cur.rowcount > 0
+        removed = cur.rowcount > 0
     finally:
         conn.close()
+    if removed:
+        # 이 리포트에만 딸려 있던 사진 파일을 함께 정리한다.
+        try:
+            cleanup_orphan_media()
+        except OSError:
+            pass
+    return removed
 
 
 # ------------------------------------------------------------------- media
@@ -869,6 +1025,73 @@ def register_media(filename: str, original_name: str, mime: str,
         conn.close()
     return {"id": media_id, "filename": filename, "originalName": original_name,
             "mime": mime, "size": size, "url": f"/media/{filename}"}
+
+
+def _referenced_media() -> set:
+    """공개본·모든 작업본의 가이드 단계와 리포트가 참조하는 사진 파일명 집합."""
+    import glob
+
+    used = set()
+    paths = [DB_PATH] + sorted(glob.glob(os.path.join(DRAFT_DIR, "*.db")))
+    for path in paths:
+        if not os.path.isfile(path):
+            continue
+        conn = _connect_path(path)
+        try:
+            for row in conn.execute(
+                    "SELECT image_url FROM guide_step "
+                    "WHERE image_url IS NOT NULL").fetchall():
+                url = row["image_url"] or ""
+                if url.startswith("/media/"):
+                    used.add(os.path.basename(url))
+            for row in conn.execute("SELECT payload_json FROM report").fetchall():
+                try:
+                    payload = json.loads(row["payload_json"] or "[]")
+                except json.JSONDecodeError:
+                    continue
+                for item in payload:
+                    for media in (item or {}).get("media") or []:
+                        name = os.path.basename(media.get("filename") or "")
+                        if name:
+                            used.add(name)
+        except sqlite3.DatabaseError:
+            continue
+        finally:
+            conn.close()
+    return used
+
+
+def cleanup_orphan_media(min_age_seconds=600) -> dict:
+    """아무 곳에서도 참조하지 않는 사진 파일을 정리한다.
+
+    방금 업로드해 아직 리포트에 담기지 않은 파일을 지우지 않도록
+    기본 10분 이내 파일은 건너뛴다.
+    """
+    if not os.path.isdir(MEDIA_DIR):
+        return {"deleted": 0, "freedBytes": 0}
+    used = _referenced_media()
+    now_ts = time.time()
+    deleted, freed = 0, 0
+    for name in os.listdir(MEDIA_DIR):
+        path = os.path.join(MEDIA_DIR, name)
+        if not os.path.isfile(path) or name in used:
+            continue
+        if now_ts - os.path.getmtime(path) < min_age_seconds:
+            continue
+        size = os.path.getsize(path)
+        try:
+            os.remove(path)
+        except OSError:
+            continue
+        conn = connect()
+        try:
+            conn.execute("DELETE FROM media WHERE filename = ?", (name,))
+            conn.commit()
+        finally:
+            conn.close()
+        deleted += 1
+        freed += size
+    return {"deleted": deleted, "freedBytes": freed}
 
 
 # ------------------------------------------- 업데이트(공개본 반영) / 최신 받기
@@ -894,6 +1117,9 @@ def shared_data_hash(path=None) -> str:
                 digest.update(table.encode())
                 for key in sorted(row.keys()):
                     if key in ("updated_at", "created_at"):
+                        continue
+                    # 재고 수량은 즉시 공유되는 값이라 "내 변경" 판단에서 제외
+                    if table == "vehicle_inventory" and key == "quantity":
                         continue
                     digest.update(f"{key}={row[key]}".encode())
     finally:
@@ -937,17 +1163,19 @@ def publish(device_id, device_name="") -> dict:
     if not os.path.isfile(path):
         raise ValueError("올릴 변경 내용이 없습니다.")
 
-    _copy_shared(path, DB_PATH)
-    state = published_state()
-    revision = state["revision"] + 1
-    stamp = now()
-    _write_settings(DB_PATH, {
-        "published_revision": revision,
-        "published_at": stamp,
-        "published_by": device_name or "",
-    })
-    new_hash = shared_data_hash(path)
-    _write_settings(path, {"base_revision": revision, "base_hash": new_hash})
+    # 두 사람이 동시에 눌러도 리비전이 겹치거나 복사가 반쪽 되지 않게 잠근다.
+    with _PUBLISH_LOCK:
+        _copy_shared(path, DB_PATH)
+        state = published_state()
+        revision = state["revision"] + 1
+        stamp = now()
+        _write_settings(DB_PATH, {
+            "published_revision": revision,
+            "published_at": stamp,
+            "published_by": device_name or "",
+        })
+        new_hash = shared_data_hash(path)
+        _write_settings(path, {"base_revision": revision, "base_hash": new_hash})
     return {"revision": revision, "at": stamp, "by": device_name,
             "hash": new_hash, "summary": shared_summary(path)}
 
@@ -959,10 +1187,11 @@ def take_latest(device_id) -> dict:
     if not os.path.isfile(path):
         current_db_path()      # 작업본 생성
         return {"revision": published_state()["revision"], "refreshed": True}
-    _copy_shared(DB_PATH, path)
-    state = published_state()
-    _write_settings(path, {"base_revision": state["revision"],
-                           "base_hash": shared_data_hash(path)})
+    with _PUBLISH_LOCK:
+        _copy_shared(DB_PATH, path)
+        state = published_state()
+        _write_settings(path, {"base_revision": state["revision"],
+                               "base_hash": shared_data_hash(path)})
     return {"revision": state["revision"], "refreshed": True}
 
 

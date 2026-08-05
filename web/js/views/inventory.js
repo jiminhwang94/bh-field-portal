@@ -50,8 +50,9 @@ export async function inventoryView(view) {
       <div id="pageRoot">
         <div class="page-head">
           <h1>🚐 스타리아 차량 재고</h1>
-          <p>적재 수량을 현장에서 직접 조정합니다. 부품 사용 즉시 [−]를 눌러 반영하세요.
-            변경은 상단 <strong>[⬆️ 업데이트]</strong> 를 눌러야 모든 사용자에게 적용됩니다.</p>
+          <p>부품 사용 즉시 [−]를 눌러 반영하세요.
+            <strong>수량은 모든 사용자에게 바로 공유됩니다.</strong>
+            품목·차량 추가/삭제는 상단 <strong>[⬆️ 업데이트]</strong> 후 공유됩니다.</p>
         </div>
 
         <div class="tabs">
@@ -239,7 +240,8 @@ export async function inventoryView(view) {
           <div class="field">
             <label>최소 보유 수량</label>
             <input class="input" id="invMin" type="number" min="0" inputmode="numeric" value="${item ? item.minQuantity : 0}" />
-            <span class="hint">이 수량 이하가 되면 [보충 필요]로 표시됩니다.</span>
+            <span class="hint">이 수량 이하가 되면 [보충 필요]로 표시됩니다.
+              (최소 보유 수량 변경은 [업데이트] 대상)</span>
           </div>
         </div>
         <div class="form-actions">

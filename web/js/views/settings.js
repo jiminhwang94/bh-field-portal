@@ -1,6 +1,7 @@
 // 설정 — 구글 시트 연결 · 업데이트(공개본) · 앱 설치
 import { api } from '../api.js';
-import { $, h, copyText, loading, openSheet, toast } from '../ui.js';
+import { $, h, confirmDialog, copyText, loading, openSheet, toast } from '../ui.js';
+import { recentCount } from '../recent.js';
 import {
   canInstallDirectly, installApp, installStateLabel, isStandalone,
   showManualGuide,
@@ -74,8 +75,8 @@ export async function settingsView(view) {
 
       <div class="panel" id="testResult" style="display:none"></div>
 
-      <div class="panel">
-        <h2 class="panel__title">📊 기록 방식</h2>
+      <details class="panel panel--fold">
+        <summary class="panel__title">📊 기록 방식</summary>
         <ul class="muted" style="line-height:1.9;padding-left:20px;margin:0">
           <li>리포트를 업로드하면 <strong>월마다 새 시트</strong>가 만들어집니다. (시트 이름 = <span class="mono">YYYY-MM</span>)</li>
           <li><strong>1행은 비워 두고</strong>, <strong>2행에 항목명</strong>, <strong>3행부터</strong> 리포트가 한 줄씩 쌓입니다.</li>
@@ -84,7 +85,45 @@ export async function settingsView(view) {
               여러 장이면 가로로 나란히 들어갑니다.</li>
           <li>영상·PDF 는 시트에 넣을 수 없어 링크로 기록됩니다.</li>
         </ul>
+      </details>
+
+      <div class="panel">
+        <h2 class="panel__title">🧩 리포트 항목 설정</h2>
+        <p class="muted" style="margin:0 0 14px;line-height:1.65">
+          리포트 입력 항목과 구글 시트 열 순서를 정합니다.
+        </p>
+        <a class="btn btn--ghost" href="#/fields">🧩 항목 설정 열기</a>
       </div>
+
+      <details class="panel panel--fold">
+        <summary class="panel__title">🔒 접근 보호 (공용 PIN)</summary>
+        <div class="row" style="gap:8px;margin:14px 0">
+          <span class="badge ${settings.pinEnabled ? 'badge--ok' : 'badge--warn'}">
+            ${settings.pinEnabled ? 'PIN 사용 중' : '보호 없음'}
+          </span>
+        </div>
+        <p class="muted" style="margin:0 0 14px;line-height:1.65">
+          PIN 을 정하면 접속 시 1회 입력해야 합니다(기기가 기억). 팀 전체가 같은 PIN 을 씁니다.
+          비워서 저장하면 보호가 해제됩니다.
+        </p>
+        <div class="grid-2">
+          <div class="field">
+            <label>접근 PIN (숫자 4~12자리)</label>
+            <input class="input mono" id="sPin" type="password" inputmode="numeric"
+                   placeholder="${settings.pinEnabled ? '변경할 PIN 입력 (그대로 두면 유지)' : '예) 1234'}" />
+          </div>
+          <div class="field" style="align-self:end">
+            <button class="btn btn--primary" data-act="save-pin" type="button">🔒 PIN 저장</button>
+          </div>
+        </div>
+        ${settings.pinEnabled ? `
+          <button class="btn btn--danger btn--sm" data-act="clear-pin" type="button">
+            보호 해제
+          </button>` : ''}
+        <p class="muted" style="margin:12px 0 0;font-size:.86rem;line-height:1.6">
+          PIN 을 잊었다면 서버 PC 에서 <span class="mono">python3 server.py --reset-pin</span> 으로 해제할 수 있습니다.
+        </p>
+      </details>
 
       <div class="panel">
         <h2 class="panel__title">⬆️ 업데이트 (모든 사용자에게 적용)</h2>
@@ -122,8 +161,8 @@ export async function settingsView(view) {
         </p>
       </div>
 
-      <div class="panel">
-        <h2 class="panel__title">📱 앱 설치</h2>
+      <details class="panel panel--fold">
+        <summary class="panel__title">📱 앱 설치 · 접속 주소</summary>
         <div class="row" style="gap:8px;margin-bottom:14px">
           <span class="badge">버전 v${h(build.version)}</span>
           <span class="badge mono">빌드 ${h(build.buildHash)}</span>
@@ -150,7 +189,12 @@ export async function settingsView(view) {
           <button class="btn btn--sm btn--ghost" data-act="copy-url" type="button" style="margin-left:8px">주소 복사</button>
           <br />이 앱은 인터넷 연결 상태에서 사용합니다.
         </p>
-      </div>
+        <div class="divider"></div>
+        <p class="muted" style="margin:0;font-size:.9rem;line-height:1.65">
+          📴 최근 본 가이드 <strong>${recentCount()}건</strong>이 이 기기에 보관되어 있어,
+          연결이 끊겨도 열람할 수 있습니다.
+        </p>
+      </details>
     </div>`;
 
   const root = $('#pageRoot');
@@ -159,6 +203,26 @@ export async function settingsView(view) {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
+
+    if (act === 'save-pin' || act === 'clear-pin') {
+      const pin = act === 'clear-pin' ? '' : $('#sPin').value.trim();
+      if (act === 'save-pin' && !pin) {
+        toast('저장할 PIN 을 입력하세요. (해제는 [보호 해제])', 'err');
+        return;
+      }
+      if (act === 'clear-pin') {
+        const ok = await confirmDialog('보호 해제',
+          'PIN 없이 누구나 접속할 수 있게 됩니다. 사내망에서만 사용하세요.',
+          '해제', true);
+        if (!ok) return;
+      }
+      try {
+        await api.saveSettings({ access_pin: pin });
+        toast(pin ? 'PIN 을 저장했습니다. 팀에 공유하세요.' : '보호를 해제했습니다.', 'ok');
+        settingsView(view);
+      } catch (err) { toast(err.message, 'err'); }
+      return;
+    }
 
     if (act === 'install') { await installApp(); return; }
     if (act === 'install-help') { showManualGuide(); return; }

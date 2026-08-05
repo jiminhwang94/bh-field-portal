@@ -162,7 +162,8 @@ export async function reportFormView(view) {
   async function shrinkImage(file) {
     if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
     try {
-      const bitmap = await createImageBitmap(file);
+      // 구형 태블릿에서 사진이 눕지 않도록 EXIF 방향을 반영한다
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
       const max = 1600;
       const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
       if (scale === 1 && file.size < 1.2 * 1024 * 1024) return file;

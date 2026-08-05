@@ -28,12 +28,7 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("image/svg+xml", ".svg")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Device-Id",
-    "Access-Control-Max-Age": "600",
-}
+# 이 앱은 자기 화면에서만 API 를 호출한다(외부 오리진 허용 불필요).
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -56,7 +51,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, status, payload, extra=None):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        headers = dict(CORS_HEADERS)
+        # API 응답은 브라우저가 절대 재사용하지 않게 한다.
+        # (캐시 지시자가 없으면 오래된 데이터를 그대로 보여줄 수 있다)
+        headers = {"Cache-Control": "no-store"}
         headers.update(extra or {})
         self._send(status, body, "application/json; charset=utf-8", headers)
 
@@ -94,9 +91,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self._route("DELETE")
 
-    def do_OPTIONS(self):
-        self._send(204, b"", "text/plain", CORS_HEADERS)
-
     # ------------------------------------------------------------- 라우팅
     def _read_body(self, path=""):
         length = self.headers.get("Content-Length")
@@ -125,9 +119,23 @@ class Handler(BaseHTTPRequestHandler):
                     self.headers.get("Content-Type", ""),
                     self.headers,
                 )
-                self._json(status, payload)
+                extra = None
+                # 로그인 성공 / PIN 변경 시 이 기기에 접근 쿠키를 심는다.
+                token = None
+                if isinstance(payload, dict):
+                    token = payload.pop("setCookie", None) or payload.get("newToken")
+                if token:
+                    extra = {"Set-Cookie":
+                             f"{api.AUTH_COOKIE}={token}; Path=/; Max-Age=31536000; "
+                             "SameSite=Lax"}
+                self._json(status, payload, extra)
                 return
             if path.startswith("/media/"):
+                # 사진도 데이터이므로 PIN 이 설정돼 있으면 보호한다.
+                device = self.headers.get("X-Device-Id", "")
+                if not api.authorized(self.headers, device):
+                    self._error(401, "접근 PIN 이 필요합니다.")
+                    return
                 self._serve_media(path[len("/media/"):])
                 return
             if method != "GET":
@@ -236,9 +244,16 @@ def main():
                         help="HTTPS 로 실행 (도메인 서비스용)")
     parser.add_argument("--cert", help="인증서 파일 (기본: data/cert/cert.pem)")
     parser.add_argument("--key", help="개인키 파일 (기본: data/cert/key.pem)")
+    parser.add_argument("--reset-pin", action="store_true",
+                        help="접근 PIN 을 해제한다 (분실 시 사용)")
     args = parser.parse_args()
 
     db.init()
+
+    if args.reset_pin:
+        db.set_access_pin("")
+        print("접근 PIN 을 해제했습니다. 설정 화면에서 다시 지정할 수 있습니다.")
+        return
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     scheme = "http"
 
@@ -262,6 +277,8 @@ def main():
     if scheme == "https":
         print("  ※ 자체 서명 인증서면 브라우저가 경고를 띄웁니다.")
         print("    운영에서는 정식 인증서(리버스 프록시)를 쓰세요.")
+    pin_on = bool(db.access_pin())
+    print(f"  접근 보호      : {'PIN 사용 중' if pin_on else '없음 (설정에서 지정 가능)'}")
     site = (db.get_settings().get("site_url") or "").strip()
     if site:
         print(f"  서비스 주소    : {site}  (설정에서 지정됨)")

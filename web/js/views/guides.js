@@ -3,16 +3,33 @@ import { api } from '../api.js';
 import {
   $, $$, h, CATEGORY, confirmDialog, copyText, loading, toast,
 } from '../ui.js';
+import { rememberGuide, recentGuide, searchRecent } from '../recent.js';
 
 const DONE_KEY = (id) => `bh_steps_done_${id}`;
+
+/** 서버에 닿지 못해 기기 저장본을 보여줄 때의 안내 */
+function staleNote(count) {
+  return `<div class="stale-note">📴 연결이 되지 않아 <strong>기기에 저장된 내용</strong>을
+    보여줍니다${count === undefined ? '' : ` (${count}건)`}. 수정·삭제는 연결 후 가능합니다.</div>`;
+}
 
 // ---------------------------------------------------------------- 목록
 export async function guideListView(view, categoryType) {
   const meta = CATEGORY[categoryType];
   loading(view);
-  const { items } = await api.listGuides(categoryType);
+  let items;
+  let stale = false;
+  try {
+    items = (await api.listGuides(categoryType)).items;
+  } catch (err) {
+    // 신호가 끊긴 현장: 기기에 보관된 최근 가이드로 대체
+    items = searchRecent('', categoryType);
+    stale = true;
+    if (!items.length) throw err;
+  }
 
   view.innerHTML = `
+    ${stale ? staleNote(items.length) : ''}
     <div class="page-head">
       <h1>${meta.emoji} ${h(meta.label)}</h1>
       <p>${h(meta.desc)} · 총 ${items.length}건</p>
@@ -54,7 +71,16 @@ function row(guide, categoryType) {
 // ---------------------------------------------------------------- 상세
 export async function guideDetailView(view, guideId) {
   loading(view);
-  const guide = await api.getGuide(guideId);
+  let guide;
+  let stale = false;
+  try {
+    guide = await api.getGuide(guideId);
+    rememberGuide(guide);            // 기기에 보관 (최근 20개)
+  } catch (err) {
+    guide = recentGuide(guideId);
+    stale = true;
+    if (!guide) throw err;
+  }
   const meta = CATEGORY[guide.categoryType] || { emoji: '📄', label: '' };
   const tools = (guide.requiredTools || '').split(',').map((t) => t.trim()).filter(Boolean);
   let done = new Set();
@@ -64,6 +90,7 @@ export async function guideDetailView(view, guideId) {
 
   view.innerHTML = `
     <div id="pageRoot">
+    ${stale ? staleNote() : ''}
     <div class="page-head">
       <div class="row" style="gap:8px">
         <span class="badge">${meta.emoji} ${h(meta.label)}</span>
@@ -74,8 +101,9 @@ export async function guideDetailView(view, guideId) {
     </div>
 
     <div class="row" style="margin-bottom:16px">
-      <a class="btn btn--ghost btn--sm" href="#/guides/edit/${guide.id}">✏️ 수정</a>
-      <button class="btn btn--danger btn--sm" data-act="delete" type="button">🗑 삭제</button>
+      ${stale ? '' : `
+        <a class="btn btn--ghost btn--sm" href="#/guides/edit/${guide.id}">✏️ 수정</a>
+        <button class="btn btn--danger btn--sm" data-act="delete" type="button">🗑 삭제</button>`}
       <div class="spacer"></div>
       ${guide.steps.length ? '<button class="btn btn--ghost btn--sm" data-act="reset-check" type="button">체크 초기화</button>' : ''}
     </div>

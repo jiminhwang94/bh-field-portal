@@ -1,0 +1,56 @@
+name: 테스트
+
+# push / PR 마다 회귀 테스트 3종을 자동 실행한다.
+# 실패하면 GitHub 에서 빨간 X 로 표시되므로 "테스트 돌리는 걸 잊는" 문제를 막는다.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 개발 PC(3.10)와 최신 버전 모두에서 동작하는지 확인
+        python: ['3.10', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: 문법 검사 (외부 의존성 없음)
+        run: python -m compileall -q server.py app tools tests
+
+      - name: 기본 CRUD API 테스트
+        env:
+          DATABASE_URL: /tmp/ci.db
+          DRAFT_DIR: /tmp/ci-drafts
+          MEDIA_DIR: /tmp/ci-media
+        run: |
+          python server.py --port 8788 --host 127.0.0.1 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8788/api/version > /dev/null && break
+            sleep 0.5
+          done
+          python tests/test_api_smoke.py
+
+      - name: 공개본/작업본 · [업데이트] 모델 테스트
+        run: python tests/test_publish_model.py
+
+      - name: 구글 시트 기록 규칙 테스트
+        run: python tests/test_sheets_upload.py
+
+      - name: 재고 즉시 공유 테스트
+        run: python tests/test_inventory_live.py
+
+      - name: 접근 보호(PIN) 테스트
+        run: python tests/test_access_pin.py
+
+      - name: 최근 가이드 오프라인 규칙 테스트
+        run: python tests/test_recent_offline.py
