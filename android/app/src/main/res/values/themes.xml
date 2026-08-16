@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 앱 화면 색과 맞춘 어두운 배경 (실행 순간 흰 화면이 번쩍이지 않게) -->
+    <style name="Theme.FieldPortal" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:statusBarColor">#0f172a</item>
+        <item name="android:navigationBarColor">#0f172a</item>
+        <item name="android:windowBackground">#0f172a</item>
+    </style>
+</resources>

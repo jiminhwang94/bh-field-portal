@@ -50,7 +50,8 @@ async function paint() {
 /** 처음 실행이면 서버에서 자료를 한 번 받아온다. */
 export async function ensureFirstData() {
   if (await store.isEmpty()) {
-    if (!sync.isOnline()) { showEmptyGuide(); return; }
+    // APK 첫 실행: 서버 주소를 아직 모르면 바로 안내한다.
+    if (!sync.isOnline() || !(await sync.serverBase())) { showEmptyGuide(); return; }
     try {
       await sync.pull();
     } catch {

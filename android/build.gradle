@@ -1,0 +1,4 @@
+// 최상위 빌드 파일 — 하위 모듈에 공통으로 적용할 설정만 둔다.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

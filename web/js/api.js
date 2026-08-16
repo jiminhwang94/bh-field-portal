@@ -56,6 +56,7 @@ export const api = {
     try {
       const result = await sync.serverRequest('POST', '/api/auth', { pin },
                                               { timeout: 8000 });
+      if (result && result.token) sync.saveToken(result.token);
       // 오프라인에서도 잠금을 풀 수 있도록 확인값을 기기에 남긴다.
       await store.setMeta('pinCheck', await sha256(pin));
       await store.setMeta('unlocked', true);
@@ -179,8 +180,10 @@ export const api = {
   async saveSettings(payload) {
     if (payload.access_pin !== undefined) {
       // PIN 은 팀 공용이라 서버에 저장한다(온라인 필요).
-      await sync.serverRequest('PUT', '/api/settings',
-                               { access_pin: payload.access_pin });
+      const saved = await sync.serverRequest('PUT', '/api/settings',
+                                             { access_pin: payload.access_pin });
+      // PIN 이 바뀌면 기존 토큰이 무효가 되므로 새 토큰으로 갈아끼운다.
+      if (saved && saved.newToken) sync.saveToken(saved.newToken);
       await store.setMeta('pinEnabled', Boolean(payload.access_pin));
       if (payload.access_pin) {
         await store.setMeta('pinCheck', await sha256(payload.access_pin));

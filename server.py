@@ -28,7 +28,11 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("image/svg+xml", ".svg")
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
-# 이 앱은 자기 화면에서만 API 를 호출한다(외부 오리진 허용 불필요).
+# APK 로 설치한 앱은 화면 파일이 기기 안에 있어(https://appassets.androidplatform.net)
+# 서버와 **다른 출처**가 된다. 그래서 이 출처만 골라서 허용한다.
+# (아무 사이트나 허용하면 사내망 서버가 외부 웹페이지에서 호출될 수 있다)
+ALLOWED_ORIGINS = ("https://appassets.androidplatform.net",)
+ALLOWED_HEADERS = "Content-Type, X-Device-Id, X-Access-Token"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -36,6 +40,17 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     # ------------------------------------------------------------- 응답 도구
+    def _cors_headers(self) -> dict:
+        """APK 앱(다른 출처)에서 온 요청이면 허용 헤더를 붙인다."""
+        origin = (self.headers.get("Origin") or "").strip()
+        if origin not in ALLOWED_ORIGINS:
+            return {}
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Vary": "Origin",
+        }
+
     def _send(self, status, body=b"", content_type="application/octet-stream",
               extra=None):
         if isinstance(body, str):
@@ -43,6 +58,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        for key, value in self._cors_headers().items():
+            self.send_header(key, value)
         for key, value in (extra or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -90,6 +107,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self._route("DELETE")
+
+    def do_OPTIONS(self):
+        """APK 앱이 본 요청 전에 보내는 사전 확인(preflight)."""
+        if not self._cors_headers():
+            self._error(405, "허용되지 않는 메서드입니다.")
+            return
+        # 허용 출처 헤더는 _send 가 붙인다. 여기서는 사전 확인용 헤더만 더한다.
+        # (같은 헤더를 두 번 보내면 브라우저가 응답 전체를 거부한다)
+        self._send(204, b"", "text/plain", {
+            "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": ALLOWED_HEADERS,
+            "Access-Control-Max-Age": "86400",
+        })
 
     # ------------------------------------------------------------- 라우팅
     def _read_body(self, path=""):

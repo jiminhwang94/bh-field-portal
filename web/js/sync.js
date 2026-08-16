@@ -6,6 +6,13 @@ import * as store from './local/store.js';
 import * as idb from './local/idb.js';
 
 const DEVICE_KEY = 'bh_device_id';
+const TOKEN_KEY = 'bh_access_token';
+
+/** 접근 토큰 보관 (APK 앱은 쿠키를 쓸 수 없어 헤더로 보낸다) */
+export function saveToken(token) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
 
 export function deviceId() {
   let id = localStorage.getItem(DEVICE_KEY);
@@ -50,11 +57,18 @@ window.addEventListener('offline', () => {
 
 // ------------------------------------------------------------ 서버 주소·요청
 
+// APK 로 설치한 앱은 화면 파일이 기기 안에 있어 이 주소로 열린다.
+// 이 경우 "접속한 주소" 는 서버가 아니므로 설정에 적힌 사무실 주소를 써야 한다.
+const APP_ASSET_ORIGIN = 'https://appassets.androidplatform.net';
+
+export const isPackagedApp = () => location.origin === APP_ASSET_ORIGIN;
+
 /** APK 는 설정에 적힌 서버 주소를, 웹은 접속한 주소를 쓴다. */
 export async function serverBase() {
   const settings = await store.getSettings();
   const configured = (settings.serverUrl || '').trim().replace(/\/+$/, '');
   if (configured) return configured;
+  if (isPackagedApp()) return '';                    // 아직 주소를 등록하지 않음
   if (location.protocol.startsWith('http')) return location.origin;
   return '';       // file:// 등 — 서버 주소 미설정
 }
@@ -83,6 +97,9 @@ async function request(method, path, body, { timeout = 15000 } = {}) {
     credentials: 'include',
     signal: controller.signal,
   };
+  // APK 앱은 서버와 출처가 달라 쿠키가 오가지 않는다. 토큰을 헤더로 보낸다.
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) opts.headers['X-Access-Token'] = token;
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);

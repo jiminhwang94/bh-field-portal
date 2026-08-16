@@ -39,6 +39,9 @@ jobs:
       - name: 접근 보호(PIN) 테스트
         run: python tests/test_access_pin.py
 
+      - name: APK 앱 ↔ 서버 연결 규칙 테스트
+        run: python tests/test_apk_cors.py
+
       - name: 서버 API 스모크 테스트
         env:
           DATABASE_URL: /tmp/ci.db

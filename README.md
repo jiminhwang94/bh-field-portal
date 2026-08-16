@@ -5,11 +5,13 @@
 
 - 설치 프로그램·빌드 도구 없음. **Python 표준 라이브러리만** 사용 (3.10 에서 검증)
 - 프런트엔드는 순수 HTML/CSS/JS (번들러 없음), 다크모드 자동
+- **오프라인에서 전부 동작** — 자료가 기기 안에 있어 인터넷 없이 열람·검색·수정·리포트 작성·재고 수정 가능
+- **APK 로 설치하는 안드로이드 앱** 제공 (아이패드는 홈 화면 추가로 동일 기능)
 - 리포트는 **구글 스프레드시트**에 월별 시트로 기록 (사진은 시트에 **이미지로 삽입**)
+  — 기기에서 구글로 **직접** 보내므로 사무실 밖 LTE 에서도 업로드됨
 - 데이터 변경은 **[⬆️ 업데이트]** 를 눌러야 모든 사용자에게 적용됨
   (단, **재고 수량은 즉시 공유**)
-- 팀 공용 **접근 PIN**(선택) · 최근 본 가이드 **기기 보관**
-- **온라인 전용** (인터넷 연결 상태에서 사용)
+- 팀 공용 **접근 PIN**(선택)
 
 접속 주소: 서버를 띄운 PC 의 주소 (예: `http://localhost:8787`,
 태블릿에서는 같은 Wi-Fi 의 `http://192.168.0.x:8787`) — 실행 시 터미널에 표시됩니다.
@@ -132,17 +134,23 @@ DNS 와 리버스 프록시 설정이 필요합니다(앱 코드는 그대로 �
 | 품목 추가·삭제, 최소 보유 수량, 차량 추가·삭제 | [업데이트] 후 |
 | 가이드, 리포트 항목 설정 | [업데이트] 후 |
 
-구현: 수량만 공개본의 `inventory_quantity` 테이블에 직접 기록하고,
-품목 정의는 작업본에 남는다. 그래서 [업데이트] 가 실시간 수량을 덮어쓰지 않는다.
+구현: 수량만 서버 공개본의 `inventory_quantity` 에 바로 기록하고, 품목 정의는
+[업데이트] 때 넘어간다. 그래서 [업데이트] 가 실시간 수량을 덮어쓰지 않는다.
+같은 부품을 두 사람이 만졌다면 **더 나중에 기록한 값**이 남는다.
 
-### 내부 구조
-| 파일 | 역할 |
+### 내부 구조 (v3.0)
+| 위치 | 역할 |
 |---|---|
-| `data/app.db` | **공개본** — 모든 사용자가 보는 확정 내용 |
-| `data/drafts/<기기ID>.db` | **작업본** — 그 기기의 편집 중 내용 (공개본 복사로 생성) |
+| 기기 안 IndexedDB (`bh-field-portal`) | **내 작업본** — 가이드·재고·항목·리포트·사진 전부 |
+| `data/app.db` (서버) | **공개본** — 모든 사용자가 보는 확정 내용 |
 
-`[업데이트]` = 내 작업본의 공유 테이블(가이드·단계·차량·재고·항목)을 공개본으로 복사 + 버전 +1.
-기기 구분은 브라우저가 보내는 `X-Device-Id` (최초 접속 시 자동 생성, localStorage 보관).
+`[업데이트]` = 기기 내용을 서버로 보내 공개본을 통째로 교체 + 버전 +1 (`POST /api/sync/push`).
+다른 기기는 접속 시 공개본 버전이 더 높고 내 변경이 없으면 자동으로 받아온다 (`/api/sync/pull`).
+기기 구분은 `X-Device-Id` (최초 실행 시 자동 생성, localStorage 보관).
+
+> v2 까지 쓰던 서버의 기기별 작업본(`data/drafts/`)은 더 이상 쓰지 않습니다.
+> 기기 자체가 작업본이기 때문입니다. 그 폴더는 지워도 되지만, 예전 리포트가 남아 있을 수
+> 있으므로 앱을 한 번씩 실행해 자료를 옮긴 뒤(자동) 지우는 것을 권합니다.
 
 ---
 
@@ -164,73 +172,122 @@ python3 server.py --reset-pin
 
 ---
 
-## 6. 연결이 끊겼을 때 (최근 본 가이드)
+## 6. 오프라인 사용
 
-앱을 **열어 둔 상태에서** 신호가 끊기면, 최근에 본 가이드 **20건**은 기기에 보관돼 있어
-계속 열람·검색할 수 있습니다. 이때 화면 상단에 안내 배너가 표시되고 수정·삭제는 잠깁니다.
+**인터넷이 없어도 앱의 거의 모든 기능이 그대로 동작합니다.** 자료가 서버가 아니라
+기기 안(IndexedDB)에 있기 때문입니다.
 
-- 보관 방식: `localStorage` (서비스워커 미사용)
-- 되는 것: 가이드 열람, 단계·명령어 복사, 저장된 가이드 안에서 검색
-- 안 되는 것: 새 가이드 조회, 재고 변경, 리포트 업로드, [업데이트]
-- **주의**: 앱을 완전히 닫았다가 오프라인에서 새로 열면 앱 자체가 로드되지 않습니다
-  (서버에서 화면을 받아오는 구조). 현장 이동 전에 앱을 열어 두는 것을 권장합니다.
+| 하는 일 | 📴 오프라인 | 🟢 온라인 |
+|---|---|---|
+| 가이드 열람 · 검색 | ✅ 전부 | ✅ |
+| 가이드 추가 · 수정 · 삭제 | ✅ 기기에 저장 | ✅ |
+| 리포트 작성 (사진 촬영 포함) | ✅ 기기에 저장 | ✅ |
+| 재고 `[−]` / `[＋]` | ✅ 기록 → 연결 시 자동 반영 | ✅ 즉시 공유 |
+| 구글 시트 업로드 | ⏳ 대기열 → 연결 시 **자동 전송** | ✅ 즉시 |
+| **[⬆️ 업데이트]** (팀과 주고받기) | ❌ 사무실 서버 필요 | ✅ |
+
+- 화면 위쪽에 **📴 오프라인 — 기기에 저장하며 계속 사용할 수 있습니다** 띠가 뜨고,
+  처리 대기 중인 작업 건수가 함께 표시됩니다.
+- 연결이 돌아오면 **자동으로** 대기열을 처리하고 최신 내용을 받아옵니다. 누를 버튼이 없습니다.
+- 시트 업로드는 기기에서 구글로 직접 보내므로 **사무실 밖 LTE 에서도** 됩니다.
+  (사무실 서버가 닿지 않아도 무관)
+
+### 처음 한 번만 필요한 것
+기기에 자료가 없는 첫 실행에는 **사무실 Wi-Fi 에서 한 번** 자료를 받아야 합니다.
+(`⚙️ 설정 → 📴 오프라인 사용 → [📥 서버에서 최신 자료 받기]`)
+그 뒤로는 인터넷 없이 계속 쓸 수 있습니다.
+
+### 앱 화면 자체가 열리는 원리
+앱 화면 파일(HTML/CSS/JS)은 **서비스워커**가 기기에 담아 둡니다.
+APK 로 설치한 경우에는 APK 안에 들어 있어 더 확실합니다.
+
+> ⚠️ 브라우저로 쓸 때 서비스워커는 `https://` 또는 `localhost` 에서만 동작합니다.
+> 사내망 `http://192.168.x.x` 로 접속하면 **자료는 기기에 남지만 앱 화면을 새로 여는 것은
+> 서버가 필요합니다.** 이 제약이 없는 쪽이 APK 설치입니다.
 
 ---
 
 ## 7. 앱으로 설치
 
-`⚙️ 설정 → 📱 앱 설치` 의 **[📲 앱 설치하기]** 버튼을 누르면 설치됩니다.
-설치하면 홈 화면 아이콘 · 전체화면으로 실행됩니다.
-
-| 기기 | 방법 |
-|---|---|
-| Android 태블릿 / PC (Chrome·Edge) | 버튼을 누르면 설치창이 바로 뜸 |
-| iPad / iPhone | 애플 정책상 **Safari → 공유 ⬆️ → [홈 화면에 추가]** (버튼을 누르면 안내가 나옴) |
+| 기기 | 방법 | 오프라인 |
+|---|---|---|
+| **안드로이드 태블릿/폰** | **APK 설치** (아래 7-1) — 권장 | ✅ 확실 |
+| 아이패드 / 아이폰 | Safari → 공유 ⬆️ → **[홈 화면에 추가]** | ✅ (https 접속 시) |
+| PC (Chrome·Edge) | `⚙️ 설정 → 📱 앱 설치 → [📲 앱 설치하기]` | ✅ (https·localhost) |
 
 ⚠️ **Play 스토어 / App Store 에서 검색해 설치하는 앱이 아닙니다.**
-`"Google Play AR 서비스 필요"` 류의 오류는 ARCore 를 쓰는 다른 앱의 메시지이며 이 앱과 무관합니다.
-스토어에서 받은 앱은 삭제하고, 브라우저에서 위 방법으로 설치하세요.
+`"Google Play AR 서비스 필요"` 류의 오류는 다른 앱의 메시지이며 이 앱과 무관합니다.
+
+### 7-1. APK 만들기 · 설치하기 (안드로이드)
+
+APK 는 **GitHub 가 대신 만들어 줍니다.** 작업용 맥에 안드로이드 개발 도구를 깔 필요가 없습니다.
+
+**① 만들기**
+1. GitHub 저장소 → **Actions** 탭 → 왼쪽 **"안드로이드 APK 빌드"**
+2. 오른쪽 **[Run workflow]** → 초록 버튼 클릭
+3. 5~10분 기다립니다.
+
+**② 태블릿에 설치**
+1. 저장소 **Releases** 페이지를 **태블릿 크롬**으로 엽니다.
+2. 맨 위 항목의 `.apk` 파일을 눌러 다운로드합니다.
+3. "출처를 알 수 없는 앱" 경고 → **[설정] → 이 출처 허용** (최초 1회만)
+4. 설치 후 홈 화면 **현장 포털** 아이콘으로 실행합니다.
+
+**③ 첫 실행 (한 번만)**
+1. `⚙️ 설정 → 사무실 서버 주소` 에 서버 PC 주소 입력 (예: `http://192.168.0.83:8787`)
+2. `⚙️ 설정 → 📴 오프라인 사용 → [📥 서버에서 최신 자료 받기]`
+3. 끝. 이제 인터넷 없이도 전부 동작합니다.
+
+### 7-2. 새 버전 배포
+화면·기능이 바뀌면 위 ①~② 를 다시 하면 됩니다(기존 앱에 덮어 설치).
+**자료는 동기화로 자동 갱신되므로**, 자료만 바뀐 경우에는 새 APK 가 필요 없습니다.
 
 ---
 
 ## 8. 데이터 구조
 
+**기기 안 (IndexedDB `bh-field-portal`)** — 앱이 실제로 보고 쓰는 곳
+| 저장소 | 내용 |
+|---|---|
+| `guides` | 가이드 + 단계 + 명령어 (한 덩어리) |
+| `vehicles` / `inventory` / `quantities` | 차량 · 재고 품목 · 수량 |
+| `fields` | 리포트 입력 항목 |
+| `reports` | 작성한 리포트 (**이 기기에만** 있음 — 팀 공유는 구글 시트) |
+| `media` | 사진 원본(blob) |
+| `outbox` | 연결되면 처리할 작업 (수량 변경 · 시트 업로드) |
+| `meta` | 공개본 버전 · 변경 여부 · 설정 |
+
+**서버 (`data/app.db`)** — 팀 공개본 한 벌
 | 테이블 | 내용 | 업데이트로 공유 |
 |---|---|---|
 | `guide_master` / `guide_step` | 가이드와 단계 (`commands` 는 JSON 문자열) | ✅ |
 | `vehicle` | 차량 목록 | ✅ |
 | `vehicle_inventory` | 재고 품목 정의 (`min_quantity` 이하 = 보충 필요) | ✅ |
-| `inventory_quantity` | 재고 **수량** — 공개본 전용, 즉시 공유 | 즉시 |
+| `inventory_quantity` | 재고 **수량** — 즉시 공유 | 즉시 |
 | `report_field_config` | 리포트 입력 항목 (구글 시트 열 순서) | ✅ |
-| `report` | 작성한 리포트 + 업로드 상태 | ❌ 기기별 |
-| `media` | 업로드 사진 메타 | ❌ 기기별 |
-| `app_setting` | 구글 시트 연결·서비스 주소(공통), 기기 이름(기기별) | 일부 |
+| `media` | 가이드 사진 메타 (사진 파일은 `data/media/`) | ✅ |
+| `app_setting` | 구글 시트 연결 · PIN · 공개본 버전 | 공통 |
 
-### API 요약
+> 리포트는 서버에 저장되지 않습니다. 기기에 있다가 구글 시트로 갑니다.
+
+### API 요약 (v3.0 — 서버는 동기화만 담당)
 ```
-GET    /api/meta                    GET  /api/version
-GET    /api/state                   ← [업데이트] 버튼 상태 (+ 자동 최신 반영)
-POST   /api/publish                 ← 내 작업본을 모든 사용자에게 적용
-POST   /api/take-latest             ← 내 변경 버리고 최신 받기
-GET    /api/guides?type=&q=         POST /api/guides
-GET    /api/guides/{id}             PUT/DELETE /api/guides/{id}
-GET    /api/vehicles                POST /api/vehicles
-DELETE /api/vehicles/{name}
-GET    /api/inventory?vehicle=      POST /api/inventory
-PATCH  /api/inventory/{id}          DELETE /api/inventory/{id}
-GET    /api/report-fields           POST /api/report-fields
-PUT    /api/report-fields/{id}      DELETE /api/report-fields/{id}
-POST   /api/report-fields/reorder
-GET    /api/reports                 POST /api/reports
-GET    /api/reports/{id}            PUT/DELETE /api/reports/{id}
-POST   /api/reports/{id}/sheet      ← 구글 시트 업로드
+GET    /api/version                 GET  /api/meta
+GET    /api/sync/head               ← 공개본 버전만 (가볍게 확인)
+GET    /api/sync/pull               ← 공개본 전체 내려받기 (+ 팀 공통 설정)
+POST   /api/sync/push               ← [⬆️ 업데이트] : 기기 내용을 공개본으로
+POST   /api/sync/quantities         ← 재고 수량 즉시 반영 (마지막 기록 우선)
+GET    /api/sync/legacy             ← v2 에서 서버에 남은 리포트를 기기로 이전
+POST   /api/sheets/relay            ← 구글 직접 전송이 막혔을 때만 쓰는 우회 통로
 GET    /api/settings                PUT  /api/settings
 POST   /api/settings/sheets-test
-GET    /api/auth/status             ← PIN 필요 여부 / 인증 상태
-POST   /api/auth                    ← PIN 입력 (성공 시 기기 쿠키 발급)
+GET    /api/auth/status             POST /api/auth
 POST   /api/media?filename=...      GET  /media/{filename}
 ```
 모든 요청에 `X-Device-Id` 헤더가 함께 전송됩니다.
+APK 앱은 쿠키를 쓸 수 없어 `X-Access-Token` 헤더로 인증합니다.
+
+> **가이드·재고·리포트 CRUD 경로는 서버에 없습니다.** 전부 기기 안에서 처리합니다.
 
 ---
 
@@ -240,27 +297,38 @@ POST   /api/media?filename=...      GET  /media/{filename}
 코드/
 ├── server.py                  HTTP 서버 · 라우팅 · 정적 파일
 ├── app/
-│   ├── db.py                  SQLite · 공개본/작업본 · 업데이트(publish)
+│   ├── db.py                  SQLite 공개본 (팀 공유 자료)
+│   ├── sync.py                기기 ↔ 공개본 동기화 (내려주기/받기/수량)
 │   ├── api.py                 REST 라우팅 · 입력 검증 · 업로드
-│   └── sheets.py              구글 시트(Apps Script) 업로드
+│   └── sheets.py              구글 시트 우회 전송 · 연결 테스트
 ├── google-apps-script.gs      ★ 스프레드시트에 붙여넣는 기록 스크립트
 ├── web/
 │   ├── index.html
 │   ├── manifest.webmanifest   앱 설치 정보
 │   ├── icons/                 앱 아이콘
 │   ├── css/app.css
+│   ├── sw.js                  서비스워커 (오프라인 실행 · 기기 사진 제공)
 │   └── js/
 │       ├── app.js             해시 라우터 + 메인/검색
-│       ├── api.js             REST 래퍼 (기기 ID 부착)
+│       ├── api.js             앱 데이터 창구 (기기 우선)
+│       ├── local/idb.js       IndexedDB 최소 래퍼
+│       ├── local/store.js     기기 안 데이터 조작 (실제 CRUD)
+│       ├── sync.js            서버 동기화 · 대기열 · 연결 상태
+│       ├── sheets.js          구글 시트 직접 전송
+│       ├── net.js             오프라인 표시 · 첫 실행 자료 받기
 │       ├── ui.js              토스트 · 모달 · 클립보드
 │       ├── publish.js         [업데이트] 상태·실행
 │       ├── auth.js            접근 PIN 잠금 화면
-│       ├── recent.js          최근 본 가이드 기기 보관(20건)
 │       ├── share.js           리포트 텍스트/카카오톡 공유(보조)
 │       ├── install.js         앱 설치 버튼
 │       ├── update.js          앱 화면 코드 자동 갱신
 │       └── views/             guides · inventory · fields · report · settings
-├── data/                      app.db(공개본) · drafts/ · media/   ← 백업 대상
+├── android/                   APK 껍데기 (WebView) — GitHub Actions 가 빌드
+│   └── app/src/main/java/.../MainActivity.java
+├── .github/workflows/
+│   ├── test.yml               push 마다 테스트 자동 실행
+│   └── android.yml            APK 빌드 → Releases 업로드
+├── data/                      app.db(공개본) · media/   ← 백업 대상
 ├── 실행하기.command            macOS 실행
 ├── 실행하기.bat                Windows 실행
 └── 백업하기.command            macOS 백업 실행
@@ -282,9 +350,13 @@ POST   /api/media?filename=...      GET  /media/{filename}
 - **작업본 정리**: `data/drafts/` 를 삭제하면 모든 기기가 공개본 기준으로 새로 시작한다.
 - **보안**: 공용 PIN(5장)으로 1차 보호가 가능하다. 도메인으로 공개할 때는 PIN 설정 +
   리버스 프록시 HTTPS 를 함께 쓰는 것을 권장한다.
-- **테스트**: `tests/` 5종. GitHub Actions 로 push 마다 자동 실행된다.
+- **테스트**: `tests/` 6종. GitHub Actions 로 push 마다 자동 실행된다.
 - **업로드 제한**: 파일 1개당 40MB, 이미지/영상/음성/PDF 만 허용.
-- **화면 코드 갱신**: 서버 코드가 바뀌면 태블릿이 다음 이동/복귀 시 자동으로 새로 받는다.
+- **화면 코드 갱신**: 브라우저로 쓰는 경우 서버 코드가 바뀌면 다음 이동/복귀 시 자동으로
+  새로 받는다. **APK 앱은 새 APK 를 설치**해야 화면 코드가 바뀐다(자료는 동기화로 자동).
+- **백업**: 이제 서버에는 팀 공개본만 있다. **작성한 리포트는 각자 기기에 있으므로**
+  서버 백업에 포함되지 않는다. 리포트의 최종 보관처는 **구글 시트**다 — 작성 후 업로드를
+  미루지 않는 것이 곧 백업이다.
 
 ---
 
@@ -305,3 +377,41 @@ git push -u origin main
 - push 시 로그인 창이 뜨면 GitHub 비밀번호가 아니라 **Personal Access Token** 을 사용
   (github.com → Settings → Developer settings → Tokens → repo 권한).
 - 이후에는 작업 후 `git add -A && git commit && git push` 만 반복하면 된다.
+
+
+---
+
+## 12. APK 서명 키 등록 (팀 배포 전 1회, 권장)
+
+APK 는 **서명 키**로 서명됩니다. 키가 등록돼 있지 않으면 빌드할 때마다 임시 키가 만들어져,
+**새 APK 를 기존 앱 위에 덮어 설치할 수 없습니다.** (지우고 다시 깔아야 하고, 그때
+기기에 저장된 — 아직 시트에 올리지 않은 — 리포트가 사라집니다.)
+
+한 번만 등록해 두면 이후 배포는 덮어 설치됩니다.
+
+**① 키 만들기** (자바가 깔린 PC 에서 한 번. 없으면 `brew install openjdk` 또는
+[adoptium.net](https://adoptium.net) 에서 설치)
+
+```bash
+keytool -genkeypair -v -keystore bh-release.jks -alias bh -keyalg RSA -keysize 2048 -validity 10000
+```
+비밀번호를 정하고, 이름/조직은 아무렇게나 입력해도 됩니다.
+**이 파일과 비밀번호를 잃어버리면 덮어 설치가 영영 불가능**하니 안전한 곳에 보관하세요.
+
+**② 파일을 글자로 바꾸기**
+
+```bash
+base64 -i bh-release.jks | pbcopy
+```
+
+**③ GitHub 에 등록**
+저장소 → Settings → Secrets and variables → Actions → **New repository secret** 로 4개:
+
+| 이름 | 값 |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | ② 에서 복사한 긴 글자 |
+| `ANDROID_KEYSTORE_PASSWORD` | ① 에서 정한 키스토어 비밀번호 |
+| `ANDROID_KEY_ALIAS` | `bh` |
+| `ANDROID_KEY_PASSWORD` | ① 에서 정한 키 비밀번호 |
+
+이후 APK 빌드는 이 키로 서명되고, Releases 설명에 `서명 방식: release` 로 표시됩니다.

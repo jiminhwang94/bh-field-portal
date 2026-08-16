@@ -1,0 +1,121 @@
+name: 안드로이드 APK 빌드
+
+# 태블릿에 설치할 APK 를 GitHub 서버가 대신 만들어 준다.
+# (작업용 맥에 Node·안드로이드 SDK 를 설치할 필요가 없다)
+#
+# 사용법
+#   1) GitHub 저장소 → Actions → "안드로이드 APK 빌드" → [Run workflow]
+#   2) 5~10분 뒤 Releases 페이지에 APK 가 올라온다
+#   3) 태블릿 크롬으로 그 링크를 열어 다운로드 → 설치
+#
+# v3.0.0 처럼 태그를 붙여 push 해도 자동으로 만들어진다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: '이번 배포 설명 (선택)'
+        required: false
+        default: ''
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write        # Releases 에 APK 를 올리기 위해 필요
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 자바 설치
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 앱 화면 파일이 하나라도 빠지면 오프라인에서 열리지 않는다.
+      - name: 오프라인 실행 보장 확인
+        run: python tests/test_offline_shell.py
+
+      - name: 앱 화면 파일을 APK 안에 넣기
+        run: |
+          mkdir -p android/app/src/main/assets
+          cp -r web/. android/app/src/main/assets/
+          echo "APK 에 담은 파일:"
+          find android/app/src/main/assets -type f | wc -l
+
+      - name: 서명 키 준비
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.jks
+            echo "signed=release" >> "$GITHUB_OUTPUT"
+            echo "::notice::등록된 서명 키로 서명합니다. 기존 앱 위에 덮어 설치됩니다."
+          else
+            echo "signed=debug" >> "$GITHUB_OUTPUT"
+            echo "::warning::서명 키가 등록되어 있지 않아 임시 키로 서명합니다. \
+            빌드할 때마다 키가 달라지므로, 새 APK 를 설치하려면 기존 앱을 지워야 하고 \
+            그때 기기에 저장된 리포트가 사라집니다. \
+            README 12장을 보고 ANDROID_KEYSTORE_BASE64 등을 등록하세요."
+          fi
+
+      - name: APK 빌드
+        working-directory: android
+        env:
+          BH_BUILD_NUMBER: ${{ github.run_number }}
+          BH_SIGNING: ${{ steps.signing.outputs.signed }}
+          BH_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BH_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          BH_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          gradle wrapper --gradle-version 8.7
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: APK 이름 정리
+        id: apk
+        run: |
+          SRC=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          NAME="현장포털-v3.0.0-빌드${{ github.run_number }}.apk"
+          cp "$SRC" "$NAME"
+          echo "path=$NAME" >> "$GITHUB_OUTPUT"
+          ls -lh "$NAME"
+
+      - name: 빌드 결과 보관 (Actions 에서 바로 받기)
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: ${{ steps.apk.outputs.path }}
+
+      - name: Releases 에 올리기 (태블릿 다운로드용)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: 현장 포털 v3.0.0 (빌드 ${{ github.run_number }})
+          files: ${{ steps.apk.outputs.path }}
+          body: |
+            ## 태블릿에 설치하는 방법
+
+            1. **태블릿 크롬**으로 이 페이지를 열고 아래 `.apk` 파일을 누릅니다.
+            2. "출처를 알 수 없는 앱" 경고가 나오면 → [설정] → **이 출처 허용** (최초 1회만)
+            3. 설치 후 홈 화면의 **현장 포털** 아이콘으로 실행합니다.
+            4. 첫 실행 때 `⚙️ 설정 → 사무실 서버 주소`에 사무실 PC 주소를 넣고
+               (예: `http://192.168.0.83:8787`) **[📥 서버에서 최신 자료 받기]** 를 한 번 누릅니다.
+               → 이후에는 **인터넷이 없어도** 가이드 열람·검색·수정, 리포트 작성,
+               재고 수정이 전부 됩니다.
+
+            서명 방식: `${{ steps.signing.outputs.signed }}`
+            ${{ steps.signing.outputs.signed == 'debug' && '⚠️ 임시 키로 서명되었습니다. 기존 앱을 지우고 설치해야 하며, 기기에 저장된(아직 시트에 올리지 않은) 리포트가 사라집니다. README 12장의 서명 키 등록을 먼저 하세요.' || '기존 앱 위에 그대로 덮어 설치됩니다. 데이터는 유지됩니다.' }}
+
+            ${{ github.event.inputs.note }}

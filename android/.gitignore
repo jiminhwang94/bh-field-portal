@@ -1,0 +1,5 @@
+# 빌드 산출물과 로컬 SDK 경로는 커밋하지 않는다
+build/
+.gradle/
+local.properties
+app/src/main/assets/
