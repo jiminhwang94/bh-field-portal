@@ -25,6 +25,8 @@ export async function inventoryView(view) {
           <div class="item__sub">
             최소 보유 ${item.minQuantity} · ${h(item.updatedAt)} 수정
             ${low ? ' · <span style="color:var(--danger);font-weight:700">보충 필요</span>' : ''}
+            ${item.pending ? ' · <span style="color:var(--pending);font-weight:700">⏳ 반영 대기</span>'
+              : ''}
           </div>
         </div>
         <div class="qty">
@@ -129,7 +131,9 @@ export async function inventoryView(view) {
       try {
         const updated = await api.patchInventory(id, { delta });
         item.quantity = updated.quantity;
+        item.pending = updated.pending;
         cell.textContent = updated.quantity;
+        render();          // 상단 요약(총 개수·반영 대기 표시)도 함께 갱신
       } catch (err) {
         item.quantity -= delta;
         cell.textContent = item.quantity;

@@ -279,10 +279,15 @@ export async function reportFormView(view) {
     try {
       const result = await api.uploadReportToSheet(saved.id);
       localStorage.removeItem(DRAFT_KEY);
-      toast(`구글 시트 [${result.sheetName}] ${result.row}행에 기록했습니다.`
-        + (result.images ? ` (사진 ${result.images}장 삽입)` : ''), 'ok');
-      (result.imagesSkipped || []).forEach((s) =>
-        toast(`사진 제외: ${s.filename} (${s.reason})`, 'err'));
+      if (result.queued) {
+        // 오프라인 — 기기에 저장해 두었다가 연결되면 자동으로 올린다.
+        toast('⏳ 기기에 저장했습니다. 인터넷에 연결되면 자동으로 시트에 올립니다.', 'ok');
+      } else {
+        toast(`구글 시트 [${result.sheetName}] ${result.row}행에 기록했습니다.`
+          + (result.images ? ` (사진 ${result.images}장 삽입)` : ''), 'ok');
+        (result.imagesSkipped || []).forEach((s) =>
+          toast(`사진 제외: ${s.filename} (${s.reason})`, 'err'));
+      }
       location.hash = `#/reports/${saved.id}`;
     } catch (err) {
       toast(err.message, 'err');
@@ -299,6 +304,7 @@ export async function reportFormView(view) {
 // ------------------------------------------------------------ 이력 목록
 const STATUS = {
   DRAFT: ['badge', '저장됨 (업로드 안 함)'],
+  QUEUED: ['badge badge--warn', '⏳ 업로드 대기 (연결되면 자동)'],
   UPLOADED: ['badge badge--ok', '구글 시트 업로드 완료'],
   FAILED: ['badge badge--danger', '업로드 실패'],
 };
@@ -395,10 +401,14 @@ export async function reportDetailView(view, reportId) {
       btn.textContent = '업로드 중…';
       try {
         const result = await api.uploadReportToSheet(report.id);
-        toast(`구글 시트 [${result.sheetName}] ${result.row}행에 기록했습니다.`
-          + (result.images ? ` (사진 ${result.images}장 삽입)` : ''), 'ok');
-        (result.imagesSkipped || []).forEach((s) =>
-          toast(`사진 제외: ${s.filename} (${s.reason})`, 'err'));
+        if (result.queued) {
+          toast('⏳ 대기열에 넣었습니다. 인터넷에 연결되면 자동으로 올립니다.', 'ok');
+        } else {
+          toast(`구글 시트 [${result.sheetName}] ${result.row}행에 기록했습니다.`
+            + (result.images ? ` (사진 ${result.images}장 삽입)` : ''), 'ok');
+          (result.imagesSkipped || []).forEach((s) =>
+            toast(`사진 제외: ${s.filename} (${s.reason})`, 'err'));
+        }
         reportDetailView(view, report.id);
       } catch (err) {
         toast(err.message, 'err');

@@ -10,7 +10,7 @@ import { initUpdateWatcher } from './update.js';
 import { initPublish } from './publish.js';
 import { initInstallBanner } from './install.js';
 import { ensureAccess, handleUnauthorized } from './auth.js';
-import { searchRecent } from './recent.js';
+import { initNetStatus, ensureFirstData } from './net.js';
 
 const view = $('#view');
 const HEX = '[0-9a-f]{6,}';
@@ -73,15 +73,8 @@ async function render() {
 // ------------------------------------------------------------- 메인 화면
 async function mainView() {
   loading(view);
-  let items;
-  let stale = false;
-  try {
-    items = (await api.listGuides()).items;
-  } catch (err) {
-    items = searchRecent('');
-    stale = true;
-    if (!items.length) throw err;
-  }
+  // 가이드는 전부 기기에 있으므로 오프라인에서도 그대로 보인다.
+  const items = (await api.listGuides()).items;
   const counts = items.reduce((acc, g) => {
     acc[g.categoryType] = (acc[g.categoryType] || 0) + 1;
     return acc;
@@ -91,8 +84,6 @@ async function mainView() {
     .slice(0, 4);
 
   view.innerHTML = `
-    ${stale ? `<div class="stale-note">📴 연결이 되지 않아 <strong>기기에 저장된
-      가이드 ${items.length}건</strong>만 표시합니다.</div>` : ''}
     <form class="search" id="searchForm" role="search">
       <input id="searchInput" type="search" placeholder="오류 코드 · 부품명 · 명령어 통합 검색"
              autocomplete="off" enterkeyhint="search" />
@@ -141,18 +132,8 @@ function guideRow(guide) {
 async function searchView(_match, query) {
   const q = query.get('q') || '';
   loading(view);
-  let items;
-  let stale = false;
-  try {
-    items = (await api.listGuides(null, q)).items;
-  } catch (err) {
-    items = searchRecent(q);           // 오프라인: 기기 저장본에서 검색
-    stale = true;
-    if (!items.length) throw err;
-  }
+  const items = (await api.listGuides(null, q)).items;
   view.innerHTML = `
-    ${stale ? `<div class="stale-note">📴 연결이 되지 않아 <strong>기기에 저장된
-      가이드</strong> 안에서만 검색했습니다.</div>` : ''}
     <div class="page-head">
       <h1>검색 결과</h1>
       <p>"${h(q)}" · ${items.length}건 (코드 · 요약 · 공구 · 단계 · 명령어 전체 검색)</p>
@@ -182,10 +163,11 @@ setUnauthorizedHandler(handleUnauthorized);
 // PIN 이 설정돼 있으면 잠금 화면을 먼저 통과한 뒤 화면을 그린다.
 (async () => {
   await ensureAccess();
+  await ensureFirstData();     // 처음 실행이면 서버에서 자료를 한 번 받는다
   render();
 })();
-// 예전 버전에서 등록된 오프라인 저장(서비스 워커)이 남아 있으면 정리한다.
-cleanupLegacyServiceWorker();
+registerServiceWorker();       // 오프라인에서 앱이 열리도록
+initNetStatus();               // 📴 오프라인 표시 + 대기 작업 자동 처리
 initPublish();
 initUpdateWatcher();
 initInstallBanner();
@@ -231,17 +213,12 @@ function showFirstRunGuide() {
   }, 1500);
 }
 
-async function cleanupLegacyServiceWorker() {
+/** 앱 화면 파일을 기기에 담아 두어 인터넷 없이도 앱이 열리게 한다. */
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  // http:// 로 접속하면 브라우저가 서비스워커를 막는다(localhost 는 예외).
+  if (!window.isSecureContext) return;
   try {
-    if ('serviceWorker' in navigator) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map((reg) => reg.unregister()));
-    }
-    if (window.caches && caches.keys) {
-      const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k.startsWith('bh-')).map((k) => caches.delete(k)));
-    }
-    ['bh_outbox', 'bh_sync_rev', 'bh_sync_hash', 'bh_sync_hub_id',
-     'bh_install_banner_off'].forEach((key) => localStorage.removeItem(key));
-  } catch { /* 무시 */ }
+    await navigator.serviceWorker.register('./sw.js', { scope: './' });
+  } catch { /* 등록 실패해도 데이터는 기기에 있으므로 앱은 동작한다 */ }
 }

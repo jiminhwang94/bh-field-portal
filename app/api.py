@@ -9,6 +9,7 @@ import unicodedata
 
 from . import db
 from . import sheets
+from . import sync
 
 # 앱 코드가 바뀌면 값이 달라지는 빌드 해시 — 화면 자동 갱신 판단에 사용
 _BUILD_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -96,10 +97,6 @@ def handle(method: str, path: str, query: dict, body, content_type="",
     """(status, payload) 반환. payload 는 JSON 직렬화 가능한 객체."""
     headers = headers or {}
     device_id = (headers.get("X-Device-Id") or headers.get("x-device-id") or "")
-    db.set_device(device_id)
-    # 조회 시점마다: 내 변경이 없고 다른 사람이 업데이트했다면 최신 내용을 반영
-    if method == "GET" and device_id:
-        db.auto_refresh_if_clean(device_id)
 
     segments = [s for s in path.strip("/").split("/") if s]
     if not segments or segments[0] != "api":
@@ -128,6 +125,7 @@ def handle(method: str, path: str, query: dict, body, content_type="",
     if head == "auth":
         if rest == ["status"] and method == "GET":
             return 200, {"required": bool(db.access_pin()),
+                         "pinEnabled": bool(db.access_pin()),
                          "authorized": authorized(headers, device_id)}
         if not rest and method == "POST":
             if not device_id:
@@ -160,172 +158,39 @@ def handle(method: str, path: str, query: dict, body, content_type="",
             "siteUrlConfigured": bool((settings.get("site_url") or "").strip()),
         }
 
-    # ------------------------------------------- 업데이트(공개본 반영) 상태
-    if head == "state" and method == "GET":
-        state = db.sync_state(device_id)
-        state["deviceName"] = (db.get_settings().get("device_name") or "").strip()
-        return 200, state
+    # ---------------------------------------------------- 기기 ↔ 공개본 동기화
+    if head == "sync":
+        # 공개본 버전만 확인 (자주 호출되므로 가볍게)
+        if rest == ["head"] and method == "GET":
+            return 200, db.published_state()
 
-    if head == "publish" and method == "POST":
-        if not device_id:
-            raise ApiError(400, "기기를 확인할 수 없습니다. 앱을 새로고침해 주세요.")
-        data = json_body()
-        name = (data.get("deviceName") or "").strip()
-        if name:
-            db.save_settings({"device_name": name})
-        else:
-            name = (db.get_settings().get("device_name") or "").strip()
-        try:
-            return 200, db.publish(device_id, name)
-        except ValueError as exc:
-            raise ApiError(400, str(exc))
+        # 공개본 전체 내려주기
+        if rest == ["pull"] and method == "GET":
+            return 200, sync.build_snapshot()
 
-    if head == "take-latest" and method == "POST":
-        if not device_id:
-            raise ApiError(400, "기기를 확인할 수 없습니다.")
-        return 200, db.take_latest(device_id)
+        # 기기 내용을 공개본으로 받기 (= [⬆️ 업데이트])
+        if rest == ["push"] and method == "POST":
+            data = json_body()
+            name = (data.get("deviceName") or "").strip()
+            try:
+                return 200, sync.apply_snapshot(data, name)
+            except ValueError as exc:
+                raise ApiError(400, str(exc))
 
-    # ------------------------------------------------------------ 차량 관리
-    if head == "vehicles":
-        if not rest:
-            if method == "GET":
-                counts = {}
-                for item in db.list_inventory():
-                    counts[item["vehicleName"]] = counts.get(item["vehicleName"], 0) + 1
-                return 200, {"items": [{"name": name, "itemCount": counts.get(name, 0)}
-                                       for name in db.list_vehicles()]}
-            if method == "POST":
-                try:
-                    return 201, db.add_vehicle(json_body().get("name"))
-                except ValueError as exc:
-                    raise ApiError(400, str(exc))
-        elif len(rest) == 1 and method == "DELETE":
-            result = db.delete_vehicle(rest[0])
-            if not result:
-                raise ApiError(404, "차량을 찾을 수 없습니다.")
-            return 200, result
+        # v2 에서 서버에 남아 있던 리포트 넘겨주기 (앱 첫 실행 1회)
+        if rest == ["legacy"] and method == "GET":
+            return 200, sync.legacy_payload(device_id)
 
-    # ------------------------------------------------------------- guides
-    if head == "guides":
-        if not rest:
-            if method == "GET":
-                return 200, {"items": db.list_guides(q("type"), q("q"))}
-            if method == "POST":
-                try:
-                    return 201, db.save_guide(json_body())
-                except ValueError as exc:
-                    raise ApiError(400, str(exc))
-        elif len(rest) == 1:
-            guide_id = rest[0]
-            if method == "GET":
-                guide = db.get_guide(guide_id)
-                if not guide:
-                    raise ApiError(404, "가이드를 찾을 수 없습니다.")
-                return 200, guide
-            if method in ("PUT", "PATCH"):
-                try:
-                    return 200, db.save_guide(json_body(), guide_id)
-                except ValueError as exc:
-                    raise ApiError(400, str(exc))
-                except LookupError as exc:
-                    raise ApiError(404, str(exc))
-            if method == "DELETE":
-                if not db.delete_guide(guide_id):
-                    raise ApiError(404, "가이드를 찾을 수 없습니다.")
-                return 200, {"deleted": True}
+        # 재고 수량 즉시 반영
+        if rest == ["quantities"] and method == "POST":
+            try:
+                return 200, sync.apply_quantities(json_body().get("ops"))
+            except ValueError as exc:
+                raise ApiError(400, str(exc))
 
-    # ---------------------------------------------------------- inventory
-    if head == "inventory":
-        if not rest:
-            if method == "GET":
-                return 200, {"vehicles": db.list_vehicles(),
-                             "items": db.list_inventory(q("vehicle"))}
-            if method == "POST":
-                data = json_body()
-                try:
-                    return 201, db.add_inventory_item(
-                        data.get("vehicleName"), data.get("partName"),
-                        _int(data.get("quantity"), 0),
-                        _int(data.get("minQuantity"), 0))
-                except ValueError as exc:
-                    raise ApiError(400, str(exc))
-        elif len(rest) == 1:
-            item_id = rest[0]
-            if method in ("PATCH", "PUT"):
-                data = json_body()
-                item = db.update_inventory_item(
-                    item_id, delta=_int(data.get("delta")),
-                    quantity=_int(data.get("quantity")),
-                    min_quantity=_int(data.get("minQuantity")),
-                    part_name=data.get("partName"))
-                if not item:
-                    raise ApiError(404, "부품 항목을 찾을 수 없습니다.")
-                return 200, item
-            if method == "DELETE":
-                if not db.delete_inventory_item(item_id):
-                    raise ApiError(404, "부품 항목을 찾을 수 없습니다.")
-                return 200, {"deleted": True}
-
-    # ------------------------------------------------------- 리포트 입력 항목
-    if head == "report-fields":
-        if not rest:
-            if method == "GET":
-                return 200, {"items": db.list_fields()}
-            if method == "POST":
-                try:
-                    return 201, db.save_field(json_body())
-                except ValueError as exc:
-                    raise ApiError(400, str(exc))
-        elif rest == ["reorder"] and method == "POST":
-            ids = json_body().get("ids") or []
-            if not isinstance(ids, list):
-                raise ApiError(400, "ids 는 배열이어야 합니다.")
-            return 200, {"items": db.reorder_fields(ids)}
-        elif len(rest) == 1:
-            field_id = rest[0]
-            if method in ("PUT", "PATCH"):
-                try:
-                    return 200, db.save_field(json_body(), field_id)
-                except ValueError as exc:
-                    raise ApiError(400, str(exc))
-                except LookupError as exc:
-                    raise ApiError(404, str(exc))
-            if method == "DELETE":
-                if not db.delete_field(field_id):
-                    raise ApiError(404, "항목을 찾을 수 없습니다.")
-                return 200, {"deleted": True}
-
-    # ------------------------------------------------------------ reports
-    if head == "reports":
-        if not rest:
-            if method == "GET":
-                return 200, {"items": db.list_reports(_int(q("limit"), 100))}
-            if method == "POST":
-                data = json_body()
-                if not data.get("draft"):
-                    _validate_report(data)
-                return 201, db.save_report(data)
-        elif len(rest) == 1:
-            report_id = rest[0]
-            if method == "GET":
-                report = db.get_report(report_id)
-                if not report:
-                    raise ApiError(404, "리포트를 찾을 수 없습니다.")
-                return 200, report
-            if method in ("PUT", "PATCH"):
-                data = json_body()
-                if not data.get("draft"):
-                    _validate_report(data)
-                try:
-                    return 200, db.save_report(data, report_id)
-                except LookupError as exc:
-                    raise ApiError(404, str(exc))
-            if method == "DELETE":
-                if not db.delete_report(report_id):
-                    raise ApiError(404, "리포트를 찾을 수 없습니다.")
-                return 200, {"deleted": True}
-        elif len(rest) == 2 and rest[1] == "sheet" and method == "POST":
-            return _upload_to_sheet(rest[0], _request_base_url(headers))
+    # 브라우저가 구글로 직접 보내지 못할 때만 쓰는 우회 통로
+    if head == "sheets" and rest == ["relay"] and method == "POST":
+        return _relay_to_sheets(json_body())
 
     # ----------------------------------------------------------- settings
     if head == "settings":
@@ -399,27 +264,6 @@ def _clean_webapp_url(value) -> str:
     return url
 
 
-def _validate_report(data: dict):
-    values = data.get("values")
-    if not isinstance(values, list):
-        raise ApiError(400, "values 는 배열이어야 합니다.")
-    fields = {f["id"]: f for f in db.list_fields()}
-    for item in values:
-        if not isinstance(item, dict):
-            raise ApiError(400, "values 항목 형식이 올바르지 않습니다.")
-        field = fields.get(item.get("fieldId"))
-        if field and field["isRequired"]:
-            if field["fieldType"] == "MEDIA":
-                if not item.get("media"):
-                    raise ApiError(400, f"'{field['fieldLabel']}' 은 필수 항목입니다.")
-            elif not str(item.get("value") or "").strip():
-                raise ApiError(400, f"'{field['fieldLabel']}' 은 필수 항목입니다.")
-    submitted = {item.get("fieldId") for item in values}
-    for field in fields.values():
-        if field["isRequired"] and field["id"] not in submitted:
-            raise ApiError(400, f"'{field['fieldLabel']}' 은 필수 항목입니다.")
-
-
 def _lan_ip(fallback="127.0.0.1") -> str:
     """태블릿에서 접속할 수 있는 이 PC 의 사설 IP."""
     import socket
@@ -447,17 +291,19 @@ def _request_base_url(headers) -> str:
     return f"{scheme}://{host}"
 
 
-def _upload_to_sheet(report_id: str, base_url=""):
-    report = db.get_report(report_id)
-    if not report:
-        raise ApiError(404, "리포트를 찾을 수 없습니다.")
+def _relay_to_sheets(data: dict):
+    """기기 → 구글 직접 전송이 막혔을 때만 서버가 대신 보내 준다.
+
+    리포트 내용은 서버에 저장하지 않고 그대로 넘기기만 한다.
+    """
+    endpoint = _clean_webapp_url(data.get("endpoint"))
+    payload = data.get("payload")
+    if not isinstance(payload, dict):
+        raise ApiError(400, "payload 는 JSON 객체여야 합니다.")
     try:
-        result = sheets.upload_report(report, db.list_fields(), base_url=base_url)
+        return 200, sheets.post_to_webapp(endpoint, payload)
     except sheets.SheetsError as exc:
-        db.mark_report_failed(report_id, str(exc))
         raise ApiError(400, str(exc))
-    db.mark_report_uploaded(report_id, result["sheetName"], result.get("row"))
-    return 200, {"report": db.get_report(report_id), **result}
 
 
 def _upload(query, body, content_type):

@@ -1,122 +1,221 @@
-// 서버 REST API 래퍼
-// 모든 요청에 기기 ID 를 함께 보낸다 (기기별 작업본을 구분하기 위함).
-const DEVICE_KEY = 'bh_device_id';
+// 앱 데이터 창구 — **기기 안 데이터베이스**를 먼저 본다.
+//
+// v3.0 부터 모든 조회/생성/수정/삭제는 기기에서 끝나므로 오프라인에서도 전부 동작한다.
+// 서버가 필요한 일(업데이트 동기화 · 시트 업로드)만 sync.js / sheets.js 로 넘긴다.
+import * as store from './local/store.js';
+import * as sync from './sync.js';
+import { uploadReport, testConnection, extractSpreadsheetId,
+         spreadsheetUrl } from './sheets.js';
 
-function deviceId() {
-  let id = localStorage.getItem(DEVICE_KEY);
-  if (!id) {
-    id = 'd' + Math.random().toString(36).slice(2, 10)
-      + Math.random().toString(36).slice(2, 6);
-    localStorage.setItem(DEVICE_KEY, id);
-  }
-  return id;
-}
+export const APP_VERSION = '3.0.0';
 
-let onUnauthorized = null;
-export function setUnauthorizedHandler(fn) { onUnauthorized = fn; }
+export const setUnauthorizedHandler = sync.setUnauthorizedHandler;
+export const deviceId = sync.deviceId;
 
-async function request(method, path, body) {
-  const opts = { method, headers: { 'X-Device-Id': deviceId() },
-                 credentials: 'same-origin' };
-  if (body !== undefined) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
-  let res;
-  try {
-    res = await fetch(path, opts);
-  } catch {
-    throw new Error('서버에 연결할 수 없습니다. 인터넷 연결을 확인하세요.');
-  }
-  const text = await res.text();
-  let data = null;
-  if (text) {
-    try { data = JSON.parse(text); } catch { data = null; }
-  }
-  if (!res.ok) {
-    // PIN 이 새로 설정되었거나 만료된 경우 잠금 화면을 띄운다.
-    if (res.status === 401 && onUnauthorized && !path.startsWith('/api/auth')) {
-      onUnauthorized();
-    }
-    const error = new Error((data && data.error) || `요청 실패 (${res.status})`);
-    error.status = res.status;
-    throw error;
-  }
-  return data;
+async function sha256(text) {
+  const data = new TextEncoder().encode(String(text));
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export const api = {
-  deviceId,
+  deviceId: sync.deviceId,
 
-  version: () => request('GET', '/api/version'),
-
-  authStatus: () => request('GET', '/api/auth/status'),
-  authLogin: (pin) => request('POST', '/api/auth', { pin }),
-  meta: () => request('GET', '/api/meta'),
-
-  // 업데이트(모든 사용자에게 적용)
-  state: () => request('GET', '/api/state'),
-  publish: (deviceName) => request('POST', '/api/publish', { deviceName }),
-  takeLatest: () => request('POST', '/api/take-latest'),
-
-  listGuides: (type, q) => {
-    const params = new URLSearchParams();
-    if (type) params.set('type', type);
-    if (q) params.set('q', q);
-    const qs = params.toString();
-    return request('GET', `/api/guides${qs ? '?' + qs : ''}`);
-  },
-  getGuide: (id) => request('GET', `/api/guides/${id}`),
-  createGuide: (payload) => request('POST', '/api/guides', payload),
-  updateGuide: (id, payload) => request('PUT', `/api/guides/${id}`, payload),
-  deleteGuide: (id) => request('DELETE', `/api/guides/${id}`),
-
-  listVehicles: () => request('GET', '/api/vehicles'),
-  addVehicle: (name) => request('POST', '/api/vehicles', { name }),
-  deleteVehicle: (name) => request('DELETE', `/api/vehicles/${encodeURIComponent(name)}`),
-
-  listInventory: (vehicle) => request(
-    'GET', `/api/inventory${vehicle ? '?vehicle=' + encodeURIComponent(vehicle) : ''}`),
-  addInventory: (payload) => request('POST', '/api/inventory', payload),
-  patchInventory: (id, payload) => request('PATCH', `/api/inventory/${id}`, payload),
-  deleteInventory: (id) => request('DELETE', `/api/inventory/${id}`),
-
-  listFields: () => request('GET', '/api/report-fields'),
-  createField: (payload) => request('POST', '/api/report-fields', payload),
-  updateField: (id, payload) => request('PUT', `/api/report-fields/${id}`, payload),
-  deleteField: (id) => request('DELETE', `/api/report-fields/${id}`),
-  reorderFields: (ids) => request('POST', '/api/report-fields/reorder', { ids }),
-
-  listReports: () => request('GET', '/api/reports'),
-  getReport: (id) => request('GET', `/api/reports/${id}`),
-  createReport: (payload) => request('POST', '/api/reports', payload),
-  updateReport: (id, payload) => request('PUT', `/api/reports/${id}`, payload),
-  deleteReport: (id) => request('DELETE', `/api/reports/${id}`),
-  uploadReportToSheet: (id) => request('POST', `/api/reports/${id}/sheet`),
-
-  getSettings: () => request('GET', '/api/settings'),
-  saveSettings: (payload) => request('PUT', '/api/settings', payload),
-  testSheets: () => request('POST', '/api/settings/sheets-test'),
-
-  async uploadMedia(file) {
-    const url = `/api/media?filename=${encodeURIComponent(file.name || 'upload')}`;
-    let res;
+  async version() {
+    const local = {
+      version: APP_VERSION,
+      buildHash: (await store.getMeta('buildHash', '')) || 'local',
+      siteUrl: '', detectedUrl: '',
+    };
     try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': file.type || 'application/octet-stream',
-          'X-Device-Id': deviceId(),
-        },
-        body: file,
-      });
+      const server = await sync.serverRequest('GET', '/api/version', undefined,
+                                              { timeout: 5000 });
+      await store.setMeta('buildHash', server.buildHash || '');
+      return { ...server, version: APP_VERSION, serverVersion: server.version };
     } catch {
-      throw new Error('업로드 중 네트워크 오류가 발생했습니다.');
+      return local;      // 오프라인 — 기기에 있는 정보로 표시
     }
-    const text = await res.text();
-    let data = null;
-    if (text) { try { data = JSON.parse(text); } catch { data = null; } }
-    if (!res.ok) throw new Error((data && data.error) || '업로드 실패');
-    return data;
   },
+
+  // ------------------------------------------------------------ 접근 보호
+  async authStatus() {
+    try {
+      const status = await sync.serverRequest('GET', '/api/auth/status', undefined,
+                                              { timeout: 5000 });
+      await store.setMeta('pinEnabled', Boolean(status.pinEnabled));
+      return status;
+    } catch {
+      const pinEnabled = Boolean(await store.getMeta('pinEnabled', false));
+      const unlocked = Boolean(await store.getMeta('unlocked', false));
+      return { pinEnabled, authorized: !pinEnabled || unlocked, offline: true };
+    }
+  },
+
+  async authLogin(pin) {
+    try {
+      const result = await sync.serverRequest('POST', '/api/auth', { pin },
+                                              { timeout: 8000 });
+      // 오프라인에서도 잠금을 풀 수 있도록 확인값을 기기에 남긴다.
+      await store.setMeta('pinCheck', await sha256(pin));
+      await store.setMeta('unlocked', true);
+      return result;
+    } catch (err) {
+      if (!err.offline) throw err;
+      const expected = await store.getMeta('pinCheck', '');
+      if (expected && expected === await sha256(pin)) {
+        await store.setMeta('unlocked', true);
+        return { ok: true, offline: true };
+      }
+      throw new Error(
+        expected ? 'PIN 이 올바르지 않습니다.'
+          : '오프라인에서는 처음 잠금 해제를 할 수 없습니다. 사무실 Wi-Fi 에서 한 번 접속해 주세요.');
+    }
+  },
+
+  meta: () => sync.serverRequest('GET', '/api/meta'),
+
+  // ------------------------------------------------- 업데이트(공개본 동기화)
+  state: () => sync.state(),
+  publish: (deviceName) => sync.push(deviceName),
+  takeLatest: () => sync.pull(),
+
+  // ------------------------------------------------------------------ 가이드
+  listGuides: async (type, q) => ({ items: await store.listGuides(type || null, q || null) }),
+  getGuide: (id) => store.getGuide(id),
+  createGuide: (payload) => store.saveGuide(payload),
+  updateGuide: (id, payload) => store.saveGuide(payload, id),
+  deleteGuide: (id) => store.deleteGuide(id),
+
+  // ------------------------------------------------------------------ 차량
+  listVehicles: async () => {
+    const names = await store.listVehicles();
+    const items = await store.listInventory();
+    return {
+      items: names.map((name) => ({
+        name,
+        itemCount: items.filter((i) => i.vehicleName === name).length,
+      })),
+    };
+  },
+  addVehicle: (name) => store.addVehicle(name),
+  deleteVehicle: (name) => store.deleteVehicle(name),
+
+  // ------------------------------------------------------------------ 재고
+  listInventory: async (vehicle) => ({
+    vehicles: await store.listVehicles(),
+    items: await store.listInventory(vehicle || null),
+  }),
+  addInventory: async (payload) => {
+    const item = await store.addInventoryItem(
+      payload.vehicleName, payload.partName, payload.quantity, payload.minQuantity);
+    flushSoon();
+    return item;
+  },
+  patchInventory: async (id, payload) => {
+    const item = await store.updateInventoryItem(id, payload);
+    flushSoon();
+    return item;
+  },
+  deleteInventory: async (id) => {
+    const ok = await store.deleteInventoryItem(id);
+    flushSoon();
+    return ok;
+  },
+
+  // ------------------------------------------------------- 리포트 항목 설정
+  listFields: async () => ({ items: await store.listFields() }),
+  createField: (payload) => store.saveField(payload),
+  updateField: (id, payload) => store.saveField(payload, id),
+  deleteField: (id) => store.deleteField(id),
+  reorderFields: async (ids) => ({ items: await store.reorderFields(ids) }),
+
+  // ------------------------------------------------------------------ 리포트
+  listReports: async () => ({ items: await store.listReports() }),
+  getReport: (id) => store.getReport(id),
+  createReport: (payload) => store.saveReport(payload),
+  updateReport: (id, payload) => store.saveReport(payload, id),
+  deleteReport: (id) => store.deleteReport(id),
+
+  /** 시트 업로드 — 오프라인이면 대기열에 넣고 온라인 복귀 시 자동 전송 */
+  async uploadReportToSheet(id) {
+    const report = await store.getReport(id);
+    if (!report) throw new Error('리포트를 찾을 수 없습니다.');
+    if (!sync.isOnline()) {
+      await store.enqueue({ type: 'sheet', reportId: id });
+      await store.markReport(id, { status: 'QUEUED', errorMessage: null });
+      return { queued: true,
+               message: '오프라인입니다. 인터넷에 연결되면 자동으로 시트에 올립니다.' };
+    }
+    try {
+      return await uploadReport(report);
+    } catch (err) {
+      if (err.offline) {
+        await store.enqueue({ type: 'sheet', reportId: id });
+        await store.markReport(id, { status: 'QUEUED', errorMessage: null });
+        return { queued: true, message: err.message };
+      }
+      await store.markReport(id, { status: 'FAILED', errorMessage: err.message });
+      throw err;
+    }
+  },
+
+  // ------------------------------------------------------------------ 설정
+  async getSettings() {
+    const settings = await store.getSettings();
+    return {
+      sheets_webapp_url: settings.sheetsWebappUrl,
+      sheets_spreadsheet_id: settings.sheetsSpreadsheetId,
+      site_url: settings.serverUrl,
+      device_name: settings.deviceName,
+      server_url: settings.serverUrl,
+      sheetsReady: Boolean((settings.sheetsWebappUrl || '').trim()),
+      spreadsheetUrl: spreadsheetUrl(settings),
+      pinEnabled: Boolean(await store.getMeta('pinEnabled', false)),
+      pendingCount: await store.outboxCount(),
+    };
+  },
+
+  async saveSettings(payload) {
+    if (payload.access_pin !== undefined) {
+      // PIN 은 팀 공용이라 서버에 저장한다(온라인 필요).
+      await sync.serverRequest('PUT', '/api/settings',
+                               { access_pin: payload.access_pin });
+      await store.setMeta('pinEnabled', Boolean(payload.access_pin));
+      if (payload.access_pin) {
+        await store.setMeta('pinCheck', await sha256(payload.access_pin));
+      } else {
+        await store.setMeta('pinCheck', '');
+      }
+    }
+    await store.saveSettings({
+      sheetsWebappUrl: payload.sheets_webapp_url,
+      sheetsSpreadsheetId: payload.sheets_spreadsheet_id === undefined
+        ? undefined : extractSpreadsheetId(payload.sheets_spreadsheet_id),
+      serverUrl: payload.server_url !== undefined ? payload.server_url
+        : payload.site_url,
+      deviceName: payload.device_name,
+    });
+    // 시트 주소는 팀 공통이므로 온라인이면 서버에도 함께 저장한다.
+    if (payload.sheets_webapp_url !== undefined && sync.isOnline()) {
+      sync.serverRequest('PUT', '/api/settings', {
+        sheets_webapp_url: payload.sheets_webapp_url,
+        sheets_spreadsheet_id: payload.sheets_spreadsheet_id,
+      }).catch(() => { /* 서버가 없어도 기기에는 저장됐다 */ });
+    }
+    return this.getSettings();
+  },
+
+  testSheets: () => testConnection(),
+
+  // ------------------------------------------------------------------ 사진
+  uploadMedia: (file) => store.saveMedia(file),
 };
+
+/** 재고 변경 등은 온라인이면 곧바로 서버에 반영한다(화면은 기다리지 않는다). */
+let flushTimer = null;
+function flushSoon() {
+  if (!sync.isOnline()) return;
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(() => sync.runPendingWork(), 400);
+}

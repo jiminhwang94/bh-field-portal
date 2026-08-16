@@ -1,5 +1,7 @@
 """접근 보호(공용 PIN) 검증 (D-1).
 
+v3.0: 보호 대상은 서버의 동기화 경로(/api/sync/*)와 사진이다.
+
 PIN 설정 전에는 누구나 접근, 설정 후에는 토큰 없이는 401.
 실행: python3 tests/test_access_pin.py
 """
@@ -59,7 +61,7 @@ try:
     st = call("GET", "/api/auth/status")
     print("  required:", st["required"], "authorized:", st["authorized"])
     assert st["required"] is False and st["authorized"] is True
-    assert call("GET", "/api/guides")["items"], "보호 없는데 조회가 막혔다"
+    assert call("GET", "/api/sync/pull")["guides"], "보호 없는데 조회가 막혔다"
 
     print("\n=== PIN 설정 ===")
     res = call("PUT", "/api/settings", {"access_pin": "4821"})
@@ -76,29 +78,30 @@ try:
     print("  숫자 아님:", str(r["error"])[:40])
 
     print("\n=== 토큰 없으면 401 ===")
-    call("GET", "/api/guides", expect=401)
-    call("GET", "/api/inventory", expect=401)
-    call("POST", "/api/publish", {"deviceName": "x"}, expect=401)
+    call("GET", "/api/sync/pull", expect=401)
+    call("GET", "/api/sync/head", expect=401)
+    call("POST", "/api/sync/push", {"deviceName": "x"}, expect=401)
+    call("GET", "/api/sync/legacy", expect=401)
     st = call("GET", "/api/auth/status")
     print("  status 는 열려 있음:", st["required"], st["authorized"])
     assert st["required"] is True and st["authorized"] is False
 
     print("=== 토큰 있으면 통과 ===")
-    assert call("GET", "/api/guides", cookie=token)["items"]
+    assert call("GET", "/api/sync/pull", cookie=token)["guides"]
     print("  쿠키로 조회 성공")
 
     print("\n=== 다른 기기: PIN 입력해야 함 ===")
-    call("GET", "/api/guides", device="otherDev", expect=401)
+    call("GET", "/api/sync/pull", device="otherDev", expect=401)
     r = call("POST", "/api/auth", {"pin": "0000"}, expect=401, device="otherDev")
     print("  틀린 PIN:", str(r["error"])[:30])
     ok = call("POST", "/api/auth", {"pin": "4821"}, device="otherDev")
     other_token = ok["token"]
     print("  맞는 PIN → 토큰 발급:", bool(other_token))
-    assert call("GET", "/api/guides", device="otherDev", cookie=other_token)["items"]
+    assert call("GET", "/api/sync/pull", device="otherDev", cookie=other_token)["guides"]
 
     print("=== 기기별로 토큰이 다르다 ===")
     assert other_token != token
-    call("GET", "/api/guides", device="otherDev", cookie=token, expect=401)
+    call("GET", "/api/sync/pull", device="otherDev", cookie=token, expect=401)
     print("  남의 토큰으로는 통과 못 함")
 
     print("\n=== 사진(media)도 보호된다 ===")
@@ -115,13 +118,13 @@ try:
     print("\n=== PIN 변경 시 기존 토큰 무효 ===")
     res = call("PUT", "/api/settings", {"access_pin": "9999"}, cookie=token)
     new_token = res["newToken"]
-    call("GET", "/api/guides", cookie=token, expect=401)
-    assert call("GET", "/api/guides", cookie=new_token)["items"]
+    call("GET", "/api/sync/pull", cookie=token, expect=401)
+    assert call("GET", "/api/sync/pull", cookie=new_token)["guides"]
     print("  이전 토큰 차단 / 새 토큰 통과")
 
     print("\n=== 보호 해제 ===")
     call("PUT", "/api/settings", {"access_pin": ""}, cookie=new_token)
-    assert call("GET", "/api/guides")["items"], "해제 후에도 막혀 있다"
+    assert call("GET", "/api/sync/pull")["guides"], "해제 후에도 막혀 있다"
     print("  해제 후 자유 접근 확인")
 
     print()

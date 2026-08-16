@@ -283,7 +283,8 @@ def main():
     if site:
         print(f"  서비스 주소    : {site}  (설정에서 지정됨)")
     print(f"  공개본 DB      : {db.DB_PATH}")
-    print(f"  작업본 폴더    : {db.DRAFT_DIR}")
+    print(f"  공개 버전      : {db.published_state()['revision']} "
+          f"(앱은 기기에 자료를 두고 오프라인으로 동작합니다)")
     print("  종료: Ctrl + C")
     print("=" * 60, flush=True)
     try:

@@ -3,15 +3,18 @@
 import { api } from './api.js';
 import { $, h } from './ui.js';
 
-/** PIN 이 필요하면 잠금 화면을 띄우고, 통과할 때까지 기다린다. */
+/** PIN 이 필요하면 잠금 화면을 띄우고, 통과할 때까지 기다린다.
+ *
+ * 오프라인이면 기기에 남겨 둔 확인값으로 잠금을 푼다(api.authLogin 참고).
+ */
 export async function ensureAccess() {
   let status;
   try {
     status = await api.authStatus();
   } catch {
-    return true;        // 서버에 못 닿으면 잠금 화면 대신 평소 오류 흐름을 따른다
+    return true;        // 상태를 모르면 막지 않는다 (자료는 이미 기기에 있다)
   }
-  if (!status.required || status.authorized) return true;
+  if (!status.pinEnabled || status.authorized) return true;
   await showLock();
   return true;
 }

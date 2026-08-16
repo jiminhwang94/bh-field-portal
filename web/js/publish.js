@@ -104,13 +104,17 @@ export async function runPublish(btn) {
 }
 
 /** 내 변경을 버리고 모든 사용자의 최신 내용을 받는다 */
-export async function runTakeLatest() {
-  const ok = await confirmDialog(
-    '최신 내용 받기',
-    '아직 적용하지 않은 내 변경 내용을 버리고, 모든 사용자가 보는 최신 내용을 받아옵니다.\n'
-    + '되돌릴 수 없습니다.',
-    '내 변경 버리고 받기', true);
-  if (!ok) return;
+export async function runTakeLatest(quiet = false) {
+  // 내 변경이 없으면(=버릴 것이 없으면) 확인 없이 바로 받는다.
+  const needsWarning = !quiet || state.hasLocalChanges;
+  if (needsWarning) {
+    const ok = await confirmDialog(
+      '최신 내용 받기',
+      '아직 적용하지 않은 내 변경 내용을 버리고, 모든 사용자가 보는 최신 내용을 받아옵니다.\n'
+      + '되돌릴 수 없습니다.',
+      '내 변경 버리고 받기', true);
+    if (!ok) return;
+  }
   try {
     await api.takeLatest();
     toast('최신 내용을 받았습니다.', 'ok');

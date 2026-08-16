@@ -1,18 +1,19 @@
-"""SQLite 데이터 계층.
+"""SQLite 데이터 계층 (서버 = 팀 공개본 보관소).
 
-**공개본 / 작업본 구조**
+**v3.0 구조**
 
-- `data/app.db` : 공개본. 모든 사용자가 보는 확정된 내용.
-- `data/drafts/<기기ID>.db` : 각 기기의 작업본. 생성/수정/삭제는 여기에만 반영된다.
-- 사용자가 **[업데이트]** 를 누르면 작업본의 공유 데이터가 공개본으로 올라가고,
-  다른 기기들은 (자기 변경이 없으면) 자동으로 최신 공개본을 받는다.
+앱은 모든 데이터를 **기기 안(IndexedDB)** 에 두고 오프라인에서 전부 동작한다.
+서버는 팀이 공유하는 **공개본 한 벌**(`data/app.db`)만 보관하며, 하는 일은 둘뿐이다.
 
-리포트·설정은 기기별 데이터라 공개본으로 올라가지 않는다.
+- 기기가 **[⬆️ 업데이트]** 를 누르면 그 기기 내용을 공개본으로 받는다 (`sync.apply_snapshot`)
+- 다른 기기가 접속하면 공개본을 통째로 내려 준다 (`sync.build_snapshot`)
+
+재고 **수량** 은 실물 상태 기록이라 [업데이트] 를 기다리지 않고 바로 반영된다.
+리포트는 기기 전용이라 서버로 올라오지 않는다 (구글 시트로 직접 전송).
 """
 
 import json
 import os
-import shutil
 import sqlite3
 import threading
 import time
@@ -21,20 +22,13 @@ import uuid
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.environ.get("DATABASE_URL") or os.path.join(DATA_DIR, "app.db")
-DRAFT_DIR = os.environ.get("DRAFT_DIR") or os.path.join(DATA_DIR, "drafts")
 MEDIA_DIR = os.environ.get("MEDIA_DIR") or os.path.join(DATA_DIR, "media")
 
 CATEGORY_TYPES = ("ERROR_CODE", "HARDWARE_SOP", "SOFTWARE_CMD")
 FIELD_TYPES = ("TEXT", "TEXTAREA", "NUMBER", "DROPDOWN", "MEDIA")
 VEHICLES = ("스타리아 1호차", "스타리아 2호차")
 
-APP_VERSION = "2.1.0"
-
-# [업데이트] 로 모든 사용자에게 반영되는 공유 테이블 (순서 = 삭제/삽입 순서)
-SHARED_TABLES = (
-    "guide_step", "guide_master", "vehicle", "vehicle_inventory",
-    "report_field_config",
-)
+APP_VERSION = "3.0.0"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS vehicle (
@@ -96,18 +90,6 @@ CREATE TABLE IF NOT EXISTS report_field_config (
     created_at     TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS report (
-    id             TEXT PRIMARY KEY,
-    title          TEXT NOT NULL DEFAULT '',
-    payload_json   TEXT NOT NULL DEFAULT '[]',
-    status         TEXT NOT NULL DEFAULT 'DRAFT',
-    sheet_name     TEXT,
-    sheet_row      INTEGER,
-    error_message  TEXT,
-    created_at     TEXT NOT NULL,
-    updated_at     TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS media (
     id            TEXT PRIMARY KEY,
     filename      TEXT NOT NULL,
@@ -123,8 +105,8 @@ CREATE TABLE IF NOT EXISTS app_setting (
 );
 """
 
-# 공개본에만 두는 설정 (모든 기기 공통)
-GLOBAL_SETTINGS = {
+# 팀 공통 설정 (공개본에 보관)
+DEFAULT_SETTINGS = {
     "sheets_webapp_url": "",
     "sheets_spreadsheet_id": "1ywec2wKj0thmI0uPZeqNwCGpbD75TJ9s7Yc20iP_0z4",
     "site_url": "",        # 비우면 접속한 서버 주소를 자동 사용
@@ -135,87 +117,18 @@ GLOBAL_SETTINGS = {
     "published_by": "",
 }
 
-# 기기(작업본)별 설정
-DEVICE_SETTINGS = {
-    "device_name": "",
-    "base_revision": "0",
-    "base_hash": "",
-}
-
-DEFAULT_SETTINGS = {**GLOBAL_SETTINGS, **DEVICE_SETTINGS}
-
-_local = threading.local()
-# 공개본을 건드리는 작업(업데이트 / 최신 받기)은 한 번에 하나만 수행한다.
-_PUBLISH_LOCK = threading.Lock()
-
-
-# ------------------------------------------------------------------ 기기 컨텍스트
-
-def set_device(device_id=""):
-    """요청을 보낸 기기를 지정한다. 이후 이 스레드의 DB 접근은 그 기기의 작업본을 쓴다."""
-    _local.device = _safe_device_id(device_id)
-
-
-def current_device():
-    return getattr(_local, "device", "")
-
-
-def _safe_device_id(device_id) -> str:
-    raw = str(device_id or "").strip()
-    keep = [c for c in raw if c.isalnum() or c in "-_"]
-    return "".join(keep)[:48]
-
-
-def draft_path(device_id) -> str:
-    return os.path.join(DRAFT_DIR, f"{_safe_device_id(device_id)}.db")
+# 공개본을 통째로 바꾸는 작업([업데이트] 수신)은 한 번에 하나만 수행한다.
+PUBLISH_LOCK = threading.Lock()
 
 
 def current_db_path() -> str:
-    device = current_device()
-    if not device:
-        return DB_PATH
-    path = draft_path(device)
-    if not os.path.isfile(path):
-        _create_draft(device, path)
-    return path
+    return DB_PATH
 
 
-def _create_draft(device_id, path):
-    """공개본을 복사해 그 기기의 작업본을 만든다."""
-    os.makedirs(DRAFT_DIR, exist_ok=True)
-    _checkpoint(DB_PATH)
-    shutil.copyfile(DB_PATH, path)
-    conn = sqlite3.connect(path, timeout=15)
-    try:
-        conn.executescript(SCHEMA)
-        _migrate_columns(conn)
-        # 리포트는 기기별 데이터이므로 복사본에서 비운다.
-        conn.execute("DELETE FROM report")
-        for key, value in DEVICE_SETTINGS.items():
-            conn.execute(
-                "INSERT INTO app_setting(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                (key, value),
-            )
-        conn.commit()
-    finally:
-        conn.close()
-    published = _read_setting(DB_PATH, "published_revision") or "0"
-    _write_settings(path, {"base_revision": published,
-                           "base_hash": shared_data_hash(path)})
-
-
-def _checkpoint(path):
-    """WAL 내용을 본 파일에 반영해 복사해도 최신이 되도록 한다."""
-    if not os.path.isfile(path):
-        return
-    conn = sqlite3.connect(path, timeout=15)
-    try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    except sqlite3.DatabaseError:
-        pass
-    finally:
-        conn.close()
+def safe_device_id(device_id) -> str:
+    raw = str(device_id or "").strip()
+    keep = [c for c in raw if c.isalnum() or c in "-_"]
+    return "".join(keep)[:48]
 
 
 def now() -> str:
@@ -228,7 +141,7 @@ def new_id() -> str:
 
 def connect() -> sqlite3.Connection:
     os.makedirs(MEDIA_DIR, exist_ok=True)
-    conn = sqlite3.connect(current_db_path(), timeout=15)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
@@ -243,7 +156,6 @@ def _connect_path(path) -> sqlite3.Connection:
 
 def init() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
-    os.makedirs(DRAFT_DIR, exist_ok=True)
     conn = _connect_path(DB_PATH)
     try:
         conn.executescript(SCHEMA)
@@ -264,22 +176,11 @@ def init() -> None:
 
 
 def _migrate_columns(conn: sqlite3.Connection) -> None:
-    """이전 버전 DB 에 없던 컬럼을 추가하고, 더 이상 쓰지 않는 설정을 정리한다."""
-    def columns(table):
-        try:
-            return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
-        except sqlite3.DatabaseError:
-            return set()
+    """이전 버전 DB 를 현재 구조에 맞춘다.
 
-    report_cols = columns("report")
-    if report_cols:
-        if "sheet_name" not in report_cols:
-            conn.execute("ALTER TABLE report ADD COLUMN sheet_name TEXT")
-        if "sheet_row" not in report_cols:
-            conn.execute("ALTER TABLE report ADD COLUMN sheet_row INTEGER")
-        # 이전 전송 상태는 '저장됨' 으로 되돌린다(전송 대상이 바뀌었으므로).
-        conn.execute("UPDATE report SET status = 'DRAFT' WHERE status = 'SENT'")
-
+    v3.0 부터 리포트는 기기에만 저장하지만, **이전 버전에서 만든 리포트는 지우지 않는다.**
+    앱이 처음 실행될 때 `/api/sync/legacy` 로 가져가 기기에 옮긴다 (app/sync.py).
+    """
     # 재고 수량을 공개본 전용 테이블로 이전 (v2.1)
     try:
         moved = conn.execute(
@@ -297,7 +198,8 @@ def _migrate_columns(conn: sqlite3.Connection) -> None:
     conn.execute(
         "DELETE FROM app_setting WHERE key IN "
         "('notion_token','notion_database_id','notion_version','notion_title_prop',"
-        " 'engineer_name','public_base_url','sync_hub_url','sync_key','hub_id')")
+        " 'engineer_name','public_base_url','sync_hub_url','sync_key','hub_id',"
+        " 'device_name','base_revision','base_hash')")
 
 
 def _migrate_vehicles(conn: sqlite3.Connection) -> None:
@@ -347,31 +249,21 @@ def _write_settings(path, values: dict):
 
 
 def get_settings() -> dict:
-    """전역 설정은 공개본에서, 기기 설정은 작업본에서 읽는다."""
     out = dict(DEFAULT_SETTINGS)
-    for key in GLOBAL_SETTINGS:
+    for key in DEFAULT_SETTINGS:
         value = _read_setting(DB_PATH, key)
         if value is not None:
             out[key] = value
-    if current_device():
-        for key in DEVICE_SETTINGS:
-            value = _read_setting(current_db_path(), key)
-            if value is not None:
-                out[key] = value
     return out
 
 
 def save_settings(values: dict) -> dict:
-    """전역 설정은 공개본에 바로 저장(모든 사용자 공통)."""
-    global_values = {k: v for k, v in values.items()
-                     if k in GLOBAL_SETTINGS and k not in
-                     ("published_revision", "published_at", "published_by")}
-    device_values = {k: v for k, v in values.items() if k in DEVICE_SETTINGS
-                     and k not in ("base_revision", "base_hash")}
-    if global_values:
-        _write_settings(DB_PATH, global_values)
-    if device_values and current_device():
-        _write_settings(current_db_path(), device_values)
+    """팀 공통 설정을 공개본에 저장한다."""
+    allowed = {k: v for k, v in values.items()
+               if k in DEFAULT_SETTINGS and k not in
+               ("published_revision", "published_at", "published_by")}
+    if allowed:
+        _write_settings(DB_PATH, allowed)
     return get_settings()
 
 
@@ -402,7 +294,7 @@ def access_token(device_id: str) -> str:
     import hashlib
     import hmac
 
-    message = f"{_safe_device_id(device_id)}|{access_pin()}".encode()
+    message = f"{safe_device_id(device_id)}|{access_pin()}".encode()
     return hmac.new(_auth_secret().encode(), message, hashlib.sha256).hexdigest()[:40]
 
 
@@ -893,122 +785,6 @@ def reorder_fields(ordered_ids: list) -> list:
     return list_fields()
 
 
-# ----------------------------------------------------------------- reports
-
-def _report_row(row: sqlite3.Row) -> dict:
-    try:
-        payload = json.loads(row["payload_json"] or "[]")
-    except json.JSONDecodeError:
-        payload = []
-    return {
-        "id": row["id"],
-        "title": row["title"],
-        "payload": payload,
-        "status": row["status"],
-        "sheetName": row["sheet_name"],
-        "sheetRow": row["sheet_row"],
-        "errorMessage": row["error_message"],
-        "createdAt": row["created_at"],
-        "updatedAt": row["updated_at"],
-    }
-
-
-def list_reports(limit=100) -> list:
-    conn = connect()
-    try:
-        rows = conn.execute(
-            "SELECT * FROM report ORDER BY created_at DESC LIMIT ?",
-            (limit,)).fetchall()
-    finally:
-        conn.close()
-    return [_report_row(r) for r in rows]
-
-
-def get_report(report_id: str):
-    conn = connect()
-    try:
-        row = conn.execute("SELECT * FROM report WHERE id = ?",
-                           (report_id,)).fetchone()
-    finally:
-        conn.close()
-    return _report_row(row) if row else None
-
-
-def save_report(payload: dict, report_id=None) -> dict:
-    values = payload.get("values") or []
-    title = (payload.get("title") or "").strip()
-    if not title:
-        for item in values:
-            if item.get("type") in ("TEXT", "TEXTAREA") and item.get("value"):
-                title = str(item["value"]).splitlines()[0][:80]
-                break
-    if not title:
-        title = f"현장 리포트 {now()}"
-
-    stamp = now()
-    conn = connect()
-    try:
-        if report_id:
-            if not conn.execute("SELECT 1 FROM report WHERE id = ?",
-                                (report_id,)).fetchone():
-                raise LookupError("리포트를 찾을 수 없습니다.")
-            conn.execute(
-                "UPDATE report SET title = ?, payload_json = ?, updated_at = ? "
-                "WHERE id = ?",
-                (title, json.dumps(values, ensure_ascii=False), stamp, report_id))
-        else:
-            report_id = new_id()
-            conn.execute(
-                "INSERT INTO report (id, title, payload_json, status, "
-                "created_at, updated_at) VALUES (?,?,?,?,?,?)",
-                (report_id, title, json.dumps(values, ensure_ascii=False),
-                 "DRAFT", stamp, stamp))
-        conn.commit()
-    finally:
-        conn.close()
-    return get_report(report_id)
-
-
-def mark_report_uploaded(report_id: str, sheet_name: str, sheet_row) -> None:
-    conn = connect()
-    try:
-        conn.execute(
-            "UPDATE report SET status = 'UPLOADED', sheet_name = ?, "
-            "sheet_row = ?, error_message = NULL, updated_at = ? WHERE id = ?",
-            (sheet_name, sheet_row, now(), report_id))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def mark_report_failed(report_id: str, message: str) -> None:
-    conn = connect()
-    try:
-        conn.execute(
-            "UPDATE report SET status = 'FAILED', error_message = ?, "
-            "updated_at = ? WHERE id = ?", (message[:2000], now(), report_id))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def delete_report(report_id: str) -> bool:
-    conn = connect()
-    try:
-        cur = conn.execute("DELETE FROM report WHERE id = ?", (report_id,))
-        conn.commit()
-        removed = cur.rowcount > 0
-    finally:
-        conn.close()
-    if removed:
-        # 이 리포트에만 딸려 있던 사진 파일을 함께 정리한다.
-        try:
-            cleanup_orphan_media()
-        except OSError:
-            pass
-    return removed
-
-
 # ------------------------------------------------------------------- media
 
 def register_media(filename: str, original_name: str, mime: str,
@@ -1028,36 +804,25 @@ def register_media(filename: str, original_name: str, mime: str,
 
 
 def _referenced_media() -> set:
-    """공개본·모든 작업본의 가이드 단계와 리포트가 참조하는 사진 파일명 집합."""
-    import glob
+    """공개본 가이드 단계가 참조하는 사진 파일명 집합.
 
+    리포트 사진은 기기 안에만 있고 서버로 올라오지 않으므로 여기서 보지 않는다.
+    """
     used = set()
-    paths = [DB_PATH] + sorted(glob.glob(os.path.join(DRAFT_DIR, "*.db")))
-    for path in paths:
-        if not os.path.isfile(path):
-            continue
-        conn = _connect_path(path)
-        try:
-            for row in conn.execute(
-                    "SELECT image_url FROM guide_step "
-                    "WHERE image_url IS NOT NULL").fetchall():
-                url = row["image_url"] or ""
-                if url.startswith("/media/"):
-                    used.add(os.path.basename(url))
-            for row in conn.execute("SELECT payload_json FROM report").fetchall():
-                try:
-                    payload = json.loads(row["payload_json"] or "[]")
-                except json.JSONDecodeError:
-                    continue
-                for item in payload:
-                    for media in (item or {}).get("media") or []:
-                        name = os.path.basename(media.get("filename") or "")
-                        if name:
-                            used.add(name)
-        except sqlite3.DatabaseError:
-            continue
-        finally:
-            conn.close()
+    if not os.path.isfile(DB_PATH):
+        return used
+    conn = _connect_path(DB_PATH)
+    try:
+        for row in conn.execute(
+                "SELECT image_url FROM guide_step "
+                "WHERE image_url IS NOT NULL").fetchall():
+            url = row["image_url"] or ""
+            if url.startswith("/media/"):
+                used.add(os.path.basename(url))
+    except sqlite3.DatabaseError:
+        pass
+    finally:
+        conn.close()
     return used
 
 
@@ -1094,38 +859,7 @@ def cleanup_orphan_media(min_age_seconds=600) -> dict:
     return {"deleted": deleted, "freedBytes": freed}
 
 
-# ------------------------------------------- 업데이트(공개본 반영) / 최신 받기
-
-def shared_data_hash(path=None) -> str:
-    """공유 데이터의 내용 해시. 내 변경이 있는지 판단하는 데 쓴다."""
-    import hashlib
-
-    target = path or current_db_path()
-    conn = _connect_path(target)
-    digest = hashlib.sha256()
-    try:
-        for table, order in (
-            ("guide_master", "id"), ("guide_step", "id"), ("vehicle", "name"),
-            ("vehicle_inventory", "id"), ("report_field_config", "id"),
-        ):
-            try:
-                rows = conn.execute(
-                    f"SELECT * FROM {table} ORDER BY {order}").fetchall()
-            except sqlite3.DatabaseError:
-                continue
-            for row in rows:
-                digest.update(table.encode())
-                for key in sorted(row.keys()):
-                    if key in ("updated_at", "created_at"):
-                        continue
-                    # 재고 수량은 즉시 공유되는 값이라 "내 변경" 판단에서 제외
-                    if table == "vehicle_inventory" and key == "quantity":
-                        continue
-                    digest.update(f"{key}={row[key]}".encode())
-    finally:
-        conn.close()
-    return digest.hexdigest()[:16]
-
+# ------------------------------------------------------- 공개본 버전 정보
 
 def published_state() -> dict:
     return {
@@ -1135,69 +869,20 @@ def published_state() -> dict:
     }
 
 
-def _copy_shared(src_path, dst_path):
-    """공유 테이블만 src → dst 로 통째로 옮긴다."""
-    _checkpoint(src_path)
-    conn = sqlite3.connect(dst_path, timeout=20)
-    try:
-        conn.execute("PRAGMA foreign_keys = OFF")
-        conn.execute("ATTACH DATABASE ? AS src", (src_path,))
-        conn.execute("BEGIN")
-        for table in SHARED_TABLES:                 # 자식 → 부모 순서로 삭제
-            conn.execute(f"DELETE FROM main.{table}")
-        for table in reversed(SHARED_TABLES):       # 부모 → 자식 순서로 삽입
-            conn.execute(
-                f"INSERT INTO main.{table} SELECT * FROM src.{table}")
-        conn.execute("COMMIT")
-        conn.execute("DETACH DATABASE src")
-    finally:
-        conn.close()
-
-
-def publish(device_id, device_name="") -> dict:
-    """이 기기의 작업본 내용을 공개본으로 올린다 (= [업데이트])."""
-    device = _safe_device_id(device_id)
-    if not device:
-        raise ValueError("기기를 확인할 수 없습니다. 앱을 새로고침해 주세요.")
-    path = draft_path(device)
-    if not os.path.isfile(path):
-        raise ValueError("올릴 변경 내용이 없습니다.")
-
-    # 두 사람이 동시에 눌러도 리비전이 겹치거나 복사가 반쪽 되지 않게 잠근다.
-    with _PUBLISH_LOCK:
-        _copy_shared(path, DB_PATH)
-        state = published_state()
-        revision = state["revision"] + 1
-        stamp = now()
-        _write_settings(DB_PATH, {
-            "published_revision": revision,
-            "published_at": stamp,
-            "published_by": device_name or "",
-        })
-        new_hash = shared_data_hash(path)
-        _write_settings(path, {"base_revision": revision, "base_hash": new_hash})
-    return {"revision": revision, "at": stamp, "by": device_name,
-            "hash": new_hash, "summary": shared_summary(path)}
-
-
-def take_latest(device_id) -> dict:
-    """공개본 최신 내용을 이 기기의 작업본으로 받아온다 (내 변경은 사라진다)."""
-    device = _safe_device_id(device_id)
-    path = draft_path(device)
-    if not os.path.isfile(path):
-        current_db_path()      # 작업본 생성
-        return {"revision": published_state()["revision"], "refreshed": True}
-    with _PUBLISH_LOCK:
-        _copy_shared(DB_PATH, path)
-        state = published_state()
-        _write_settings(path, {"base_revision": state["revision"],
-                               "base_hash": shared_data_hash(path)})
-    return {"revision": state["revision"], "refreshed": True}
+def bump_revision(device_name="") -> dict:
+    """공개본이 갱신되었음을 기록한다 (기기가 [업데이트] 를 보낸 직후)."""
+    revision = published_state()["revision"] + 1
+    stamp = now()
+    _write_settings(DB_PATH, {
+        "published_revision": revision,
+        "published_at": stamp,
+        "published_by": device_name or "",
+    })
+    return {"revision": revision, "at": stamp, "by": device_name or ""}
 
 
 def shared_summary(path=None) -> dict:
-    target = path or current_db_path()
-    conn = _connect_path(target)
+    conn = _connect_path(path or DB_PATH)
     try:
         def count(table):
             try:
@@ -1213,59 +898,6 @@ def shared_summary(path=None) -> dict:
         }
     finally:
         conn.close()
-
-
-def auto_refresh_if_clean(device_id) -> bool:
-    """내 변경이 없고 공개본이 더 새로우면 조용히 최신으로 맞춘다.
-
-    조회 요청마다 호출되므로, 뒤처지지 않은 경우에는 정수 비교만 하고 끝낸다.
-    """
-    device = _safe_device_id(device_id)
-    if not device:
-        return False
-    path = draft_path(device)
-    if not os.path.isfile(path):
-        return False
-    published = int(_read_setting(DB_PATH, "published_revision") or 0)
-    base = int(_read_setting(path, "base_revision") or 0)
-    if published <= base:
-        return False
-    base_hash = _read_setting(path, "base_hash") or ""
-    if base_hash and shared_data_hash(path) != base_hash:
-        return False        # 내 변경이 있으면 덮지 않는다
-    take_latest(device)
-    return True
-
-
-def sync_state(device_id) -> dict:
-    """앱 상단 [업데이트] 버튼 상태 계산 + 필요하면 최신본 자동 반영."""
-    device = _safe_device_id(device_id)
-    published = published_state()
-    if not device:
-        return {"published": published, "hasLocalChanges": False,
-                "behind": False, "autoUpdated": False,
-                "summary": shared_summary(DB_PATH)}
-
-    path = draft_path(device)
-    created = not os.path.isfile(path)
-    if created:
-        set_device(device)
-        current_db_path()
-
-    auto = auto_refresh_if_clean(device)
-    base_revision = int(_read_setting(path, "base_revision") or 0)
-    base_hash = _read_setting(path, "base_hash") or ""
-    has_local = bool(base_hash) and shared_data_hash(path) != base_hash
-    behind = published["revision"] > base_revision
-
-    return {
-        "published": published,
-        "myRevision": base_revision,
-        "hasLocalChanges": has_local,
-        "behind": behind,
-        "autoUpdated": auto,
-        "summary": shared_summary(path),
-    }
 
 
 # -------------------------------------------------------------------- seed

@@ -1,7 +1,7 @@
 // 설정 — 구글 시트 연결 · 업데이트(공개본) · 앱 설치
 import { api } from '../api.js';
 import { $, h, confirmDialog, copyText, loading, openSheet, toast } from '../ui.js';
-import { recentCount } from '../recent.js';
+import { isOnline } from '../sync.js';
 import {
   canInstallDirectly, installApp, installStateLabel, isStandalone,
   showManualGuide,
@@ -55,12 +55,15 @@ export async function settingsView(view) {
               <span class="hint">기록 위치 확인용입니다. 실제 기록은 위 웹 앱이 담당합니다.</span>
             </div>
             <div class="field">
-              <label>서비스 주소 (선택)</label>
-              <input class="input mono" id="sSiteUrl" value="${h(settings.site_url)}"
-                     placeholder="비우면 자동: ${h(build.detectedUrl || '-')}" />
+              <label>사무실 서버 주소</label>
+              <input class="input mono" id="sSiteUrl" value="${h(settings.server_url)}"
+                     placeholder="예) http://192.168.0.83:8787" autocapitalize="off"
+                     spellcheck="false" />
               <span class="hint">
-                비워 두면 <strong>지금 접속한 주소</strong>(${h(build.detectedUrl || '-')})를 자동으로 씁니다.
-                영상처럼 시트에 삽입할 수 없는 첨부의 링크에만 사용됩니다.
+                <strong>[⬆️ 업데이트] 동기화에만</strong> 쓰입니다.
+                브라우저로 접속했다면 비워 두세요(지금 주소 ${h(build.detectedUrl || '-')} 사용).
+                <strong>APK 로 설치한 앱은 반드시 입력</strong>해야 팀과 내용을 주고받습니다.
+                구글 시트 업로드는 이 주소와 무관하게 어디서나 됩니다.
               </span>
             </div>
           </div>
@@ -187,13 +190,30 @@ export async function settingsView(view) {
         <p class="muted" style="margin:0;font-size:.9rem;line-height:1.65">
           접속 주소: <strong class="mono">${h(build.siteUrl || '-')}</strong>
           <button class="btn btn--sm btn--ghost" data-act="copy-url" type="button" style="margin-left:8px">주소 복사</button>
-          <br />이 앱은 인터넷 연결 상태에서 사용합니다.
         </p>
+      </details>
+
+      <details class="panel panel--fold">
+        <summary class="panel__title">📴 오프라인 사용</summary>
+        <div class="row" style="gap:8px;margin:14px 0">
+          <span class="badge ${isOnline() ? 'badge--ok' : 'badge--warn'}">
+            ${isOnline() ? '🟢 온라인' : '📴 오프라인'}
+          </span>
+          <span class="badge">기기 보관 가이드 ${state.summary.guides || 0}건</span>
+          <span class="badge">재고 ${state.summary.inventoryItems || 0}종</span>
+          ${settings.pendingCount ? `<span class="badge badge--warn">
+            대기 작업 ${settings.pendingCount}건</span>` : ''}
+        </div>
+        <ul class="muted" style="line-height:1.9;padding-left:20px;margin:0">
+          <li>가이드 열람·검색·수정, 리포트 작성, 재고 수정은 <strong>인터넷 없이 전부</strong> 됩니다.</li>
+          <li>오프라인에서 누른 시트 업로드와 재고 수량 변경은 <strong>대기열에 쌓였다가
+              연결되면 자동 처리</strong>됩니다.</li>
+          <li><strong>[⬆️ 업데이트]</strong>(팀과 내용 주고받기)만 사무실 서버 연결이 필요합니다.</li>
+        </ul>
         <div class="divider"></div>
-        <p class="muted" style="margin:0;font-size:.9rem;line-height:1.65">
-          📴 최근 본 가이드 <strong>${recentCount()}건</strong>이 이 기기에 보관되어 있어,
-          연결이 끊겨도 열람할 수 있습니다.
-        </p>
+        <button class="btn btn--ghost btn--sm" data-act="pull-now" type="button">
+          📥 서버에서 최신 자료 받기
+        </button>
       </details>
     </div>`;
 
@@ -240,8 +260,8 @@ export async function settingsView(view) {
       settingsView(view);
       return;
     }
-    if (act === 'take-latest') {
-      await runTakeLatest();
+    if (act === 'take-latest' || act === 'pull-now') {
+      await runTakeLatest(act === 'pull-now');
       settingsView(view);
       return;
     }
