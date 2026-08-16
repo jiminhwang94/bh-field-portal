@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>결정 문서 — 오프라인 앱(APK) 전환</title>
+<style>
+  :root {
+    --bg:#eef1f5; --surface:#fff; --surface2:#f7f9fb; --text:#111823; --muted:#5c6875;
+    --border:#d8dfe7; --primary:#1f6feb; --ok:#0f9d58; --warn:#b45309; --danger:#d92b3f;
+    --pending:#f5a524; --rec:#e8f1ff; --rec-border:#1f6feb; --ink:#fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0d1218; --surface:#161d26; --surface2:#1d252f; --text:#eaf0f6; --muted:#9aa7b4;
+      --border:#2b3542; --primary:#4c8dff; --ok:#3ddc97; --warn:#f2b656; --danger:#ff6b7d;
+      --pending:#f7bf4f; --rec:#14243d; --rec-border:#4c8dff; --ink:#0d1218;
+    }
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg); color:var(--text); line-height:1.65;
+    font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
+  }
+  .wrap { max-width:860px; margin:0 auto; padding:28px 16px 80px; }
+  h1 { font-size:1.5rem; letter-spacing:-.02em; margin:0 0 6px; }
+  h2 { font-size:1.2rem; margin:38px 0 10px; letter-spacing:-.02em; }
+  .sub { color:var(--muted); font-size:.95rem; margin-bottom:22px; }
+  .card {
+    background:var(--surface); border:1px solid var(--border); border-radius:16px;
+    padding:20px 22px; margin-bottom:18px;
+  }
+  .muted { color:var(--muted); }
+  .pill {
+    display:inline-block; font-size:.75rem; font-weight:800; padding:2px 10px;
+    border-radius:999px; background:var(--primary); color:var(--ink); vertical-align:middle;
+  }
+  .pill--off { background:var(--danger); }
+  .pill--on { background:var(--ok); }
+  .grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); }
+  .shot { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:14px; }
+  .shot figcaption { font-size:.86rem; color:var(--muted); margin-top:10px; line-height:1.55; }
+  .shot figcaption b { color:var(--text); }
+  figure { margin:0; }
+  svg { width:100%; height:auto; display:block; border-radius:10px; }
+  table { width:100%; border-collapse:collapse; font-size:.92rem; }
+  th, td { border:1px solid var(--border); padding:9px 12px; text-align:left; vertical-align:top; }
+  th { background:var(--surface2); }
+  .opt { border:1px solid var(--border); border-radius:12px; padding:14px 16px; margin-bottom:10px; background:var(--surface2); }
+  .opt.rec { background:var(--rec); border:2px solid var(--rec-border); }
+  .opt h3 { margin:0 0 6px; font-size:1rem; }
+  .opt ul { margin:6px 0 0; padding-left:20px; font-size:.9rem; }
+  .good::marker { color:var(--ok); } .bad::marker { color:var(--danger); }
+  .reply { background:var(--surface); border:2px dashed var(--border); border-radius:14px; padding:18px; font-size:.95rem; }
+  .reply code { display:block; background:var(--surface2); border-radius:8px; padding:12px 14px; margin-top:10px; font-family:ui-monospace,Menlo,monospace; }
+  .warnbox { border-left:4px solid var(--warn); background:var(--surface); border-radius:0 12px 12px 0; padding:14px 16px; margin:10px 0; font-size:.92rem; }
+  ol.steps { line-height:1.9; padding-left:22px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📱 오프라인 앱(APK) 전환 — 설명 · 미리보기 · 결정</h1>
+  <div class="sub">2026-08-05 · 아래 그림은 <b>구현 전 미리보기(목업)</b>입니다.
+    끝의 회신 방법대로 답하시면 그대로 만듭니다.</div>
+
+  <!-- ======================= 1. 개념 설명 ======================= -->
+  <h2>1. 어떻게 "진짜 앱"이 되나</h2>
+  <div class="card">
+    <p style="margin:0 0 10px"><b>APK</b> 는 안드로이드 설치 파일입니다. 스토어 없이도
+    파일을 받아 설치하면 <b>홈 화면 아이콘 · 앱 목록 등록 · 전체화면</b>으로 도는 진짜 앱이 됩니다.</p>
+    <p style="margin:0 0 10px">지금 앱이 오프라인에서 안 되는 이유는 딱 하나 —
+    <b>데이터가 서버(사무실 PC)에 있기 때문</b>입니다. 그래서 이번 작업의 핵심은 APK 포장이 아니라
+    <b>데이터를 통째로 기기 안으로 옮기는 것</b>입니다. (실측: 전체 가이드+재고+항목 = <b>12.8KB</b>,
+    사진 포함 <b>1.3MB</b> — 태블릿 저장소 기준 먼지 수준이라 전부 넣을 수 있습니다)</p>
+    <p style="margin:0">이 맥에는 안드로이드 빌드 도구가 없지만, 이미 연결된 <b>GitHub</b> 가
+    빌드 공장 역할을 합니다. 코드를 올리면 GitHub 서버가 APK 를 만들어 내려받기 링크를 제공합니다.</p>
+  </div>
+
+  <!-- ======================= 2. 구조 비교 ======================= -->
+  <h2>2. 구조가 이렇게 바뀝니다</h2>
+  <div class="grid">
+    <figure class="shot">
+      <svg viewBox="0 0 400 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="현재 구조">
+        <text x="16" y="26" fill="var(--danger)" font-size="14" font-weight="800">지금 — 서버가 없으면 아무것도 못 함</text>
+        <rect x="140" y="48" width="120" height="64" rx="10" fill="var(--surface2)" stroke="var(--border)"/>
+        <text x="200" y="74" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">사무실 PC 서버</text>
+        <text x="200" y="94" text-anchor="middle" fill="var(--muted)" font-size="11">화면 + 모든 데이터</text>
+        <g font-size="12" fill="var(--text)" font-weight="700" text-anchor="middle">
+          <rect x="30" y="170" width="100" height="52" rx="10" fill="var(--surface2)" stroke="var(--border)"/>
+          <text x="80" y="192">태블릿 A</text>
+          <text x="80" y="210" fill="var(--muted)" font-weight="400" font-size="10">데이터 없음</text>
+          <rect x="150" y="170" width="100" height="52" rx="10" fill="var(--surface2)" stroke="var(--border)"/>
+          <text x="200" y="192">태블릿 B</text>
+          <text x="200" y="210" fill="var(--muted)" font-weight="400" font-size="10">데이터 없음</text>
+          <rect x="270" y="170" width="100" height="52" rx="10" fill="var(--surface2)" stroke="var(--border)"/>
+          <text x="320" y="192">PC</text>
+          <text x="320" y="210" fill="var(--muted)" font-weight="400" font-size="10">데이터 없음</text>
+        </g>
+        <g stroke="var(--muted)" stroke-width="1.6">
+          <line x1="80" y1="168" x2="178" y2="114"/>
+          <line x1="200" y1="168" x2="200" y2="114"/>
+          <line x1="320" y1="168" x2="222" y2="114"/>
+        </g>
+        <text x="200" y="140" text-anchor="middle" fill="var(--danger)" font-size="11" font-weight="700">연결 끊기면 ✕ 전부 정지</text>
+      </svg>
+      <figcaption><b>현재:</b> 모든 조회·저장이 서버 왕복. 신호가 없으면 매뉴얼도 리포트도 재고도 정지.</figcaption>
+    </figure>
+    <figure class="shot">
+      <svg viewBox="0 0 400 250" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="개편 구조">
+        <text x="16" y="26" fill="var(--ok)" font-size="14" font-weight="800">개편 — 기기마다 데이터 전부 보유</text>
+        <rect x="140" y="48" width="120" height="56" rx="10" fill="var(--surface2)" stroke="var(--border)"/>
+        <text x="200" y="71" text-anchor="middle" fill="var(--text)" font-size="13" font-weight="700">서버 = 공개본 보관소</text>
+        <text x="200" y="89" text-anchor="middle" fill="var(--muted)" font-size="11">[업데이트] 때만 만남</text>
+        <g font-size="12" fill="var(--text)" font-weight="700" text-anchor="middle">
+          <rect x="30" y="168" width="100" height="58" rx="10" fill="var(--rec)" stroke="var(--rec-border)" stroke-width="2"/>
+          <text x="80" y="189">태블릿 A</text>
+          <text x="80" y="207" fill="var(--ok)" font-size="10">💾 전체 데이터</text>
+          <rect x="150" y="168" width="100" height="58" rx="10" fill="var(--rec)" stroke="var(--rec-border)" stroke-width="2"/>
+          <text x="200" y="189">태블릿 B</text>
+          <text x="200" y="207" fill="var(--ok)" font-size="10">💾 전체 데이터</text>
+          <rect x="270" y="168" width="100" height="58" rx="10" fill="var(--rec)" stroke="var(--rec-border)" stroke-width="2"/>
+          <text x="320" y="189">PC</text>
+          <text x="320" y="207" fill="var(--ok)" font-size="10">💾 전체 데이터</text>
+        </g>
+        <g stroke="var(--primary)" stroke-width="1.6" stroke-dasharray="5 4">
+          <line x1="80" y1="166" x2="178" y2="106"/>
+          <line x1="200" y1="166" x2="200" y2="106"/>
+          <line x1="320" y1="166" x2="222" y2="106"/>
+        </g>
+        <text x="200" y="135" text-anchor="middle" fill="var(--primary)" font-size="11" font-weight="700">점선 = 온라인일 때만 (동기화)</text>
+        <text x="200" y="243" text-anchor="middle" fill="var(--ok)" font-size="11" font-weight="700">연결 끊겨도 각 기기는 전부 동작 ✓</text>
+      </svg>
+      <figcaption><b>개편 후:</b> 매뉴얼·재고·리포트가 기기 안에 있어 오프라인에서 전부 동작.
+        서버는 [업데이트] 때 만나는 공개본 보관소가 됩니다.</figcaption>
+    </figure>
+  </div>
+
+  <!-- ======================= 3. 화면 미리보기 ======================= -->
+  <h2>3. 화면 미리보기 — 오프라인에서 이렇게 됩니다</h2>
+  <div class="grid">
+
+    <!-- 목업 A: 오프라인 홈 -->
+    <figure class="shot">
+      <svg viewBox="0 0 320 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="오프라인 홈 화면 목업">
+        <rect x="4" y="4" width="312" height="552" rx="24" fill="var(--bg)" stroke="var(--border)" stroke-width="2"/>
+        <rect x="4" y="4" width="312" height="54" rx="24" fill="var(--surface)"/>
+        <rect x="4" y="34" width="312" height="24" fill="var(--surface)"/>
+        <text x="22" y="38" font-size="13" font-weight="800" fill="var(--text)">🤖 로봇 현장 대응 포털</text>
+        <rect x="212" y="20" width="88" height="26" rx="13" fill="var(--danger)"/>
+        <text x="256" y="38" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">📴 오프라인</text>
+        <rect x="20" y="74" width="216" height="34" rx="10" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="34" y="96" font-size="11" fill="var(--muted)">오류 코드 · 부품명 검색 (기기 안에서)</text>
+        <rect x="244" y="74" width="56" height="34" rx="10" fill="var(--primary)"/>
+        <text x="272" y="96" text-anchor="middle" font-size="11" font-weight="700" fill="var(--ink)">검색</text>
+        <g>
+          <rect x="20" y="122" width="280" height="64" rx="12" fill="var(--surface)" stroke="var(--border)"/>
+          <rect x="20" y="122" width="5" height="64" rx="2" fill="#e13d3d"/>
+          <text x="38" y="148" font-size="13" font-weight="800" fill="var(--text)">🔴 오류 코드 가이드</text>
+          <text x="38" y="170" font-size="11" fill="var(--ok)">3건 · 전부 기기에 저장됨 ✓</text>
+          <rect x="20" y="196" width="280" height="64" rx="12" fill="var(--surface)" stroke="var(--border)"/>
+          <rect x="20" y="196" width="5" height="64" rx="2" fill="#d97706"/>
+          <text x="38" y="222" font-size="13" font-weight="800" fill="var(--text)">🔧 하드웨어 교체 SOP</text>
+          <text x="38" y="244" font-size="11" fill="var(--ok)">3건 · 사진 포함 저장됨 ✓</text>
+          <rect x="20" y="270" width="280" height="64" rx="12" fill="var(--surface)" stroke="var(--border)"/>
+          <rect x="20" y="270" width="5" height="64" rx="2" fill="#0d8f83"/>
+          <text x="38" y="296" font-size="13" font-weight="800" fill="var(--text)">💻 SW &amp; 명령어</text>
+          <text x="38" y="318" font-size="11" fill="var(--ok)">2건 · 복사 버튼 동작 ✓</text>
+        </g>
+        <rect x="20" y="352" width="280" height="56" rx="12" fill="var(--surface)" stroke="var(--pending)" stroke-width="1.5"/>
+        <text x="34" y="375" font-size="11" font-weight="800" fill="var(--text)">⏳ 온라인 되면 처리할 작업 3건</text>
+        <text x="34" y="393" font-size="10" fill="var(--muted)">리포트 업로드 1 · 재고 반영 2 — 자동 처리됨</text>
+        <rect x="4" y="494" width="312" height="62" rx="0" fill="var(--surface)"/>
+        <g font-size="9" text-anchor="middle" fill="var(--muted)" font-weight="700">
+          <text x="45" y="530">🏠</text><text x="45" y="545">홈</text>
+          <text x="105" y="530">🚐</text><text x="105" y="545">재고</text>
+          <text x="165" y="530">📝</text><text x="165" y="545">새 리포트</text>
+          <text x="225" y="530">🗂</text><text x="225" y="545">이력</text>
+          <text x="285" y="530">⚙️</text><text x="285" y="545">설정</text>
+        </g>
+        <rect x="20" y="494" width="50" height="3" fill="var(--primary)"/>
+      </svg>
+      <figcaption><b>A. 오프라인 홈</b> — 상단에 📴 배지만 뜨고 <b>모든 메뉴가 그대로 동작</b>.
+        검색도 기기 안 데이터에서 즉시. 대기 중 작업 수가 표시됩니다.</figcaption>
+    </figure>
+
+    <!-- 목업 B: 오프라인 리포트 작성 -->
+    <figure class="shot">
+      <svg viewBox="0 0 320 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="오프라인 리포트 작성 목업">
+        <rect x="4" y="4" width="312" height="552" rx="24" fill="var(--bg)" stroke="var(--border)" stroke-width="2"/>
+        <rect x="4" y="4" width="312" height="54" rx="24" fill="var(--surface)"/>
+        <rect x="4" y="34" width="312" height="24" fill="var(--surface)"/>
+        <text x="22" y="38" font-size="13" font-weight="800" fill="var(--text)">📝 새 현장 리포트</text>
+        <rect x="212" y="20" width="88" height="26" rx="13" fill="var(--danger)"/>
+        <text x="256" y="38" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">📴 오프라인</text>
+        <g font-size="11">
+          <text x="24" y="88" font-weight="700" fill="var(--text)">방문 식당명 *</text>
+          <rect x="20" y="96" width="280" height="34" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="32" y="118" fill="var(--text)">행복식당 강남점</text>
+          <text x="24" y="152" font-weight="700" fill="var(--text)">증상 요약 *</text>
+          <rect x="20" y="160" width="280" height="52" rx="9" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="32" y="182" fill="var(--text)">지하 매장 · 신호 없음 · 로더 정지</text>
+          <text x="24" y="236" font-weight="700" fill="var(--text)">현장 사진</text>
+          <rect x="20" y="244" width="86" height="64" rx="9" fill="var(--surface2)" stroke="var(--border)"/>
+          <text x="63" y="280" text-anchor="middle" font-size="20">📷</text>
+          <rect x="114" y="244" width="86" height="64" rx="9" fill="var(--surface2)" stroke="var(--border)"/>
+          <text x="157" y="280" text-anchor="middle" font-size="20">🖼️</text>
+          <text x="212" y="280" font-size="10" fill="var(--ok)">촬영 → 기기에 저장 ✓</text>
+        </g>
+        <rect x="20" y="330" width="280" height="44" rx="12" fill="var(--primary)"/>
+        <text x="160" y="357" text-anchor="middle" font-size="13" font-weight="800" fill="var(--ink)">💾 저장 (오프라인)</text>
+        <rect x="20" y="388" width="280" height="76" rx="12" fill="var(--surface)" stroke="var(--pending)" stroke-width="2"/>
+        <text x="34" y="412" font-size="12" font-weight="800" fill="var(--text)">⏳ 기기에 저장했습니다</text>
+        <text x="34" y="432" font-size="10.5" fill="var(--muted)">인터넷이 연결되면 구글 시트로</text>
+        <text x="34" y="448" font-size="10.5" fill="var(--muted)">자동 업로드됩니다 (사진 포함)</text>
+        <rect x="4" y="494" width="312" height="62" fill="var(--surface)"/>
+        <g font-size="9" text-anchor="middle" fill="var(--muted)" font-weight="700">
+          <text x="45" y="530">🏠</text><text x="45" y="545">홈</text>
+          <text x="105" y="530">🚐</text><text x="105" y="545">재고</text>
+          <text x="165" y="530">📝</text><text x="165" y="545">새 리포트</text>
+          <text x="225" y="530">🗂</text><text x="225" y="545">이력</text>
+          <text x="285" y="530">⚙️</text><text x="285" y="545">설정</text>
+        </g>
+        <rect x="140" y="494" width="50" height="3" fill="var(--primary)"/>
+      </svg>
+      <figcaption><b>B. 오프라인 리포트 작성</b> — 사진 촬영까지 전부 가능. 저장하면 기기에 담기고
+        <b>온라인 복귀 시 자동으로 시트에 업로드</b>됩니다.</figcaption>
+    </figure>
+
+    <!-- 목업 C: 오프라인 재고 -->
+    <figure class="shot">
+      <svg viewBox="0 0 320 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="오프라인 재고 목업">
+        <rect x="4" y="4" width="312" height="552" rx="24" fill="var(--bg)" stroke="var(--border)" stroke-width="2"/>
+        <rect x="4" y="4" width="312" height="54" rx="24" fill="var(--surface)"/>
+        <rect x="4" y="34" width="312" height="24" fill="var(--surface)"/>
+        <text x="22" y="38" font-size="13" font-weight="800" fill="var(--text)">🚐 차량 재고</text>
+        <rect x="212" y="20" width="88" height="26" rx="13" fill="var(--danger)"/>
+        <text x="256" y="38" text-anchor="middle" font-size="11" font-weight="800" fill="#fff">📴 오프라인</text>
+        <rect x="20" y="74" width="96" height="30" rx="15" fill="var(--primary)"/>
+        <text x="68" y="94" text-anchor="middle" font-size="11" font-weight="700" fill="var(--ink)">840서 4373</text>
+        <rect x="124" y="74" width="96" height="30" rx="15" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="172" y="94" text-anchor="middle" font-size="11" fill="var(--muted)">845누 5868</text>
+        <g>
+          <rect x="20" y="118" width="280" height="72" rx="12" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="34" y="144" font-size="13" font-weight="800" fill="var(--text)">퓨즈 10A</text>
+          <text x="34" y="163" font-size="10" fill="var(--pending)">⏳ −2 반영 대기 (재연결 시 자동)</text>
+          <rect x="176" y="132" width="34" height="34" rx="9" fill="var(--surface2)" stroke="var(--border)"/>
+          <text x="193" y="155" text-anchor="middle" font-size="16" font-weight="800" fill="var(--text)">−</text>
+          <text x="232" y="156" text-anchor="middle" font-size="16" font-weight="800" fill="var(--text)">8</text>
+          <rect x="254" y="132" width="34" height="34" rx="9" fill="var(--surface2)" stroke="var(--border)"/>
+          <text x="271" y="155" text-anchor="middle" font-size="16" font-weight="800" fill="var(--text)">＋</text>
+        </g>
+        <g>
+          <rect x="20" y="202" width="280" height="72" rx="12" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="34" y="228" font-size="13" font-weight="800" fill="var(--text)">그리퍼 실리콘 패드</text>
+          <text x="34" y="247" font-size="10" fill="var(--danger)">보충 필요 (최소 4)</text>
+          <rect x="176" y="216" width="34" height="34" rx="9" fill="var(--surface2)" stroke="var(--border)"/>
+          <text x="193" y="239" text-anchor="middle" font-size="16" font-weight="800" fill="var(--text)">−</text>
+          <text x="232" y="240" text-anchor="middle" font-size="16" font-weight="800" fill="var(--danger)">3</text>
+          <rect x="254" y="216" width="34" height="34" rx="9" fill="var(--surface2)" stroke="var(--border)"/>
+          <text x="271" y="239" text-anchor="middle" font-size="16" font-weight="800" fill="var(--text)">＋</text>
+        </g>
+        <rect x="20" y="290" width="280" height="58" rx="12" fill="var(--surface)" stroke="var(--border)"/>
+        <text x="34" y="313" font-size="11" font-weight="700" fill="var(--text)">💡 수량 변경은 기기에 먼저 기록되고</text>
+        <text x="34" y="331" font-size="11" fill="var(--muted)">온라인 복귀 순간 모두에게 반영됩니다</text>
+        <rect x="4" y="494" width="312" height="62" fill="var(--surface)"/>
+        <g font-size="9" text-anchor="middle" fill="var(--muted)" font-weight="700">
+          <text x="45" y="530">🏠</text><text x="45" y="545">홈</text>
+          <text x="105" y="530">🚐</text><text x="105" y="545">재고</text>
+          <text x="165" y="530">📝</text><text x="165" y="545">새 리포트</text>
+          <text x="225" y="530">🗂</text><text x="225" y="545">이력</text>
+          <text x="285" y="530">⚙️</text><text x="285" y="545">설정</text>
+        </g>
+        <rect x="80" y="494" width="50" height="3" fill="var(--primary)"/>
+      </svg>
+      <figcaption><b>C. 오프라인 재고</b> — [−]/[＋] 그대로 동작. 변경분은 대기 표시가 붙고
+        재연결되면 순서대로 자동 반영됩니다.</figcaption>
+    </figure>
+
+    <!-- 목업 D: 온라인 복귀 -->
+    <figure class="shot">
+      <svg viewBox="0 0 320 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="온라인 복귀 목업">
+        <rect x="4" y="4" width="312" height="552" rx="24" fill="var(--bg)" stroke="var(--border)" stroke-width="2"/>
+        <rect x="4" y="4" width="312" height="54" rx="24" fill="var(--surface)"/>
+        <rect x="4" y="34" width="312" height="24" fill="var(--surface)"/>
+        <text x="22" y="38" font-size="13" font-weight="800" fill="var(--text)">🗂 리포트 이력</text>
+        <rect x="204" y="20" width="96" height="26" rx="13" fill="var(--pending)"/>
+        <text x="252" y="38" text-anchor="middle" font-size="11" font-weight="800" fill="#201400">⬆️ 업데이트 ●</text>
+        <rect x="20" y="72" width="280" height="50" rx="12" fill="var(--surface)" stroke="var(--ok)" stroke-width="2"/>
+        <text x="34" y="93" font-size="11.5" font-weight="800" fill="var(--ok)">🟢 온라인 복귀 — 대기 작업 처리 중…</text>
+        <text x="34" y="111" font-size="10" fill="var(--muted)">리포트 1건 시트 업로드 · 재고 2건 반영</text>
+        <g>
+          <rect x="20" y="136" width="280" height="60" rx="12" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="34" y="160" font-size="12" font-weight="800" fill="var(--text)">행복식당 강남점</text>
+          <rect x="34" y="170" width="140" height="18" rx="9" fill="var(--ok)"/>
+          <text x="104" y="183" text-anchor="middle" font-size="9.5" font-weight="700" fill="#fff">✓ 시트 업로드 완료 (2026-08 3행)</text>
+        </g>
+        <g>
+          <rect x="20" y="208" width="280" height="60" rx="12" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="34" y="232" font-size="12" font-weight="800" fill="var(--text)">미트로 판교점</text>
+          <rect x="34" y="242" width="96" height="18" rx="9" fill="var(--surface2)" stroke="var(--border)"/>
+          <text x="82" y="255" text-anchor="middle" font-size="9.5" fill="var(--muted)">기기에만 저장됨</text>
+        </g>
+        <rect x="20" y="284" width="280" height="88" rx="12" fill="var(--rec)" stroke="var(--rec-border)" stroke-width="1.5"/>
+        <text x="34" y="308" font-size="12" font-weight="800" fill="var(--text)">⬆️ [업데이트] 는 지금처럼</text>
+        <text x="34" y="328" font-size="10.5" fill="var(--muted)">가이드·품목을 고쳤으면 버튼이 노랗게 되고,</text>
+        <text x="34" y="344" font-size="10.5" fill="var(--muted)">누르면 서버 공개본에 반영 → 다른 기기가</text>
+        <text x="34" y="360" font-size="10.5" fill="var(--muted)">온라인일 때 자동으로 받아갑니다</text>
+        <rect x="4" y="494" width="312" height="62" fill="var(--surface)"/>
+        <g font-size="9" text-anchor="middle" fill="var(--muted)" font-weight="700">
+          <text x="45" y="530">🏠</text><text x="45" y="545">홈</text>
+          <text x="105" y="530">🚐</text><text x="105" y="545">재고</text>
+          <text x="165" y="530">📝</text><text x="165" y="545">새 리포트</text>
+          <text x="225" y="530">🗂</text><text x="225" y="545">이력</text>
+          <text x="285" y="530">⚙️</text><text x="285" y="545">설정</text>
+        </g>
+        <rect x="200" y="494" width="50" height="3" fill="var(--primary)"/>
+      </svg>
+      <figcaption><b>D. 온라인 복귀</b> — 연결되는 순간 대기 작업이 자동 처리되고,
+        [업데이트] 버튼은 지금과 똑같이 동작합니다.</figcaption>
+    </figure>
+  </div>
+
+  <!-- ======================= 4. APK 설치 절차 ======================= -->
+  <h2>4. APK 만들고 설치하는 과정 (전부 이렇게 진행됩니다)</h2>
+  <figure class="shot">
+    <svg viewBox="0 0 800 210" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="APK 빌드 및 설치 절차">
+      <g font-size="12" fill="var(--text)">
+        <rect x="10" y="30" width="180" height="140" rx="12" fill="var(--surface2)" stroke="var(--border)"/>
+        <text x="100" y="20" text-anchor="middle" font-weight="800" fill="var(--primary)">① 제가 코드 작성</text>
+        <text x="100" y="70" text-anchor="middle" font-size="26">👨‍💻</text>
+        <text x="100" y="105" text-anchor="middle" font-size="11">오프라인 구조 개편</text>
+        <text x="100" y="123" text-anchor="middle" font-size="11">+ 안드로이드 포장</text>
+        <text x="100" y="141" text-anchor="middle" font-size="11" fill="var(--muted)">GitHub 에 올림</text>
+
+        <text x="210" y="105" font-size="18" fill="var(--muted)">→</text>
+
+        <rect x="230" y="30" width="180" height="140" rx="12" fill="var(--surface2)" stroke="var(--border)"/>
+        <text x="320" y="20" text-anchor="middle" font-weight="800" fill="var(--primary)">② GitHub 가 자동 빌드</text>
+        <text x="320" y="70" text-anchor="middle" font-size="26">🏭</text>
+        <text x="320" y="105" text-anchor="middle" font-size="11">GitHub 서버가 APK 생성</text>
+        <text x="320" y="123" text-anchor="middle" font-size="11">(이 맥에 도구 불필요)</text>
+        <text x="320" y="141" text-anchor="middle" font-size="11" fill="var(--muted)">약 5~10분</text>
+
+        <text x="430" y="105" font-size="18" fill="var(--muted)">→</text>
+
+        <rect x="450" y="30" width="160" height="140" rx="12" fill="var(--surface2)" stroke="var(--border)"/>
+        <text x="530" y="20" text-anchor="middle" font-weight="800" fill="var(--primary)">③ 태블릿에서 받기</text>
+        <text x="530" y="70" text-anchor="middle" font-size="26">⬇️</text>
+        <text x="530" y="105" text-anchor="middle" font-size="11">다운로드 링크 접속</text>
+        <text x="530" y="123" text-anchor="middle" font-size="11">→ APK 파일 저장</text>
+
+        <text x="628" y="105" font-size="18" fill="var(--muted)">→</text>
+
+        <rect x="645" y="30" width="145" height="140" rx="12" fill="var(--rec)" stroke="var(--rec-border)" stroke-width="2"/>
+        <text x="717" y="20" text-anchor="middle" font-weight="800" fill="var(--primary)">④ 설치 완료</text>
+        <text x="717" y="70" text-anchor="middle" font-size="26">🤖</text>
+        <text x="717" y="105" text-anchor="middle" font-size="11">"출처 허용" 1회 확인</text>
+        <text x="717" y="123" text-anchor="middle" font-size="11">→ 홈 화면에 앱</text>
+        <text x="717" y="141" text-anchor="middle" font-size="11" fill="var(--ok)">오프라인 동작 ✓</text>
+      </g>
+    </svg>
+    <figcaption>새 버전이 나올 때마다 ③~④만 반복하면 됩니다 (APK 다시 설치 = 앱 업데이트).
+      데이터는 앱 안 동기화로 갱신되므로 재설치가 필요 없습니다.</figcaption>
+  </figure>
+
+  <!-- ======================= 5. 온/오프라인에서 되는 것 ======================= -->
+  <h2>5. 정리 — 온/오프라인에서 되는 것</h2>
+  <div class="card">
+    <table>
+      <tr><th>기능</th><th><span class="pill pill--off">📴 오프라인</span></th><th><span class="pill pill--on">🟢 온라인</span></th></tr>
+      <tr><td>오류코드·SOP·명령어 열람/검색</td><td>✅ 전부 (기기 안 데이터)</td><td>✅</td></tr>
+      <tr><td>가이드 생성/수정/삭제</td><td>✅ 내 기기에 저장</td><td>✅ + [업데이트]로 전체 적용</td></tr>
+      <tr><td>리포트 작성 (사진 포함)</td><td>✅ 기기에 저장</td><td>✅</td></tr>
+      <tr><td>리포트 → 구글 시트 업로드</td><td>⏳ 대기열 → 복귀 시 자동</td><td>✅ 즉시 (사무실 밖 LTE 도 OK)</td></tr>
+      <tr><td>재고 수량 [−]/[＋]</td><td>✅ 기기 기록 → 복귀 시 자동 반영</td><td>✅ 즉시 전체 공유 (현행)</td></tr>
+      <tr><td>[업데이트] / 다른 사람 변경 받기</td><td>—</td><td>✅ (현행과 동일)</td></tr>
+    </table>
+  </div>
+
+  <!-- ======================= 6. 솔직한 제약 ======================= -->
+  <h2>6. 미리 아셔야 할 제약 5가지</h2>
+  <div class="warnbox"><b>① APK 는 안드로이드 전용.</b> 아이패드/아이폰은 애플이 APK 를 막아 두어
+    불가능합니다 — 같은 오프라인 기능을 담은 <b>PWA(사파리 → 홈 화면에 추가)</b>로 병행합니다.</div>
+  <div class="warnbox"><b>② 스토어 앱이 아닙니다.</b> 설치할 때 "출처를 알 수 없는 앱 허용"을
+    기기당 1회 눌러야 합니다. (지난번 Play 스토어 AR 오류와는 무관한, 정상적인 사내 배포 방식)</div>
+  <div class="warnbox"><b>③ 앱 화면 자체의 업데이트 = 새 APK 설치.</b> 데이터(가이드·재고)는
+    동기화로 자동 갱신되지만, 화면/기능이 바뀌면 새 APK 를 받아 설치해야 합니다.
+    앱이 "새 버전 있음"을 알려주게 만듭니다.</div>
+  <div class="warnbox"><b>④ [업데이트] 동기화는 서버에 닿아야 합니다.</b> 서버가 사무실 PC 인 지금(D-2)은
+    사무실 Wi-Fi 에서만 동기화됩니다. <b>시트 업로드는 서버와 무관</b>해서 LTE 만 있으면 어디서나 됩니다.
+    사무실 밖 동기화까지 원하시면 나중에 D-2(클라우드)를 다시 열면 됩니다.</div>
+  <div class="warnbox"><b>⑤ 큰 구조 변경입니다.</b> v2.0 에서 "온라인 전용"으로 정리했던 방향을
+    뒤집어, 데이터 위치를 서버→기기로 옮기는 재구조화입니다. 테스트도 대부분 다시 만듭니다.
+    그만큼 이번 판단이 중요해서 이 문서로 먼저 확인드립니다.</div>
+
+  <!-- ======================= 7. 결정 ======================= -->
+  <h2>7. 결정</h2>
+  <div class="card">
+    <div class="opt rec">
+      <h3>D-6 = A. APK(안드로이드) + PWA(아이패드) 병행 <span class="pill">추천</span></h3>
+      <ul>
+        <li class="good">요청하신 "다운로드해서 설치하는 앱" 그대로 (안드로이드)</li>
+        <li class="good">아이패드도 같은 오프라인 기능 사용 가능 (설치 경로만 다름)</li>
+        <li class="bad">새 버전마다 APK 재설치 필요 (③)</li>
+      </ul>
+    </div>
+    <div class="opt">
+      <h3>D-6 = B. PWA 만 (APK 없이)</h3>
+      <ul>
+        <li class="good">오프라인 기능은 A 와 100% 동일, 배포가 더 단순(브라우저에서 설치)</li>
+        <li class="bad">"파일 받아서 설치하는 앱" 형태는 아님</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="reply">
+    <b>회신 방법</b> — 그림이 의도와 맞으면 채팅으로:
+    <code>D-6: A, 진행해</code>
+    수정하고 싶은 화면/동작이 있으면 함께 적어주세요 (예: "오프라인 배지는 더 작게").
+    회신 즉시 1단계(로컬 우선 구조)부터 착수하고, 단계마다 결과를 보고합니다.
+  </div>
+</div>
+</body>
+</html>
