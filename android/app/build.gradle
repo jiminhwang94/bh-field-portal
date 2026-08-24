@@ -56,6 +56,10 @@ android {
 }
 
 dependencies {
+    // androidx 부품들이 서로 다른 코틀린 표준 라이브러리 버전을 끌고 오면
+    // "Duplicate class kotlin..." 으로 빌드가 실패한다. BOM 으로 한 버전에 정렬한다.
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
+
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.webkit:webkit:1.11.0'      // WebViewAssetLoader
     implementation 'androidx.activity:activity:1.9.2'   // 뒤로가기 · 결과 받기
