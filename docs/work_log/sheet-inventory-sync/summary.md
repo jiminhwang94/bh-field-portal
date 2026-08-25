@@ -59,6 +59,19 @@
   자동으로 기기 재고로 탭을 생성한다. 설정 화면에는 안내 문구만 남김.
 - 검증: 빈 목 시트 상태에서 재고 화면만 열어도 탭 자동 생성 확인, 테스트 통과.
 
+## 실제 구글 시트 검증 (같은 날)
+- 테스트용 스프레드시트 **"차량 재고 (현장 포털)"** 신규 생성
+  (id: `1gLQIiNVFgzTaJSwGdty664XPx7z9Y9NOQiMYP8b3vvk`, 소유: jensen.byeon@beyondhoneycomb.com)
+- Apps Script 웹 앱 배포 (실행: 나 / 액세스: 모든 사용자, 버전 1)
+  - exec URL: `https://script.google.com/macros/s/AKfycbzYFUuzAiKQGTo1QhHw2VvdJD3fs4n0Ab37-ucY_9e3WLecAsSTX8PH1OYS62KK0zAnBg/exec`
+- 로컬 앱에 URL 연결 후 전 흐름 실사 확인:
+  1. 연결 테스트 성공 → 재고 화면 첫 진입 시 실제 시트에 `차량재고` 탭 자동 생성 (차량 2대 헤더) ✅
+  2. 앱에서 품목 추가 → 시트 3행에 부품·최소보유·수량 기록 ✅
+  3. 앱 `[-]` → 시트 셀 6→5 즉시 갱신 ✅
+  4. 시트에서 직접 수량 입력(4373 열 = 9) → 앱 [시트에서 받기]로 정확히 수신 ✅
+- 참고: `.gs` 파일에 편집 중 섞인 NUL(0x00) 문자 3개 발견 → 이스케이프 문자열로 정정
+  (Apps Script 편집기 오류 방지)
+
 ## 남은 일 / 배포 절차
 - **배포 시 최초 1회**: 스프레드시트 Apps Script 에 최신 `google-apps-script.gs` 붙여넣고
   [배포 관리]에서 기존 배포의 **새 버전**으로 재배포 (URL 유지). 그 후 각 기기 설정에서 토글 켬.

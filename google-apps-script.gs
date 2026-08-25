@@ -219,7 +219,7 @@ function writeInventory(sheet, vehicles, items) {
 
   var parts = [];                    // 부품명 등장 순서 유지
   var minByPart = {};                // 부품별 최소보유 (차량별 값 중 최댓값)
-  var qty = {};                      // '<차량> <부품>' → 수량
+  var qty = {};                      // '<차량>+<부품>' → 수량
   for (var j = 0; j < items.length; j++) {
     var item = items[j] || {};
     var vehicle = String(item.vehicleName || '').trim();
@@ -229,7 +229,7 @@ function writeInventory(sheet, vehicles, items) {
     if (parts.indexOf(part) < 0) parts.push(part);
     var minq = Math.max(0, Math.floor(Number(item.minQuantity) || 0));
     if (!(part in minByPart) || minq > minByPart[part]) minByPart[part] = minq;
-    qty[vehicle + ' ' + part] = Math.max(0, Math.floor(Number(item.quantity) || 0));
+    qty[vehicle + '\u0000' + part] = Math.max(0, Math.floor(Number(item.quantity) || 0));
   }
 
   sheet.clearContents();
@@ -248,7 +248,7 @@ function writeInventory(sheet, vehicles, items) {
     for (var p = 0; p < parts.length; p++) {
       var row = [parts[p], minByPart[parts[p]] || 0];
       for (var n = 0; n < names.length; n++) {
-        var key = names[n] + ' ' + parts[p];
+        var key = names[n] + '\u0000' + parts[p];
         row.push(key in qty ? qty[key] : '');
       }
       rows.push(row);
