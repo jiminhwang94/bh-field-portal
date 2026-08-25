@@ -84,9 +84,21 @@ export const api = {
   // ------------------------------------------------------------------ 가이드
   listGuides: async (type, q) => ({ items: await store.listGuides(type || null, q || null) }),
   getGuide: (id) => store.getGuide(id),
-  createGuide: (payload) => store.saveGuide(payload),
-  updateGuide: (id, payload) => store.saveGuide(payload, id),
-  deleteGuide: (id) => store.deleteGuide(id),
+  createGuide: async (payload) => {
+    const guide = await store.saveGuide(payload);
+    flushSoon();
+    return guide;
+  },
+  updateGuide: async (id, payload) => {
+    const guide = await store.saveGuide(payload, id);
+    flushSoon();
+    return guide;
+  },
+  deleteGuide: async (id) => {
+    const ok = await store.deleteGuide(id);
+    flushSoon();
+    return ok;
+  },
 
   // ------------------------------------------------------------------ 차량
   listVehicles: async () => {

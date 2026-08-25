@@ -50,6 +50,11 @@ function doPost(e) {
       return handleInventory(ss, body);
     }
 
+    // 가이드 열람용 탭 — 앱의 가이드 3종을 카테고리별 탭으로 내보낸다 (읽기 전용).
+    if (body.guides) {
+      return handleGuides(ss, body);
+    }
+
     var sheetName = String(body.sheetName || '').trim();
     var headers = body.headers || [];
     var row = body.row || [];
@@ -344,6 +349,92 @@ function applyQuantityOps(sheet, ops) {
 
     sheet.getRange(row, col).setValue(Math.max(0, Math.floor(Number(op.quantity) || 0)));
   }
+}
+
+/* ============================================================ 가이드 열람용 탭
+ *
+ * 앱의 가이드 3종을 카테고리별 탭으로 통째로 다시 쓴다 (앱 → 시트 단방향).
+ * 시트에서 직접 고쳐도 앱에는 반영되지 않는다 — 가이드 편집은 앱에서 한다.
+ *  - 1행 : 비워 둠 / 2행 : 헤더 / 3행부터 : 가이드 한 줄씩
+ *  - 명령어·단계는 한 칸에 줄바꿈으로 나열한다
+ */
+var GUIDE_SHEETS = {
+  ERROR_CODE: '오류 코드 가이드',
+  HARDWARE_SOP: '하드웨어 교체 SOP',
+  SOFTWARE_CMD: 'SW·명령어',
+};
+var GUIDE_HEADER = ['코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일'];
+var GUIDE_WIDTHS = [160, 260, 160, 300, 420, 130];
+
+function handleGuides(ss, body) {
+  if (body.guides !== 'push') return json({ ok: false, error: '알 수 없는 요청입니다.' });
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var items = body.items || [];
+    var counts = {};
+    for (var type in GUIDE_SHEETS) {
+      var list = [];
+      for (var i = 0; i < items.length; i++) {
+        if ((items[i] || {}).categoryType === type) list.push(items[i]);
+      }
+      list.sort(function (a, b) {
+        return String(a.codeOrTitle || '').localeCompare(String(b.codeOrTitle || ''), 'ko');
+      });
+      writeGuideSheet(ss, GUIDE_SHEETS[type], list);
+      counts[type] = list.length;
+    }
+    SpreadsheetApp.flush();
+    return json({ ok: true, counts: counts });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function writeGuideSheet(ss, name, list) {
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name);
+  sheet.clearContents();
+
+  var header = sheet.getRange(2, 1, 1, GUIDE_HEADER.length);
+  header.setValues([GUIDE_HEADER]);
+  header.setFontWeight('bold');
+  header.setBackground('#eef1f5');
+  sheet.setFrozenRows(2);
+  for (var c = 0; c < GUIDE_WIDTHS.length; c++) {
+    sheet.setColumnWidth(c + 1, GUIDE_WIDTHS[c]);
+  }
+  if (!list.length) return;
+
+  var rows = [];
+  for (var i = 0; i < list.length; i++) {
+    var g = list[i] || {};
+    var commands = [];
+    var cmdList = g.commands || [];
+    for (var j = 0; j < cmdList.length; j++) {
+      var cmd = cmdList[j] || {};
+      var line = (cmd.label ? cmd.label + ': ' : '') + (cmd.cmd || '');
+      if (cmd.desc) line += '  — ' + cmd.desc;
+      if (line) commands.push(line);
+    }
+    var steps = [];
+    var stepList = g.steps || [];
+    for (var k = 0; k < stepList.length; k++) {
+      var step = stepList[k] || {};
+      var text = (k + 1) + '. ' + (step.instruction || '');
+      if (step.expectedMetric) text += '  (기준: ' + step.expectedMetric + ')';
+      steps.push(text);
+    }
+    rows.push([
+      g.codeOrTitle || '', g.summary || '', g.requiredTools || '',
+      commands.join('\n'), steps.join('\n'),
+      String(g.updatedAt || '').replace('T', ' '),
+    ]);
+  }
+  var range = sheet.getRange(3, 1, rows.length, GUIDE_HEADER.length);
+  range.setValues(rows);
+  range.setVerticalAlignment('top');
+  range.setWrap(true);
 }
 
 function json(payload) {

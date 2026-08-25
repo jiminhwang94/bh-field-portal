@@ -242,7 +242,18 @@ export async function flushOutbox() {
   const quantityOps = rows.filter(
     (r) => r.type === 'quantity' || r.type === 'quantity-delete');
   const sheetPushOps = rows.filter((r) => r.type === 'invsheet-push');
+  const guidePushOps = rows.filter((r) => r.type === 'guidesheet-push');
   let sent = 0;
+
+  // 가이드 열람용 탭 갱신 (시트 연결 시)
+  if (guidePushOps.length && await store.sheetInventoryOn()) {
+    const guidesheet = await import('./guidesheet.js');
+    await guidesheet.pushGuides();
+    for (const op of guidePushOps) {
+      await store.dequeue(op.id);
+      sent += 1;
+    }
+  }
 
   if (await store.sheetInventoryOn()) {
     // 재고를 구글 시트로 관리 — 서버 대신 시트에 반영한다.
