@@ -153,35 +153,39 @@ function checkEndpoint(endpoint) {
 }
 
 /**
- * 리포트를 시트에 올린다.
+ * Apps Script 웹 앱 호출 — 어떤 payload 든 보낸다 (리포트·재고 동기화 공용).
  * 1순위 = 기기에서 구글로 직접, 실패하면 2순위 = 사무실 서버 경유.
  */
-export async function uploadReport(report) {
+export async function callAppsScript(payload, timeout = 60000) {
   if (!isOnline()) {
     throw new OfflineError(
-      '오프라인입니다. 인터넷에 연결되면 자동으로 시트에 올립니다.');
+      '오프라인입니다. 인터넷에 연결되면 자동으로 처리됩니다.');
   }
   const settings = await store.getSettings();
   const endpoint = (settings.sheetsWebappUrl || '').trim();
   checkEndpoint(endpoint);
-
-  const fields = await store.listFields();
-  const deviceName = localStorage.getItem('bh_device_name') || '';
-  const payload = await buildPayload(report, fields, deviceName);
-
-  let result;
   try {
-    result = await postDirect(endpoint, payload);
+    return await postDirect(endpoint, payload, timeout);
   } catch (err) {
     if (err instanceof SheetsError) throw err;
     // 브라우저가 구글로의 직접 요청을 막은 경우 → 사무실 서버를 통해 보낸다.
-    result = await serverRequest('POST', '/api/sheets/relay',
-                                 { endpoint, payload }, { timeout: 120000 });
+    const result = await serverRequest('POST', '/api/sheets/relay',
+                                       { endpoint, payload }, { timeout });
     if (!result || !result.ok) {
       throw new SheetsError(
         '구글 시트로 보내지 못했습니다. 인터넷 연결을 확인해 주세요.');
     }
+    return result;
   }
+}
+
+/** 리포트를 시트에 올린다. */
+export async function uploadReport(report) {
+  const fields = await store.listFields();
+  const deviceName = localStorage.getItem('bh_device_name') || '';
+  const payload = await buildPayload(report, fields, deviceName);
+
+  const result = await callAppsScript(payload, 120000);
 
   await store.markReport(report.id, {
     status: 'UPLOADED',
@@ -195,25 +199,14 @@ export async function uploadReport(report) {
     created: Boolean(result.created),
     images: Number(result.images || 0),
     imagesSkipped: payload.imagesSkipped,
-    spreadsheetUrl: spreadsheetUrl(settings),
+    spreadsheetUrl: spreadsheetUrl(await store.getSettings()),
   };
 }
 
 /** 설정 화면의 [연결 테스트] */
 export async function testConnection() {
   const settings = await store.getSettings();
-  const endpoint = (settings.sheetsWebappUrl || '').trim();
-  if (!endpoint) throw new SheetsError('웹 앱 URL 을 먼저 입력하고 저장하세요.');
-  if (!isOnline()) throw new OfflineError('오프라인에서는 연결 테스트를 할 수 없습니다.');
-
-  let result;
-  try {
-    result = await postDirect(endpoint, { ping: true }, 30000);
-  } catch (err) {
-    if (err instanceof SheetsError) throw err;
-    result = await serverRequest('POST', '/api/sheets/relay',
-                                 { endpoint, payload: { ping: true } });
-  }
+  const result = await callAppsScript({ ping: true }, 30000);
   return {
     ok: true,
     spreadsheetName: result.spreadsheetName || '',

@@ -1,5 +1,7 @@
 // 스타리아 차량 수동 재고 관리 (차량 추가/삭제 + 품목 수량 조절)
 import { api } from '../api.js';
+import { isOnline } from '../sync.js';
+import { isEnabled as sheetInvEnabled, pullInventory } from '../invsheet.js';
 import {
   $, h, closeModal, confirmDialog, loading, openSheet, toast,
 } from '../ui.js';
@@ -8,6 +10,12 @@ const VEHICLE_KEY = 'bh_last_vehicle';
 
 export async function inventoryView(view) {
   loading(view);
+  // 시트 재고 관리 중이면 화면을 열 때 시트 내용을 먼저 받아온다.
+  // (시트에서 직접 고친 차량 이름·품목·수량이 이때 반영된다)
+  const sheetMode = await sheetInvEnabled();
+  if (sheetMode && isOnline()) {
+    try { await pullInventory(); } catch { /* 시트에 못 닿아도 기기 내용으로 표시 */ }
+  }
   let vehicles = (await api.listVehicles()).items;   // [{name, itemCount}]
   let current = localStorage.getItem(VEHICLE_KEY);
   if (!vehicles.some((v) => v.name === current)) {
@@ -52,9 +60,14 @@ export async function inventoryView(view) {
       <div id="pageRoot">
         <div class="page-head">
           <h1>🚐 스타리아 차량 재고</h1>
-          <p>부품 사용 즉시 [−]를 눌러 반영하세요.
-            <strong>수량은 모든 사용자에게 바로 공유됩니다.</strong>
-            품목·차량 추가/삭제는 상단 <strong>[⬆️ 업데이트]</strong> 후 공유됩니다.</p>
+          ${sheetMode ? `
+            <p>부품 사용 즉시 [−]를 눌러 반영하세요.
+              <strong>차량·품목·수량이 구글 시트(차량재고 탭)와 동기화됩니다.</strong>
+              시트에서 직접 고친 내용도 이 화면을 열 때 반영됩니다.</p>`
+          : `
+            <p>부품 사용 즉시 [−]를 눌러 반영하세요.
+              <strong>수량은 모든 사용자에게 바로 공유됩니다.</strong>
+              품목·차량 추가/삭제는 상단 <strong>[⬆️ 업데이트]</strong> 후 공유됩니다.</p>`}
         </div>
 
         <div class="tabs">
@@ -71,8 +84,11 @@ export async function inventoryView(view) {
               <span class="badge">총 ${total}개</span>
               ${lowCount ? `<span class="badge badge--danger">보충 필요 ${lowCount}</span>`
                 : '<span class="badge badge--ok">재고 정상</span>'}
+              ${sheetMode ? '<span class="badge">📊 시트 연동</span>' : ''}
             </div>
             <div class="row" style="gap:8px">
+              ${sheetMode ? `
+                <button class="chip" data-act="sheet-refresh" type="button">🔄 시트에서 받기</button>` : ''}
               <button class="chip ${lowOnly ? 'is-on' : ''}" data-act="toggle-low" type="button">부족 항목만</button>
               <button class="btn btn--primary btn--sm" data-act="add-item" type="button">＋ 품목 추가</button>
             </div>
@@ -118,6 +134,20 @@ export async function inventoryView(view) {
     }
     if (act === 'toggle-low') { lowOnly = !lowOnly; render(); return; }
     if (act === 'manage-vehicles') { openVehicleManager(); return; }
+
+    if (act === 'sheet-refresh') {
+      btn.disabled = true;
+      btn.textContent = '받는 중…';
+      try {
+        await pullInventory();
+        await reload();
+        toast('시트에서 최신 재고를 받았습니다.', 'ok');
+      } catch (err) {
+        toast(err.message, 'err');
+        render();
+      }
+      return;
+    }
 
     if (act === 'inc' || act === 'dec') {
       const item = items.find((i) => i.id === id);

@@ -68,6 +68,12 @@ export async function settingsView(view) {
             </div>
           </div>
 
+          <p class="muted" style="margin:0 0 14px;font-size:.9rem;line-height:1.65">
+            🚐 시트가 연결되어 있으면 <strong>차량 재고도 스프레드시트의 [차량재고] 탭과
+            자동 동기화</strong>됩니다. 수량 변경은 즉시 시트에 기록되고,
+            시트에서 직접 고친 내용(차량 이름·품목·수량)도 재고 화면을 열 때 반영됩니다.
+          </p>
+
           <div class="form-actions">
             <button class="btn btn--ghost" data-act="sheets-help" type="button">📖 설치 방법</button>
             <button class="btn btn--ghost" data-act="sheets-test" type="button">🔌 연결 테스트</button>

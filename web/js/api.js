@@ -99,8 +99,16 @@ export const api = {
       })),
     };
   },
-  addVehicle: (name) => store.addVehicle(name),
-  deleteVehicle: (name) => store.deleteVehicle(name),
+  addVehicle: async (name) => {
+    const vehicle = await store.addVehicle(name);
+    flushSoon();
+    return vehicle;
+  },
+  deleteVehicle: async (name) => {
+    const result = await store.deleteVehicle(name);
+    flushSoon();
+    return result;
+  },
 
   // ------------------------------------------------------------------ 재고
   listInventory: async (vehicle) => ({

@@ -45,6 +45,11 @@ function doPost(e) {
       });
     }
 
+    // 차량 재고 동기화 — '차량재고' 탭을 팀 공유 저장소로 쓴다.
+    if (body.inventory) {
+      return handleInventory(ss, body);
+    }
+
     var sheetName = String(body.sheetName || '').trim();
     var headers = body.headers || [];
     var row = body.row || [];
@@ -152,6 +157,189 @@ function writeHeaders(sheet, headers) {
   for (var i = 1; i <= headers.length; i++) {
     var width = sheet.getColumnWidth(i);
     if (width < 140) sheet.setColumnWidth(i, 140);
+  }
+}
+
+/* ============================================================ 차량 재고
+ *
+ * '차량재고' 탭 하나를 팀 공유 저장소로 쓴다.
+ *  - 1행 : 비워 둠 (리포트 시트와 동일한 규칙)
+ *  - 2행 : 부품명 | 최소보유 | <차량 이름들...>
+ *  - 3행부터 : 부품 한 줄씩. 수량 칸이 비어 있으면 그 차량에는 없는 품목이다.
+ *
+ * 시트에서 직접 고쳐도 된다 — 차량 이름(열 제목)·품목·수량·최소보유 전부.
+ * 앱이 재고 화면을 열 때 이 탭 내용을 받아 간다.
+ *
+ * 앱이 보내는 요청 (doPost body):
+ *  { inventory: 'pull' }                              → 현재 상태 반환
+ *  { inventory: 'push', vehicles: [...], items: [...] } → 탭 전체를 앱 내용으로 교체
+ *  { inventory: 'qty',  ops: [{vehicleName, partName, quantity}, ...] }
+ *                                                     → 수량 칸만 갱신 (즉시 공유)
+ */
+var INV_SHEET_NAME = '차량재고';
+var INV_HEADER_ROW = 2;
+var INV_DATA_ROW = 3;
+var INV_FIXED = 2;                 // 고정 열: 부품명 · 최소보유
+
+function handleInventory(ss, body) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sheet = ss.getSheetByName(INV_SHEET_NAME);
+
+    if (body.inventory === 'push') {
+      if (!sheet) sheet = ss.insertSheet(INV_SHEET_NAME);
+      writeInventory(sheet, body.vehicles || [], body.items || []);
+      SpreadsheetApp.flush();
+      return json(readInventory(sheet));
+    }
+
+    if (body.inventory === 'qty') {
+      if (!sheet) sheet = ss.insertSheet(INV_SHEET_NAME);
+      applyQuantityOps(sheet, body.ops || []);
+      SpreadsheetApp.flush();
+      return json(readInventory(sheet));
+    }
+
+    // pull
+    if (!sheet) return json({ ok: true, exists: false, vehicles: [], items: [] });
+    return json(readInventory(sheet));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 탭 전체를 앱이 보낸 상태로 교체한다. */
+function writeInventory(sheet, vehicles, items) {
+  var names = [];
+  for (var i = 0; i < vehicles.length; i++) {
+    var v = String(vehicles[i] || '').trim();
+    if (v && names.indexOf(v) < 0) names.push(v);
+  }
+
+  var parts = [];                    // 부품명 등장 순서 유지
+  var minByPart = {};                // 부품별 최소보유 (차량별 값 중 최댓값)
+  var qty = {};                      // '<차량>+<부품>' → 수량
+  for (var j = 0; j < items.length; j++) {
+    var item = items[j] || {};
+    var vehicle = String(item.vehicleName || '').trim();
+    var part = String(item.partName || '').trim();
+    if (!vehicle || !part) continue;
+    if (names.indexOf(vehicle) < 0) names.push(vehicle);
+    if (parts.indexOf(part) < 0) parts.push(part);
+    var minq = Math.max(0, Math.floor(Number(item.minQuantity) || 0));
+    if (!(part in minByPart) || minq > minByPart[part]) minByPart[part] = minq;
+    qty[vehicle + '\u0000' + part] = Math.max(0, Math.floor(Number(item.quantity) || 0));
+  }
+
+  sheet.clearContents();
+  var header = ['부품명', '최소보유'].concat(names);
+  var range = sheet.getRange(INV_HEADER_ROW, 1, 1, header.length);
+  range.setValues([header]);
+  range.setFontWeight('bold');
+  range.setBackground('#eef1f5');
+  sheet.setFrozenRows(INV_HEADER_ROW);
+  for (var c = 1; c <= header.length; c++) {
+    if (sheet.getColumnWidth(c) < 120) sheet.setColumnWidth(c, 120);
+  }
+
+  if (parts.length) {
+    var rows = [];
+    for (var p = 0; p < parts.length; p++) {
+      var row = [parts[p], minByPart[parts[p]] || 0];
+      for (var n = 0; n < names.length; n++) {
+        var key = names[n] + '\u0000' + parts[p];
+        row.push(key in qty ? qty[key] : '');
+      }
+      rows.push(row);
+    }
+    sheet.getRange(INV_DATA_ROW, 1, rows.length, header.length).setValues(rows);
+  }
+}
+
+/** 탭 내용을 앱이 이해하는 구조로 읽는다. */
+function readInventory(sheet) {
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < INV_HEADER_ROW || lastCol < 1) {
+    return { ok: true, exists: true, vehicles: [], items: [] };
+  }
+
+  var header = sheet.getRange(INV_HEADER_ROW, 1, 1, lastCol).getValues()[0];
+  var columns = [];                  // [{name, index(0-based)}]
+  var vehicles = [];
+  for (var c = INV_FIXED; c < header.length; c++) {
+    var name = String(header[c] || '').trim();
+    if (!name) continue;
+    columns.push({ name: name, index: c });
+    vehicles.push(name);
+  }
+
+  var items = [];
+  if (lastRow >= INV_DATA_ROW) {
+    var data = sheet.getRange(INV_DATA_ROW, 1,
+                              lastRow - INV_DATA_ROW + 1, lastCol).getValues();
+    for (var r = 0; r < data.length; r++) {
+      var part = String(data[r][0] || '').trim();
+      if (!part) continue;
+      var minq = Math.max(0, Math.floor(Number(data[r][1]) || 0));
+      for (var i = 0; i < columns.length; i++) {
+        var cell = data[r][columns[i].index];
+        if (cell === '' || cell === null || cell === undefined) continue;
+        items.push({
+          vehicleName: columns[i].name,
+          partName: part,
+          quantity: Math.max(0, Math.floor(Number(cell) || 0)),
+          minQuantity: minq,
+        });
+      }
+    }
+  }
+  return { ok: true, exists: true, vehicles: vehicles, items: items };
+}
+
+/** [-]/[+] 수량 변경을 해당 칸에 바로 기록한다. */
+function applyQuantityOps(sheet, ops) {
+  for (var i = 0; i < ops.length; i++) {
+    var op = ops[i] || {};
+    if (op.type === 'quantity-delete') continue;   // 품목 삭제는 push 가 처리한다
+    var vehicle = String(op.vehicleName || '').trim();
+    var part = String(op.partName || '').trim();
+    if (!vehicle || !part) continue;
+
+    var lastCol = Math.max(sheet.getLastColumn(), INV_FIXED);
+    var header = sheet.getRange(INV_HEADER_ROW, 1, 1, lastCol).getValues()[0];
+    var col = -1;
+    for (var c = INV_FIXED; c < header.length; c++) {
+      if (String(header[c] || '').trim() === vehicle) { col = c + 1; break; }
+    }
+    if (col < 0) {                   // 시트에 없는 차량이면 열을 추가한다
+      col = lastCol + 1;
+      var head = sheet.getRange(INV_HEADER_ROW, col);
+      head.setValue(vehicle);
+      head.setFontWeight('bold');
+      head.setBackground('#eef1f5');
+    }
+
+    var lastRow = sheet.getLastRow();
+    var row = -1;
+    if (lastRow >= INV_DATA_ROW) {
+      var partsCol = sheet.getRange(INV_DATA_ROW, 1,
+                                    lastRow - INV_DATA_ROW + 1, 1).getValues();
+      for (var r = 0; r < partsCol.length; r++) {
+        if (String(partsCol[r][0] || '').trim() === part) {
+          row = INV_DATA_ROW + r;
+          break;
+        }
+      }
+    }
+    if (row < 0) {                   // 시트에 없는 품목이면 줄을 추가한다
+      row = Math.max(lastRow + 1, INV_DATA_ROW);
+      sheet.getRange(row, 1).setValue(part);
+      sheet.getRange(row, 2).setValue(0);
+    }
+
+    sheet.getRange(row, col).setValue(Math.max(0, Math.floor(Number(op.quantity) || 0)));
   }
 }
 

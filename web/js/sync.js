@@ -233,7 +233,7 @@ export async function push(deviceName) {
 
 // ------------------------------------------------------------ 대기열 처리
 
-/** 재고 수량 변경 등 쌓인 작업을 서버에 반영한다. */
+/** 재고 수량 변경 등 쌓인 작업을 서버(또는 구글 시트)에 반영한다. */
 export async function flushOutbox() {
   await store.compactOutbox();
   const rows = await store.outbox();
@@ -241,9 +241,33 @@ export async function flushOutbox() {
 
   const quantityOps = rows.filter(
     (r) => r.type === 'quantity' || r.type === 'quantity-delete');
+  const sheetPushOps = rows.filter((r) => r.type === 'invsheet-push');
   let sent = 0;
 
-  if (quantityOps.length) {
+  if (await store.sheetInventoryOn()) {
+    // 재고를 구글 시트로 관리 — 서버 대신 시트에 반영한다.
+    if (sheetPushOps.length || quantityOps.length) {
+      const invsheet = await import('./invsheet.js');
+      let result;
+      if (sheetPushOps.length) {
+        // 구조 변경(차량·품목)이 있으면 탭 전체를 다시 쓴다 (수량도 함께 실린다).
+        result = await invsheet.pushInventory();
+      } else {
+        result = await invsheet.pushQuantityOps(quantityOps.map((r) => ({
+          type: r.type, vehicleName: r.vehicleName, partName: r.partName,
+          quantity: r.quantity, updatedAt: r.updatedAt,
+        })));
+      }
+      for (const op of [...sheetPushOps, ...quantityOps]) {
+        await store.dequeue(op.id);
+        sent += 1;
+      }
+      // 시트가 돌려준 상태가 최종 결과다 — 다른 기기의 변경도 이때 내려온다.
+      if (!sheetPushOps.length && result && result.items) {
+        await store.applyInventorySheet(result);
+      }
+    }
+  } else if (quantityOps.length) {
     const result = await request('POST', '/api/sync/quantities', {
       ops: quantityOps.map((r) => ({
         type: r.type, vehicleName: r.vehicleName, partName: r.partName,
