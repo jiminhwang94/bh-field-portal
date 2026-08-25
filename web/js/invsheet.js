@@ -1,6 +1,6 @@
 // 차량 재고 ↔ 구글 스프레드시트('차량재고' 탭) 동기화.
 //
-// 설정에서 [차량 재고를 구글 시트로 관리]를 켜면 시트가 팀 공유 원본이 된다.
+// 구글 시트 연결(웹 앱 URL)이 있으면 항상 켜지며, 시트가 팀 공유 원본이 된다.
 //  - 수량 [-]/[+]      → 대기열에 쌓였다가 시트의 해당 칸에 바로 기록
 //  - 차량·품목 추가/삭제 → 탭 전체를 기기 내용으로 다시 쓰기
 //  - 재고 화면 열기      → 시트 내용을 받아와 기기에 반영
@@ -10,10 +10,13 @@ import { callAppsScript } from './sheets.js';
 
 export const isEnabled = () => store.sheetInventoryOn();
 
-/** 시트 내용을 받아 기기에 반영한다. */
+/**
+ * 시트 내용을 받아 기기에 반영한다.
+ * 시트에 '차량재고' 탭이 아직 없으면 기기 재고로 탭을 만들어 채운다(최초 1회).
+ */
 export async function pullInventory() {
   const result = await callAppsScript({ inventory: 'pull' }, 30000);
-  if (result.exists === false) return { exists: false, vehicles: [], items: [] };
+  if (result.exists === false) return pushInventory();
   await store.applyInventorySheet(result);
   return result;
 }
@@ -30,20 +33,4 @@ export async function pushInventory() {
 export async function pushQuantityOps(ops) {
   const result = await callAppsScript({ inventory: 'qty', ops }, 30000);
   return result;
-}
-
-/**
- * 처음 켤 때 1회: 시트가 비어 있으면 기기 내용으로 채우고,
- * 이미 내용이 있으면 그쪽을 받아온다.
- */
-export async function seedOrAdopt() {
-  const pulled = await callAppsScript({ inventory: 'pull' }, 30000);
-  const empty = pulled.exists === false
-    || (!(pulled.items || []).length && !(pulled.vehicles || []).length);
-  if (empty) {
-    const result = await pushInventory();
-    return { seeded: true, ...result };
-  }
-  await store.applyInventorySheet(pulled);
-  return { seeded: false, ...pulled };
 }
