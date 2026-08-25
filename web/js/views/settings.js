@@ -68,6 +68,19 @@ export async function settingsView(view) {
             </div>
           </div>
 
+          <div class="field">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="sInvSheet" ${settings.sheet_inventory ? 'checked' : ''} />
+              🚐 차량 재고를 구글 시트로 관리
+            </label>
+            <span class="hint">
+              켜면 차량·품목·수량이 스프레드시트의 <strong>차량재고</strong> 탭과 동기화됩니다.
+              수량 변경은 즉시 시트에 기록되고, <strong>시트에서 직접 고친 내용</strong>(차량 이름·품목·수량)도
+              재고 화면을 열 때 반영됩니다. 사무실 서버 없이 LTE 에서도 팀이 같은 재고를 봅니다.
+              모든 기기에서 같이 켜 주세요.
+            </span>
+          </div>
+
           <div class="form-actions">
             <button class="btn btn--ghost" data-act="sheets-help" type="button">📖 설치 방법</button>
             <button class="btn btn--ghost" data-act="sheets-test" type="button">🔌 연결 테스트</button>
@@ -296,6 +309,7 @@ export async function settingsView(view) {
   $('#sheetsForm').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const name = $('#sDevice').value.trim();
+    const invSheetOn = $('#sInvSheet').checked;
     setDeviceName(name);
     try {
       await api.saveSettings({
@@ -303,8 +317,21 @@ export async function settingsView(view) {
         sheets_spreadsheet_id: $('#sSheetId').value.trim(),
         site_url: $('#sSiteUrl').value.trim(),
         device_name: name,
+        sheet_inventory: invSheetOn,
       });
       toast('설정을 저장했습니다.', 'ok');
+      // 처음 켰다면: 시트가 비어 있으면 기기 내용으로 채우고, 있으면 받아온다.
+      if (invSheetOn && !settings.sheet_inventory && isOnline()) {
+        try {
+          const { seedOrAdopt } = await import('../invsheet.js');
+          const result = await seedOrAdopt();
+          toast(result.seeded
+            ? '시트에 [차량재고] 탭을 만들고 이 기기의 재고를 올렸습니다.'
+            : '시트의 [차량재고] 내용을 받아왔습니다.', 'ok');
+        } catch (err) {
+          toast(`시트 재고 연동 준비 실패: ${err.message}`, 'err');
+        }
+      }
       settingsView(view);
     } catch (err) { toast(err.message, 'err'); }
   });

@@ -14,6 +14,7 @@ const CACHE = 'bh-shell-v3.0.0';
 const SHELL = [
   './', './index.html', './css/app.css', './manifest.webmanifest',
   './js/app.js', './js/api.js', './js/sync.js', './js/sheets.js',
+  './js/invsheet.js',
   './js/net.js', './js/auth.js', './js/install.js', './js/publish.js',
   './js/share.js', './js/ui.js', './js/update.js',
   './js/local/idb.js', './js/local/store.js',

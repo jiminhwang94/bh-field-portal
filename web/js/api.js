@@ -99,8 +99,16 @@ export const api = {
       })),
     };
   },
-  addVehicle: (name) => store.addVehicle(name),
-  deleteVehicle: (name) => store.deleteVehicle(name),
+  addVehicle: async (name) => {
+    const vehicle = await store.addVehicle(name);
+    flushSoon();
+    return vehicle;
+  },
+  deleteVehicle: async (name) => {
+    const result = await store.deleteVehicle(name);
+    flushSoon();
+    return result;
+  },
 
   // ------------------------------------------------------------------ 재고
   listInventory: async (vehicle) => ({
@@ -171,6 +179,7 @@ export const api = {
       device_name: settings.deviceName,
       server_url: settings.serverUrl,
       sheetsReady: Boolean((settings.sheetsWebappUrl || '').trim()),
+      sheet_inventory: settings.sheetInventory === '1',
       spreadsheetUrl: spreadsheetUrl(settings),
       pinEnabled: Boolean(await store.getMeta('pinEnabled', false)),
       pendingCount: await store.outboxCount(),
@@ -198,6 +207,8 @@ export const api = {
       serverUrl: payload.server_url !== undefined ? payload.server_url
         : payload.site_url,
       deviceName: payload.device_name,
+      sheetInventory: payload.sheet_inventory === undefined
+        ? undefined : (payload.sheet_inventory ? '1' : ''),
     });
     // 시트 주소는 팀 공통이므로 온라인이면 서버에도 함께 저장한다.
     if (payload.sheets_webapp_url !== undefined && sync.isOnline()) {
