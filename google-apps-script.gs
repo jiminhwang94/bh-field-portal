@@ -165,7 +165,8 @@ function writeHeaders(sheet, headers) {
  * '차량재고' 탭 하나를 팀 공유 저장소로 쓴다.
  *  - 1행 : 비워 둠 (리포트 시트와 동일한 규칙)
  *  - 2행 : 부품명 | 최소보유 | <차량 이름들...>
- *  - 3행부터 : 부품 한 줄씩. 수량 칸이 비어 있으면 그 차량에는 없는 품목이다.
+ *  - 3행부터 : 부품 한 줄씩. 품목은 모든 차량 공용이고 수량만 차량별이다.
+ *    (수량 칸이 비어 있으면 0 으로 처리한다)
  *
  * 시트에서 직접 고쳐도 된다 — 차량 이름(열 제목)·품목·수량·최소보유 전부.
  * 앱이 재고 화면을 열 때 이 탭 내용을 받아 간다.
@@ -249,7 +250,7 @@ function writeInventory(sheet, vehicles, items) {
       var row = [parts[p], minByPart[parts[p]] || 0];
       for (var n = 0; n < names.length; n++) {
         var key = names[n] + '\u0000' + parts[p];
-        row.push(key in qty ? qty[key] : '');
+        row.push(key in qty ? qty[key] : 0);
       }
       rows.push(row);
     }
@@ -284,12 +285,14 @@ function readInventory(sheet) {
       if (!part) continue;
       var minq = Math.max(0, Math.floor(Number(data[r][1]) || 0));
       for (var i = 0; i < columns.length; i++) {
+        // 품목은 모든 차량 공용 — 빈 칸은 수량 0 으로 읽는다.
         var cell = data[r][columns[i].index];
-        if (cell === '' || cell === null || cell === undefined) continue;
+        var qtyValue = (cell === '' || cell === null || cell === undefined)
+          ? 0 : Math.max(0, Math.floor(Number(cell) || 0));
         items.push({
           vehicleName: columns[i].name,
           partName: part,
-          quantity: Math.max(0, Math.floor(Number(cell) || 0)),
+          quantity: qtyValue,
           minQuantity: minq,
         });
       }

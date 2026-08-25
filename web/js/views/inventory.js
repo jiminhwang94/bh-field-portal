@@ -175,7 +175,7 @@ export async function inventoryView(view) {
     if (act === 'del') {
       const item = items.find((i) => i.id === id);
       const ok = await confirmDialog('품목 삭제',
-        `${current} 의 "${item.partName}" 품목을 목록에서 삭제합니다.`, '삭제', true);
+        `"${item.partName}" 품목을 모든 차량에서 삭제합니다. (품목 목록은 차량 공용)`, '삭제', true);
       if (!ok) return;
       try {
         await api.deleteInventory(id);
