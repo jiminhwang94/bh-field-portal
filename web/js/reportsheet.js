@@ -80,6 +80,32 @@ function toEntry(headers, row, sheetName) {
   };
 }
 
+/**
+ * 이력을 못 받아 온 이유를 사람 말로 바꾼다.
+ *
+ * 가장 흔한 경우가 **스프레드시트의 Apps Script 가 아직 예전 버전**인 것이다.
+ * 예전 코드는 `reports` 요청을 모르기 때문에 리포트 기록 경로로 흘러가
+ * "sheetName 이 없습니다" 같은 엉뚱한 답을 준다. 그대로 두면 화면이 그냥
+ * 비어 보여서 원인을 알 수 없으므로, 이 경우를 짚어 알려 준다.
+ */
+export function explain(err) {
+  const text = String((err && err.message) || err || '');
+  if (!text) return '';
+  if (text.includes('sheetName') || text.includes('알 수 없는 요청')
+      || text.includes('row 가 비어')) {
+    return '스프레드시트의 Apps Script 가 아직 예전 버전입니다.\n'
+      + '[확장 프로그램 → Apps Script] 에서 최신 코드로 바꾸고 '
+      + '[배포 → 배포 관리 → 기존 배포 수정(새 버전)] 으로 재배포하세요. '
+      + '주소는 그대로 유지됩니다.';
+  }
+  if (text.includes('웹 앱 URL') || text.includes('로그인이 필요')) {
+    return '웹 앱 URL 이 올바르지 않거나 액세스 권한이 "모든 사용자" 가 아닙니다.\n'
+      + '[배포 관리] 에서 확인해 주세요.';
+  }
+  if (text.includes('권한')) return text;
+  return text;
+}
+
 /** 드라이브 링크에서 파일 id 를 뽑는다 (썸네일 주소를 만들 때 쓴다). */
 export function driveId(url) {
   const text = String(url || '');
