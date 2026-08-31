@@ -672,3 +672,11 @@ body.has-netbar .appbar { margin-top: 30px; }
   font-size: .82rem; font-weight: 600;
 }
 .media-tile__name { position: relative; z-index: 2; }
+
+/* 이력을 못 받아 왔을 때의 원인 안내 */
+.hist-note--bad {
+  border-color: var(--danger);
+  color: var(--danger);
+  font-weight: 700;
+}
+.hist-note--bad div { color: var(--text); }

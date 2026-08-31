@@ -4,6 +4,7 @@ import {
   $, h, confirmDialog, copyText, loading, openSheet, toast,
 } from '../ui.js';
 import { reportToText, shareReport } from '../share.js';
+import { explain as explainError, thumbUrl } from '../reportsheet.js';
 
 const DRAFT_KEY = 'bh_report_draft';
 
@@ -452,38 +453,53 @@ export async function reportListView(view) {
       </div>`;
   }
 
-  function render() {
+  function metaHtml() {
     const total = (data.entries || []).length;
     const shown = visible().length;
-    const stale = data.fromCache
-      ? '<span class="hist-note">📴 연결이 안 돼 마지막으로 받아 둔 내용을 보여 줍니다.</span>' : '';
+    return `
+      <div class="hist-meta">
+        <span>${filter || query ? `${shown} / ${total}건` : `${total}건`}</span>
+        ${filter ? '<button class="btn btn--ghost btn--sm" data-act="clear" type="button">필터 해제</button>' : ''}
+        <div class="spacer"></div>
+        <button class="btn btn--ghost btn--sm" data-act="refresh" type="button">🔄 시트에서 받기</button>
+      </div>`;
+  }
 
+  /** 못 받아 왔으면 왜인지 화면에 적는다 — 그냥 비워 두면 원인을 알 수 없다. */
+  function noticeHtml() {
+    if (data.error && !data.entries.length) {
+      return `<div class="hist-note hist-note--bad">⚠️ 시트에서 이력을 받지 못했습니다.
+        <div style="margin-top:6px;white-space:pre-wrap;font-weight:400">${h(explainError(data.error))}</div>
+      </div>`;
+    }
+    if (data.fromCache) {
+      return '<div class="hist-note">📴 연결이 안 돼 마지막으로 받아 둔 내용을 보여 줍니다.</div>';
+    }
+    return '';
+  }
+
+  /**
+   * 화면을 두 겹으로 나눈다.
+   *  - 껍데기(renderShell): 검색창·월 선택기. **한 번만 만들고 다시 만들지 않는다.**
+   *  - 알맹이(paint): 타일·목록. 검색·필터 때마다 이 부분만 갈아 끼운다.
+   *
+   * 한 글자 칠 때마다 화면 전체를 다시 그리면 입력 칸이 새로 만들어져
+   * 한글 조합이 끊긴다("옥동식" → "ㅇㅗㄱㄷㅗㅇㅅㅣㄱ"). 입력 칸을 그대로 두는 것이
+   * 이 문제의 유일한 확실한 해결책이다.
+   */
+  function renderShell() {
     view.innerHTML = `
       <div id="pageRoot">
         <div class="page-head">
           <h1>🗂 현장 리포트 이력</h1>
         </div>
-
-        ${tilesHtml()}
-
+        <div id="histTop"></div>
         <div class="hist-controls">
-          <input class="input" id="histQ" type="search" value="${h(query)}"
+          <input class="input" id="histQ" type="search"
                  placeholder="🔍 식당명 또는 날짜로 검색" />
-          <select class="select" id="histMonth" aria-label="월 선택">
-            ${months.map((m) => `<option value="${h(m)}" ${m === month ? 'selected' : ''}>${h(m)}</option>`).join('')}
-          </select>
+          <select class="select" id="histMonth" aria-label="월 선택"></select>
         </div>
-
-        <div class="hist-meta">
-          <span>${filter || query ? `${shown} / ${total}건` : `${total}건`}</span>
-          ${filter ? `<button class="btn btn--ghost btn--sm" data-act="clear" type="button">필터 해제</button>` : ''}
-          <div class="spacer"></div>
-          <button class="btn btn--ghost btn--sm" data-act="refresh" type="button">🔄 시트에서 받기</button>
-        </div>
-        ${stale}
-
-        ${localHtml()}
-        ${rowsHtml()}
+        <div id="histBody"></div>
       </div>`;
 
     const root = $('#pageRoot');
@@ -491,14 +507,28 @@ export async function reportListView(view) {
     root.addEventListener('change', onChange);
 
     const box = $('#histQ');
-    box.addEventListener('input', () => {
-      query = box.value;
-      const at = box.selectionStart;
-      render();
-      const next = $('#histQ');
-      next.focus();
-      try { next.setSelectionRange(at, at); } catch { /* 무시 */ }
-    });
+    box.value = query;
+    box.addEventListener('input', () => { query = box.value; paint(); });
+    // 조합이 끝나는 순간에도 한 번 더 맞춘다 (일부 기기는 input 이 늦게 온다).
+    box.addEventListener('compositionend', () => { query = box.value; paint(); });
+
+    paintMonths();
+  }
+
+  function paintMonths() {
+    const sel = $('#histMonth');
+    if (!sel) return;
+    sel.innerHTML = months
+      .map((m) => `<option value="${h(m)}">${h(m)}</option>`).join('');
+    sel.value = month;
+  }
+
+  function paint() {
+    const top = $('#histTop');
+    const body = $('#histBody');
+    if (!top || !body) return;
+    top.innerHTML = tilesHtml();
+    body.innerHTML = metaHtml() + noticeHtml() + localHtml() + rowsHtml();
   }
 
   async function onClick(ev) {
@@ -509,10 +539,10 @@ export async function reportListView(view) {
     if (act === 'filter') {
       const value = btn.dataset.value;
       filter = filter === value ? null : value;
-      render();
+      paint();
       return;
     }
-    if (act === 'clear') { filter = null; render(); return; }
+    if (act === 'clear') { filter = null; paint(); return; }
     if (act === 'open') {
       const entry = (data.entries || []).find((e) => e.key === btn.dataset.key);
       if (entry) showEntry(entry);
@@ -524,7 +554,8 @@ export async function reportListView(view) {
       months = await api.sheetMonths(true);
       if (!months.includes(month)) months = [month, ...months];
       await load({ refresh: true });
-      render();
+      paintMonths();
+      paint();
       toast(data.fromCache ? '연결이 안 돼 기존 내용을 유지합니다.' : '시트에서 받았습니다.',
             data.fromCache ? 'err' : 'ok');
     }
@@ -535,9 +566,11 @@ export async function reportListView(view) {
     if (el.id === 'histMonth') {
       month = el.value;
       filter = null;
-      loading(view);
+      // 검색창을 살려 두기 위해 목록 자리에만 안내를 띄운다.
+      const body = document.querySelector('#histBody');
+      if (body) body.innerHTML = '<div class="skeleton">불러오는 중…</div>';
       await load({ refresh: true });
-      render();
+      paint();
       return;
     }
     if (el.dataset.act === 'status') {
@@ -546,7 +579,7 @@ export async function reportListView(view) {
       const before = entry.status;
       const next = el.value;
       entry.status = next;                 // 화면은 곧바로 반응한다
-      render();
+      paint();
       try {
         const result = await api.setReportStatus(entry.sheetName, entry.row, next);
         toast(result.queued
@@ -554,15 +587,14 @@ export async function reportListView(view) {
           : `상태를 '${next}' 로 바꿨습니다.`, 'ok');
       } catch (err) {
         entry.status = before;             // 실패하면 되돌린다
-        render();
+        paint();
         toast(err.message, 'err');
       }
     }
   }
 
   /** 시트 한 줄의 전체 내용 + 첨부를 모달로 보여 준다. */
-  async function showEntry(entry) {
-    const { thumbUrl } = await import('../reportsheet.js');
+  function showEntry(entry) {
     const body = `
       <div class="hist-detail">
         <div class="row" style="gap:8px;margin-bottom:12px">
@@ -591,8 +623,11 @@ export async function reportListView(view) {
     openSheet(entry.store || '리포트', body);
   }
 
+  renderShell();
+  paint();
   await load({ refresh: true });
-  render();
+  paintMonths();
+  paint();
 }
 
 // ------------------------------------------------------------ 상세 화면
