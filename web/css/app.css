@@ -15,6 +15,11 @@
   --cat-error: #e13d3d;
   --cat-hw: #d97706;
   --cat-sw: #0d8f83;
+  /* 이력 추적 상태 4종 */
+  --st-done: #0f7a45;  --st-done-bg: #e2f4ea;
+  --st-watch: #0d7d73; --st-watch-bg: #ddf2f0;
+  --st-doing: #a85c07; --st-doing-bg: #fdeedb;
+  --st-swap: #c02334;  --st-swap-bg: #fce6e9;
   --radius: 16px;
   --tap: 52px;
   --appbar-h: 64px;
@@ -40,6 +45,11 @@
     --cat-hw: #f0a83c;
     --cat-sw: #35c7bb;
     --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 8px 24px rgba(0, 0, 0, .35);
+
+    --st-done: #45d493;  --st-done-bg: #0f2c20;
+    --st-watch: #3ed3c3; --st-watch-bg: #0d2b29;
+    --st-doing: #f0b44a; --st-doing-bg: #2e2211;
+    --st-swap: #fb7185;  --st-swap-bg: #331419;
   }
 }
 
@@ -476,3 +486,189 @@ body.has-netbar .appbar { margin-top: 30px; }
 }
 .link { color: var(--primary); font-weight: 700; text-decoration: underline; }
 .skeleton { color: var(--muted); padding: 40px; text-align: center; }
+
+/* ------------------------------------------------- 리포트 이력 (C안)
+ *
+ * 위쪽 네 칸이 상태별 건수이자 필터다. 화면을 열자마자
+ * "이번 달에 아직 안 끝난 게 몇 건인지"가 보이는 것이 목적이다.
+ */
+.hist-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.hist-tile {
+  border: 2px solid transparent;
+  border-radius: 14px;
+  padding: 12px 6px;
+  text-align: center;
+  cursor: pointer;
+  font: inherit;
+  min-height: var(--tap);
+  transition: transform .08s ease;
+}
+.hist-tile:active { transform: scale(.97); }
+.hist-tile.is-on { border-color: currentColor; }
+.hist-tile__n {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.hist-tile__l { display: block; font-size: .72rem; margin-top: 3px; line-height: 1.3; }
+
+.hist-tile--done  { background: var(--st-done-bg);  color: var(--st-done); }
+.hist-tile--watch { background: var(--st-watch-bg); color: var(--st-watch); }
+.hist-tile--doing { background: var(--st-doing-bg); color: var(--st-doing); }
+.hist-tile--swap  { background: var(--st-swap-bg);  color: var(--st-swap); }
+
+.hist-controls { display: flex; gap: 8px; margin-bottom: 12px; }
+.hist-controls .input { flex: 1; min-width: 0; }
+.hist-controls .select { flex: none; width: 130px; }
+
+.hist-meta {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: .88rem;
+  font-variant-numeric: tabular-nums;
+}
+.hist-note {
+  display: block;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: var(--muted);
+  font-size: .85rem;
+  margin-bottom: 12px;
+}
+
+.hist-table {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.hist-th, .hist-tr {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 104px;
+  gap: 10px;
+  align-items: center;
+}
+.hist-th {
+  padding: 9px 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  font-size: .7rem;
+  letter-spacing: .05em;
+  color: var(--muted);
+  font-weight: 700;
+}
+.hist-tr {
+  padding: 8px 14px 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.hist-tr:last-child { border-bottom: 0; }
+
+.hist-tr__main {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  grid-column: 1 / 3;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  padding: 6px 0 6px 14px;
+  min-height: 44px;
+  cursor: pointer;
+  min-width: 0;
+}
+.hist-tr__d {
+  font-size: .78rem; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.hist-tr__m { min-width: 0; }
+.hist-tr__t {
+  display: block; font-weight: 700; font-size: .95rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hist-tr__s {
+  display: block; font-size: .8rem; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hist-clip { font-size: .74rem; color: var(--muted); margin-left: 6px; font-weight: 500; }
+
+.hist-sel {
+  font-size: .76rem;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 4px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: center;
+  min-height: 40px;
+  width: 100%;
+}
+.hist-sel--done  { color: var(--st-done);  background: var(--st-done-bg); }
+.hist-sel--watch { color: var(--st-watch); background: var(--st-watch-bg); }
+.hist-sel--doing { color: var(--st-doing); background: var(--st-doing-bg); }
+.hist-sel--swap  { color: var(--st-swap);  background: var(--st-swap-bg); }
+
+/* 좁은 화면에서는 날짜를 제목 위로 접는다 */
+@media (max-width: 400px) {
+  .hist-th { display: none; }
+  .hist-tr { grid-template-columns: minmax(0, 1fr) 96px; }
+  .hist-tr__main { grid-template-columns: minmax(0, 1fr); grid-column: 1 / 2; }
+  .hist-tr__d { display: block; margin-bottom: 2px; }
+}
+
+.pill {
+  font-size: .76rem; font-weight: 700;
+  border-radius: 999px; padding: 5px 11px;
+}
+.pill--done  { background: var(--st-done-bg);  color: var(--st-done); }
+.pill--watch { background: var(--st-watch-bg); color: var(--st-watch); }
+.pill--doing { background: var(--st-doing-bg); color: var(--st-doing); }
+.pill--swap  { background: var(--st-swap-bg);  color: var(--st-swap); }
+
+.panel--warn { border-color: var(--warn); }
+
+.media-tile__none {
+  display: grid; place-items: center;
+  width: 100%; aspect-ratio: 1;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: .8rem;
+}
+.hist-detail .field { margin-bottom: 14px; }
+
+/* 드라이브 썸네일이 안 열리면(권한·네트워크) 뒤에 깔린 안내가 보이게 한다 */
+.media-tile { position: relative; }
+.media-tile img { position: relative; z-index: 1; background: var(--surface-2); }
+.media-tile img.is-broken { display: none; }
+.media-tile__none {
+  position: absolute; inset: 0; z-index: 0;
+  display: grid; place-items: center;
+  background: var(--surface-2); color: var(--muted);
+  font-size: .82rem; font-weight: 600;
+}
+.media-tile__name { position: relative; z-index: 2; }
+
+/* 드라이브 썸네일이 안 열리면(권한/네트워크) 뒤에 깔린 안내가 보이게 한다 */
+.media-tile { position: relative; }
+.media-tile img { position: relative; z-index: 1; background: var(--surface-2); }
+.media-tile img.is-broken { display: none; }
+.media-tile__none {
+  position: absolute; inset: 0; z-index: 0;
+  display: grid; place-items: center;
+  background: var(--surface-2); color: var(--muted);
+  font-size: .82rem; font-weight: 600;
+}
+.media-tile__name { position: relative; z-index: 2; }

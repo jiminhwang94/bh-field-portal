@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.0.0';
+export const APP_VERSION = '3.1.0';
 
 export const setUnauthorizedHandler = sync.setUnauthorizedHandler;
 export const deviceId = sync.deviceId;
@@ -153,6 +153,21 @@ export const api = {
 
   // ------------------------------------------------------------------ 리포트
   listReports: async () => ({ items: await store.listReports() }),
+
+  // 이력 화면 — 구글 시트의 월별 탭이 원본이다.
+  sheetMonths: async (refresh = false) => {
+    const reportsheet = await import('./reportsheet.js');
+    return reportsheet.listMonths({ refresh });
+  },
+  sheetReports: async (month, refresh = true) => {
+    const reportsheet = await import('./reportsheet.js');
+    return reportsheet.pullMonth(month, { refresh });
+  },
+  setReportStatus: async (sheetName, row, status) => {
+    const reportsheet = await import('./reportsheet.js');
+    return reportsheet.setStatus(sheetName, row, status);
+  },
+
   getReport: (id) => store.getReport(id),
   createReport: (payload) => store.saveReport(payload),
   updateReport: (id, payload) => store.saveReport(payload, id),

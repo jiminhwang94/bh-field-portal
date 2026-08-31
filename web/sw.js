@@ -6,7 +6,7 @@
 //
 // 데이터(가이드·재고·리포트)는 IndexedDB 에 있으므로 여기서 다루지 않는다.
 
-const CACHE = 'bh-shell-v3.0.0';
+const CACHE = 'bh-shell-v3.1.0';
 
 // 앱을 여는 데 필요한 파일 전부.
 // ⚠️ 화면 파일(js/css)을 추가하면 **이 목록에도 반드시 추가**해야 오프라인에서 열린다.
@@ -14,7 +14,7 @@ const CACHE = 'bh-shell-v3.0.0';
 const SHELL = [
   './', './index.html', './css/app.css', './manifest.webmanifest',
   './js/app.js', './js/api.js', './js/sync.js', './js/sheets.js',
-  './js/invsheet.js', './js/guidesheet.js',
+  './js/invsheet.js', './js/guidesheet.js', './js/reportsheet.js',
   './js/net.js', './js/auth.js', './js/install.js', './js/publish.js',
   './js/share.js', './js/ui.js', './js/update.js',
   './js/local/idb.js', './js/local/store.js',

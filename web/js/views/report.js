@@ -1,7 +1,7 @@
 // 현장 리포트 작성 (동적 폼) · 이력 · 상세 / 구글 시트 업로드
 import { api } from '../api.js';
 import {
-  $, h, confirmDialog, copyText, loading, toast,
+  $, h, confirmDialog, copyText, loading, openSheet, toast,
 } from '../ui.js';
 import { reportToText, shareReport } from '../share.js';
 
@@ -59,7 +59,8 @@ export async function reportFormView(view) {
             <span class="badge">${state.media.length}개 첨부</span>
           </div>
           ${state.media.length ? `<div class="media-grid">${state.media.map((m, i) => mediaTile(field.id, m, i)).join('')}</div>` : ''}
-          <span class="hint">촬영한 사진은 구글 시트의 해당 칸에 <strong>이미지로 바로 삽입</strong>됩니다. (영상은 링크로 기록)</span>
+          <span class="hint">사진·영상은 <strong>구글 드라이브에 저장</strong>되고 시트에는 링크가 들어갑니다.
+            이력 화면에서 미리보기로 볼 수 있습니다. (한 개 20MB, 리포트당 25MB 까지)</span>
         </div>`;
     }
     if (field.fieldType === 'TEXTAREA') {
@@ -284,9 +285,9 @@ export async function reportFormView(view) {
         toast('⏳ 기기에 저장했습니다. 인터넷에 연결되면 자동으로 시트에 올립니다.', 'ok');
       } else {
         toast(`구글 시트 [${result.sheetName}] ${result.row}행에 기록했습니다.`
-          + (result.images ? ` (사진 ${result.images}장 삽입)` : ''), 'ok');
-        (result.imagesSkipped || []).forEach((s) =>
-          toast(`사진 제외: ${s.filename} (${s.reason})`, 'err'));
+          + (result.media ? ` (첨부 ${result.media}개 드라이브 저장)` : ''), 'ok');
+        (result.mediaSkipped || []).forEach((s) =>
+          toast(`첨부 제외: ${s.filename} (${s.reason})`, 'err'));
       }
       location.hash = `#/reports/${saved.id}`;
     } catch (err) {
@@ -309,29 +310,289 @@ const STATUS = {
   FAILED: ['badge badge--danger', '업로드 실패'],
 };
 
+/** 추적 상태 4종 — 시트 '상태' 열의 값과 1:1 로 맞춘다. */
+const TRACK = [
+  { value: '조치 완료',    short: '조치 완료', cls: 'done' },
+  { value: '모니터링',     short: '모니터링',  cls: 'watch' },
+  { value: '조치 진행 중', short: '진행 중',   cls: 'doing' },
+  { value: '교체 예정',    short: '교체 예정', cls: 'swap' },
+];
+const trackOf = (value) => TRACK.find((t) => t.value === value) || TRACK[2];
+
+/** 연도는 위 월 선택기에 이미 있으므로 줄에는 월-일만 보여 준다. */
+const shortDate = (value) => {
+  const text = String(value || '');
+  return text.length >= 10 ? text.slice(5) : (text || '-');
+};
+
+/**
+ * 이력 화면 — 구글 시트의 월별 탭이 원본이다.
+ *
+ * 위쪽 네 칸이 상태별 건수이자 필터다. 이번 달에 아직 안 끝난 건이 몇 개인지
+ * 세지 않아도 보이는 것이 이 화면의 목적이다.
+ */
 export async function reportListView(view) {
   loading(view);
-  const { items } = await api.listReports();
-  view.innerHTML = `
-    <div class="page-head">
-      <h1>🗂 현장 리포트 이력</h1>
-      <p>총 ${items.length}건 · 업로드 실패한 리포트는 상세에서 다시 업로드할 수 있습니다.</p>
-      <p class="muted" style="font-size:.9rem">리포트는 내 기기에만 저장되며, 구글 시트로 업로드해 공유합니다.</p>
-    </div>
-    <div class="list">
-      ${items.length ? items.map((r) => {
-        const [cls, label] = STATUS[r.status] || STATUS.DRAFT;
-        return `
-          <a class="item" href="#/reports/${r.id}">
-            <div class="item__body">
-              <div class="item__title">${h(r.title)}</div>
-              <div class="item__sub">${h(r.createdAt)}${r.errorMessage ? ` · ${h(r.errorMessage.slice(0, 60))}` : ''}</div>
-            </div>
-            <span class="${cls}">${label}</span>
-            <span class="item__chevron">›</span>
-          </a>`;
-      }).join('') : '<div class="empty">작성된 리포트가 없습니다.</div>'}
+
+  const settings = await api.getSettings();
+  if (!settings.sheetsReady) {
+    view.innerHTML = `
+      <div class="page-head"><h1>🗂 현장 리포트 이력</h1></div>
+      <div class="empty">
+        구글 시트 연결이 아직 설정되지 않았습니다.<br />
+        <a class="link" href="#/settings">⚙️ 설정</a> 에서 웹 앱 URL 을 먼저 등록하세요.
+      </div>`;
+    return;
+  }
+
+  let months = await api.sheetMonths(false);
+  const thisMonth = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  })();
+  if (!months.length) months = [thisMonth];
+  if (!months.includes(thisMonth)) months = [thisMonth, ...months];
+
+  let month = months[0];
+  let data = { entries: [], fromCache: false, error: null };
+  let filter = null;          // null = 전체
+  let query = '';
+  let localItems = [];
+
+  async function load({ refresh = true } = {}) {
+    data = await api.sheetReports(month, refresh);
+    const local = await api.listReports();
+    // 아직 시트에 올라가지 않은 건은 따로 위에 보여 준다.
+    localItems = (local.items || []).filter((r) => r.status !== 'UPLOADED');
+  }
+
+  function visible() {
+    const q = query.trim().toLowerCase();
+    return (data.entries || []).filter((e) => {
+      if (filter && e.status !== filter) return false;
+      if (!q) return true;
+      return [e.store, e.date, e.createdAt, e.code, e.summary, e.author]
+        .some((v) => String(v || '').toLowerCase().includes(q));
+    });
+  }
+
+  function counts() {
+    const out = {};
+    TRACK.forEach((t) => { out[t.value] = 0; });
+    (data.entries || []).forEach((e) => {
+      if (out[e.status] !== undefined) out[e.status] += 1;
+    });
+    return out;
+  }
+
+  function tilesHtml() {
+    const c = counts();
+    return `<div class="hist-tiles">
+      ${TRACK.map((t) => `
+        <button class="hist-tile hist-tile--${t.cls} ${filter === t.value ? 'is-on' : ''}"
+                data-act="filter" data-value="${h(t.value)}" type="button"
+                aria-pressed="${filter === t.value}">
+          <span class="hist-tile__n">${c[t.value]}</span>
+          <span class="hist-tile__l">${h(t.short)}</span>
+        </button>`).join('')}
     </div>`;
+  }
+
+  function rowsHtml() {
+    const list = visible();
+    if (!list.length) {
+      return `<div class="empty">${
+        query || filter ? '조건에 맞는 리포트가 없습니다.' : '이 달에 기록된 리포트가 없습니다.'
+      }</div>`;
+    }
+    return `<div class="hist-table">
+      <div class="hist-th"><div>날짜</div><div>식당 · 내용</div><div>상태</div></div>
+      ${list.map((e) => {
+        const t = trackOf(e.status);
+        const attach = e.links.length ? `<span class="hist-clip">📎 ${e.links.length}</span>` : '';
+        return `
+          <div class="hist-tr" data-key="${h(e.key)}">
+            <button class="hist-tr__main" data-act="open" data-key="${h(e.key)}" type="button">
+              <span class="hist-tr__d">${h(shortDate(e.date))}</span>
+              <span class="hist-tr__m">
+                <span class="hist-tr__t">${h(e.store || '(식당명 없음)')}${attach}</span>
+                <span class="hist-tr__s">${h([e.code, e.summary].filter(Boolean).join(' · ') || '-')}</span>
+              </span>
+            </button>
+            <select class="hist-sel hist-sel--${t.cls}" data-act="status" data-key="${h(e.key)}"
+                    aria-label="${h(e.store || '리포트')} 상태">
+              ${TRACK.map((o) => `<option value="${h(o.value)}" ${o.value === e.status ? 'selected' : ''}>${h(o.short)}</option>`).join('')}
+            </select>
+          </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  function localHtml() {
+    if (!localItems.length) return '';
+    return `
+      <div class="panel panel--warn">
+        <div class="row row--between" style="margin-bottom:8px">
+          <strong>아직 시트에 올리지 않은 리포트 ${localItems.length}건</strong>
+        </div>
+        <div class="list">
+          ${localItems.map((r) => {
+            const [cls, label] = STATUS[r.status] || STATUS.DRAFT;
+            return `
+              <a class="item" href="#/reports/${r.id}">
+                <div class="item__body">
+                  <div class="item__title">${h(r.title)}</div>
+                  <div class="item__sub">${h(r.createdAt)}</div>
+                </div>
+                <span class="${cls}">${label}</span>
+                <span class="item__chevron">›</span>
+              </a>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+
+  function render() {
+    const total = (data.entries || []).length;
+    const shown = visible().length;
+    const stale = data.fromCache
+      ? '<span class="hist-note">📴 연결이 안 돼 마지막으로 받아 둔 내용을 보여 줍니다.</span>' : '';
+
+    view.innerHTML = `
+      <div id="pageRoot">
+        <div class="page-head">
+          <h1>🗂 현장 리포트 이력</h1>
+        </div>
+
+        ${tilesHtml()}
+
+        <div class="hist-controls">
+          <input class="input" id="histQ" type="search" value="${h(query)}"
+                 placeholder="🔍 식당명 또는 날짜로 검색" />
+          <select class="select" id="histMonth" aria-label="월 선택">
+            ${months.map((m) => `<option value="${h(m)}" ${m === month ? 'selected' : ''}>${h(m)}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="hist-meta">
+          <span>${filter || query ? `${shown} / ${total}건` : `${total}건`}</span>
+          ${filter ? `<button class="btn btn--ghost btn--sm" data-act="clear" type="button">필터 해제</button>` : ''}
+          <div class="spacer"></div>
+          <button class="btn btn--ghost btn--sm" data-act="refresh" type="button">🔄 시트에서 받기</button>
+        </div>
+        ${stale}
+
+        ${localHtml()}
+        ${rowsHtml()}
+      </div>`;
+
+    const root = $('#pageRoot');
+    root.addEventListener('click', onClick);
+    root.addEventListener('change', onChange);
+
+    const box = $('#histQ');
+    box.addEventListener('input', () => {
+      query = box.value;
+      const at = box.selectionStart;
+      render();
+      const next = $('#histQ');
+      next.focus();
+      try { next.setSelectionRange(at, at); } catch { /* 무시 */ }
+    });
+  }
+
+  async function onClick(ev) {
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+
+    if (act === 'filter') {
+      const value = btn.dataset.value;
+      filter = filter === value ? null : value;
+      render();
+      return;
+    }
+    if (act === 'clear') { filter = null; render(); return; }
+    if (act === 'open') {
+      const entry = (data.entries || []).find((e) => e.key === btn.dataset.key);
+      if (entry) showEntry(entry);
+      return;
+    }
+    if (act === 'refresh') {
+      btn.disabled = true;
+      btn.textContent = '받는 중…';
+      months = await api.sheetMonths(true);
+      if (!months.includes(month)) months = [month, ...months];
+      await load({ refresh: true });
+      render();
+      toast(data.fromCache ? '연결이 안 돼 기존 내용을 유지합니다.' : '시트에서 받았습니다.',
+            data.fromCache ? 'err' : 'ok');
+    }
+  }
+
+  async function onChange(ev) {
+    const el = ev.target;
+    if (el.id === 'histMonth') {
+      month = el.value;
+      filter = null;
+      loading(view);
+      await load({ refresh: true });
+      render();
+      return;
+    }
+    if (el.dataset.act === 'status') {
+      const entry = (data.entries || []).find((e) => e.key === el.dataset.key);
+      if (!entry) return;
+      const before = entry.status;
+      const next = el.value;
+      entry.status = next;                 // 화면은 곧바로 반응한다
+      render();
+      try {
+        const result = await api.setReportStatus(entry.sheetName, entry.row, next);
+        toast(result.queued
+          ? '⏳ 오프라인입니다. 연결되면 시트에 반영합니다.'
+          : `상태를 '${next}' 로 바꿨습니다.`, 'ok');
+      } catch (err) {
+        entry.status = before;             // 실패하면 되돌린다
+        render();
+        toast(err.message, 'err');
+      }
+    }
+  }
+
+  /** 시트 한 줄의 전체 내용 + 첨부를 모달로 보여 준다. */
+  async function showEntry(entry) {
+    const { thumbUrl } = await import('../reportsheet.js');
+    const body = `
+      <div class="hist-detail">
+        <div class="row" style="gap:8px;margin-bottom:12px">
+          <span class="pill pill--${trackOf(entry.status).cls}">${h(entry.status)}</span>
+          <span class="badge">${h(entry.createdAt || entry.date)}</span>
+          ${entry.author ? `<span class="badge">${h(entry.author)}</span>` : ''}
+        </div>
+        ${entry.links.length ? `
+          <div class="media-grid">
+            ${entry.links.map((l) => `
+              <a class="media-tile" href="${h(l.url)}" target="_blank" rel="noopener">
+                ${l.id
+                  ? `<img src="${h(thumbUrl(l.id, 300))}" alt="${h(l.label)}" loading="lazy"
+                          onerror="this.classList.add('is-broken')" />`
+                  : ''}
+                <div class="media-tile__none">📎 열어 보기</div>
+                <div class="media-tile__name">${h(l.label)}</div>
+              </a>`).join('')}
+          </div>` : ''}
+        ${entry.values.map((v) => `
+          <div class="field">
+            <label>${h(v.label)}</label>
+            <div class="sub-card" style="white-space:pre-wrap">${h(v.value)}</div>
+          </div>`).join('')}
+      </div>`;
+    openSheet(entry.store || '리포트', body);
+  }
+
+  await load({ refresh: true });
+  render();
 }
 
 // ------------------------------------------------------------ 상세 화면
@@ -405,9 +666,9 @@ export async function reportDetailView(view, reportId) {
           toast('⏳ 대기열에 넣었습니다. 인터넷에 연결되면 자동으로 올립니다.', 'ok');
         } else {
           toast(`구글 시트 [${result.sheetName}] ${result.row}행에 기록했습니다.`
-            + (result.images ? ` (사진 ${result.images}장 삽입)` : ''), 'ok');
-          (result.imagesSkipped || []).forEach((s) =>
-            toast(`사진 제외: ${s.filename} (${s.reason})`, 'err'));
+            + (result.media ? ` (첨부 ${result.media}개 드라이브 저장)` : ''), 'ok');
+          (result.mediaSkipped || []).forEach((s) =>
+            toast(`첨부 제외: ${s.filename} (${s.reason})`, 'err'));
         }
         reportDetailView(view, report.id);
       } catch (err) {
