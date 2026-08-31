@@ -6,7 +6,39 @@ import * as store from './local/store.js';
 import { serverRequest, isOnline, OfflineError } from './sync.js';
 
 const META_HEADERS = ['작성일시', '작성자'];
-const IMAGE_TOTAL_LIMIT = 20 * 1024 * 1024;
+
+/** 첨부는 드라이브에 저장한다 — 한 건당 20MB, 리포트 하나당 25MB 까지. */
+const MEDIA_FILE_LIMIT = 20 * 1024 * 1024;
+const MEDIA_TOTAL_LIMIT = 25 * 1024 * 1024;
+
+/**
+ * 이력 화면의 추적 상태 — 시트 맨 뒤 '상태' 열에 기록된다.
+ *
+ * 작성 화면의 [처리 결과]와는 다른 것이다.
+ * 처리 결과 = 그날 현장에서 확정된 사실 (나중에 바뀌지 않는다)
+ * 상태      = 지금 이 건이 어디까지 왔는가 (시간이 지나며 바뀐다)
+ * 그래서 열을 따로 두고, 첫 값만 처리 결과에서 가져와 채운다.
+ */
+export const STATUS_HEADER = '상태';
+export const STATUS_VALUES = ['조치 완료', '모니터링', '조치 진행 중', '교체 예정'];
+export const DEFAULT_STATUS = '조치 진행 중';
+
+const RESULT_TO_STATUS = {
+  '완료': '조치 완료',
+  '재방문 필요': '조치 진행 중',
+  '부품 대기': '교체 예정',
+  '모니터링': '모니터링',
+};
+
+/** 작성 시 고른 [처리 결과]로 첫 상태를 정한다. 못 찾으면 '조치 진행 중'. */
+export function seedStatus(reportPayload) {
+  for (const item of reportPayload || []) {
+    if (!String(item.label || '').includes('처리 결과')) continue;
+    const mapped = RESULT_TO_STATUS[String(item.value || '').trim()];
+    if (mapped) return mapped;
+  }
+  return DEFAULT_STATUS;
+}
 
 export class SheetsError extends Error {}
 
@@ -41,7 +73,12 @@ function blobToBase64(blob) {
   });
 }
 
-/** 리포트를 시트 한 줄 + 이미지로 만든다. */
+/**
+ * 리포트를 시트 한 줄 + 드라이브 첨부로 만든다.
+ *
+ * 첨부(사진·영상·PDF)는 시트에 박아 넣지 않고 드라이브에 올린 뒤 칸에 링크만 남긴다.
+ * 그래야 영상도 올라가고, 이력 화면이 그 링크로 썸네일을 그릴 수 있다.
+ */
 export async function buildPayload(report, fields, deviceName) {
   const labels = fields.map((f) => f.fieldLabel);
   const byLabel = new Map();
@@ -50,14 +87,14 @@ export async function buildPayload(report, fields, deviceName) {
     if (item.label && !labels.includes(item.label)) labels.push(item.label);
   }
 
-  const headers = [...META_HEADERS, ...labels];
+  const headers = [...META_HEADERS, ...labels, STATUS_HEADER];
   const row = [
     (report.createdAt || '').replace('T', ' '),
     (deviceName || '').trim() || '-',
   ];
-  const images = [];
+  const media = [];
   const skipped = [];
-  let budget = IMAGE_TOTAL_LIMIT;
+  let budget = MEDIA_TOTAL_LIMIT;
 
   for (let index = 0; index < labels.length; index += 1) {
     const column = META_HEADERS.length + index + 1;      // 1-based 열 번호
@@ -67,32 +104,33 @@ export async function buildPayload(report, fields, deviceName) {
       row.push(item.value === null || item.value === undefined ? '' : String(item.value));
       continue;
     }
-    let attached = 0;
-    for (const media of item.media || []) {
-      const filename = (media.filename || '').replace(/^.*\//, '');
+    for (const attachment of item.media || []) {
+      const filename = (attachment.filename || '').replace(/^.*\//, '');
       if (!filename) continue;
       const blob = await store.getMediaBlob(filename);
       if (!blob) { skipped.push({ filename, reason: '기기에 파일 없음' }); continue; }
-      const mime = media.mime || blob.type || 'image/jpeg';
-      if (!mime.startsWith('image/')) {
-        skipped.push({ filename, reason: '이미지 아님' }); continue;
+      if (blob.size > MEDIA_FILE_LIMIT) {
+        skipped.push({ filename, reason: '파일 하나가 20MB 를 넘음' }); continue;
       }
-      if (blob.size > budget) { skipped.push({ filename, reason: '용량 초과' }); continue; }
+      if (blob.size > budget) {
+        skipped.push({ filename, reason: '리포트 전체 용량 25MB 초과' }); continue;
+      }
       budget -= blob.size;
-      images.push({
+      media.push({
         column,
-        filename: media.originalName || filename,
-        mimeType: mime,
+        filename: attachment.originalName || filename,
+        mimeType: attachment.mime || blob.type || 'application/octet-stream',
         data: await blobToBase64(blob),
       });
-      attached += 1;
     }
-    row.push(attached ? `사진 ${attached}장` : '');
+    row.push('');            // 링크는 Apps Script 가 드라이브에 올린 뒤 채운다
   }
+
+  row.push(seedStatus(report.payload));
 
   return {
     sheetName: monthSheetName(report.createdAt),
-    headers, row, images, imagesSkipped: skipped,
+    headers, row, media, mediaSkipped: skipped,
   };
 }
 
@@ -197,8 +235,8 @@ export async function uploadReport(report) {
     sheetName: result.sheetName || payload.sheetName,
     row: result.row,
     created: Boolean(result.created),
-    images: Number(result.images || 0),
-    imagesSkipped: payload.imagesSkipped,
+    media: Number(result.media || 0),
+    mediaSkipped: [...payload.mediaSkipped, ...(result.mediaSkipped || [])],
     spreadsheetUrl: spreadsheetUrl(await store.getSettings()),
   };
 }

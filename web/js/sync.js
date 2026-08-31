@@ -243,6 +243,7 @@ export async function flushOutbox() {
     (r) => r.type === 'quantity' || r.type === 'quantity-delete');
   const sheetPushOps = rows.filter((r) => r.type === 'invsheet-push');
   const guidePushOps = rows.filter((r) => r.type === 'guidesheet-push');
+  const statusOps = rows.filter((r) => r.type === 'report-status');
   let sent = 0;
 
   // 가이드 열람용 탭 갱신 (시트 연결 시)
@@ -252,6 +253,20 @@ export async function flushOutbox() {
     for (const op of guidePushOps) {
       await store.dequeue(op.id);
       sent += 1;
+    }
+  }
+
+  // 오프라인에서 바꾼 이력 상태 — 한 건씩 시트에 반영한다.
+  if (statusOps.length && await store.sheetInventoryOn()) {
+    const reportsheet = await import('./reportsheet.js');
+    for (const op of statusOps) {
+      try {
+        await reportsheet.pushStatusOps([op]);
+        await store.dequeue(op.id);
+        sent += 1;
+      } catch {
+        break;        // 한 건이라도 실패하면 다음 기회에 다시 시도
+      }
     }
   }
 

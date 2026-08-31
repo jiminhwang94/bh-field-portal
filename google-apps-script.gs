@@ -55,6 +55,11 @@ function doPost(e) {
       return handleGuides(ss, body);
     }
 
+    // 리포트 이력 — 월별 탭을 앱으로 읽어 오고, 상태 칸을 고쳐 쓴다.
+    if (body.reports) {
+      return handleReports(ss, body);
+    }
+
     var sheetName = String(body.sheetName || '').trim();
     var headers = body.headers || [];
     var row = body.row || [];
@@ -85,12 +90,19 @@ function doPost(e) {
       var target = lastRow < 2 ? 3 : lastRow + 1;
       if (target < 3) target = 3;
 
+      // 사진·영상은 드라이브 폴더에 저장하고, 칸에는 링크만 넣는다.
+      // (시트에 박아 넣으면 영상이 안 되고 앱이 되읽을 수도 없다)
+      var saved = saveMediaToDrive(ss, body.media || []);
+      for (var col in saved.byColumn) {
+        row[Number(col) - 1] = saved.byColumn[col].join('\n');
+      }
+
       sheet.getRange(target, 1, 1, row.length).setValues([row]);
       sheet.getRange(target, 1, 1, row.length)
         .setVerticalAlignment('top')
         .setWrap(true);
 
-      // 사진을 해당 칸에 이미지로 삽입 (링크가 아니라 사진 자체)
+      // 예전 앱(빌드 9 이하)이 보낸 사진은 지금까지처럼 칸에 그림으로 삽입한다.
       var inserted = insertImages(sheet, body.images || [], target);
 
       SpreadsheetApp.flush();
@@ -100,6 +112,8 @@ function doPost(e) {
         row: target,
         created: created,
         images: inserted,
+        media: saved.count,
+        mediaSkipped: saved.skipped,
         spreadsheetUrl: ss.getUrl()
       });
     } finally {
@@ -435,6 +449,169 @@ function writeGuideSheet(ss, name, list) {
   range.setValues(rows);
   range.setVerticalAlignment('top');
   range.setWrap(true);
+}
+
+/* ============================================================ 첨부 파일(드라이브)
+ *
+ * 사진·영상을 스프레드시트 옆 폴더에 저장하고 칸에는 링크만 넣는다.
+ * 시트에 그림으로 박아 넣던 방식은 영상을 못 넣고, 앱이 되읽을 수도 없었다.
+ *
+ * 링크는 '링크가 있는 사람은 보기' 로 열어 둔다. 앱이 썸네일을 표시하려면 필요하다.
+ */
+var MEDIA_FOLDER_NAME = '현장 리포트 첨부';
+
+/** 스프레드시트가 있는 폴더 안에 첨부 폴더를 만들어 둔다(없으면 생성). */
+function mediaFolder(ss) {
+  var parent;
+  try {
+    var parents = DriveApp.getFileById(ss.getId()).getParents();
+    parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+  } catch (err) {
+    parent = DriveApp.getRootFolder();
+  }
+  var found = parent.getFoldersByName(MEDIA_FOLDER_NAME);
+  if (found.hasNext()) return found.next();
+  return parent.createFolder(MEDIA_FOLDER_NAME);
+}
+
+/**
+ * 앱이 보낸 첨부를 드라이브에 저장한다.
+ *  media: [{ column, filename, mimeType, data(base64) }, ...]
+ *  반환 : { byColumn: { '9': ['https://...', ...] }, count, skipped }
+ */
+function saveMediaToDrive(ss, media) {
+  var out = { byColumn: {}, count: 0, skipped: [] };
+  if (!media || !media.length) return out;
+
+  var folder = mediaFolder(ss);
+  for (var i = 0; i < media.length; i++) {
+    var item = media[i] || {};
+    try {
+      var bytes = Utilities.base64Decode(item.data);
+      var blob = Utilities.newBlob(bytes,
+                                   item.mimeType || 'application/octet-stream',
+                                   item.filename || ('첨부' + (i + 1)));
+      var file = folder.createFile(blob);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+      var column = String(item.column || 1);
+      if (!out.byColumn[column]) out.byColumn[column] = [];
+      out.byColumn[column].push(file.getUrl());
+      out.count++;
+    } catch (err) {
+      out.skipped.push({
+        filename: item.filename || '(이름 없음)',
+        reason: String(err).slice(0, 120)
+      });
+    }
+  }
+  return out;
+}
+
+/* ============================================================ 리포트 이력
+ *
+ * 앱의 [🗂 이력] 화면이 월별 탭을 읽어 가고, 상태 칸을 고쳐 쓴다.
+ *
+ *  { reports: 'months' }                              → 월별 탭 이름 목록
+ *  { reports: 'pull', sheetName: '2026-08' }          → 그 달의 헤더 + 줄 전체
+ *  { reports: 'status', sheetName, row, status }      → 그 줄의 상태 칸만 고침
+ *
+ * '상태' 열은 앱이 리포트를 올릴 때 헤더 맨 뒤에 함께 만든다.
+ * 시트에서 직접 고쳐도 되고, 앱이 다음에 읽어 갈 때 그대로 반영된다.
+ */
+var STATUS_HEADER = '상태';
+var REPORT_HEADER_ROW = 2;
+var REPORT_DATA_ROW = 3;
+var MONTH_TAB = /^\d{4}-\d{2}$/;
+
+function handleReports(ss, body) {
+  if (body.reports === 'months') {
+    var names = [];
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      var name = all[i].getName();
+      if (MONTH_TAB.test(name)) names.push(name);
+    }
+    names.sort();
+    names.reverse();                 // 최근 달이 앞
+    return json({ ok: true, months: names });
+  }
+
+  if (body.reports === 'pull') {
+    var sheet = ss.getSheetByName(String(body.sheetName || '').trim());
+    if (!sheet) return json({ ok: true, exists: false, headers: [], rows: [] });
+    return json(readReportSheet(sheet));
+  }
+
+  if (body.reports === 'status') {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    try {
+      var target = ss.getSheetByName(String(body.sheetName || '').trim());
+      if (!target) return json({ ok: false, error: '그 달의 시트가 없습니다.' });
+      var rowIndex = Math.floor(Number(body.row) || 0);
+      if (rowIndex < REPORT_DATA_ROW) {
+        return json({ ok: false, error: '줄 번호가 올바르지 않습니다.' });
+      }
+      var col = statusColumn(target, true);
+      target.getRange(rowIndex, col).setValue(String(body.status || ''));
+      SpreadsheetApp.flush();
+      return json({ ok: true, row: rowIndex, column: col,
+                    status: String(body.status || '') });
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  return json({ ok: false, error: '알 수 없는 요청입니다.' });
+}
+
+/** '상태' 열 번호를 찾는다. 없으면 create=true 일 때 헤더 맨 뒤에 만든다. */
+function statusColumn(sheet, create) {
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var header = sheet.getRange(REPORT_HEADER_ROW, 1, 1, lastCol).getValues()[0];
+  for (var c = 0; c < header.length; c++) {
+    if (String(header[c] || '').trim() === STATUS_HEADER) return c + 1;
+  }
+  if (!create) return -1;
+  var col = lastCol + 1;
+  var cell = sheet.getRange(REPORT_HEADER_ROW, col);
+  cell.setValue(STATUS_HEADER);
+  cell.setFontWeight('bold');
+  cell.setBackground('#eef1f5');
+  if (sheet.getColumnWidth(col) < 140) sheet.setColumnWidth(col, 140);
+  return col;
+}
+
+/** 월별 탭을 앱이 쓰기 좋은 모양으로 읽는다. */
+function readReportSheet(sheet) {
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < REPORT_HEADER_ROW || lastCol < 1) {
+    return { ok: true, exists: true, headers: [], rows: [] };
+  }
+
+  var headers = sheet.getRange(REPORT_HEADER_ROW, 1, 1, lastCol).getValues()[0];
+  for (var i = 0; i < headers.length; i++) {
+    headers[i] = String(headers[i] || '').trim();
+  }
+
+  var rows = [];
+  if (lastRow >= REPORT_DATA_ROW) {
+    var data = sheet
+      .getRange(REPORT_DATA_ROW, 1, lastRow - REPORT_DATA_ROW + 1, lastCol)
+      .getDisplayValues();
+    for (var r = 0; r < data.length; r++) {
+      var cells = data[r];
+      var empty = true;
+      for (var c = 0; c < cells.length; c++) {
+        if (String(cells[c] || '').trim()) { empty = false; break; }
+      }
+      if (empty) continue;                     // 사람이 지운 빈 줄은 건너뛴다
+      rows.push({ row: REPORT_DATA_ROW + r, cells: cells });
+    }
+  }
+  return { ok: true, exists: true, headers: headers, rows: rows };
 }
 
 function json(payload) {
