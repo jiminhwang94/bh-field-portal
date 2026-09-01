@@ -123,18 +123,3 @@ def post_to_webapp(endpoint: str, payload: dict, timeout=TIMEOUT) -> dict:
     if not result.get("ok"):
         raise SheetsError(f"구글 시트 기록 실패: {result.get('error') or result}")
     return result
-
-
-def test_connection(settings=None) -> dict:
-    """설정 화면의 [연결 테스트]. 실제 기록 없이 응답만 확인한다."""
-    settings = settings or db.get_settings()
-    endpoint = (settings.get("sheets_webapp_url") or "").strip()
-    if not endpoint:
-        raise SheetsError("웹 앱 URL 을 먼저 입력하고 저장하세요.")
-    result = post_to_webapp(endpoint, {"ping": True}, timeout=30)
-    return {
-        "ok": True,
-        "spreadsheetName": result.get("spreadsheetName") or "",
-        "spreadsheetUrl": result.get("spreadsheetUrl") or spreadsheet_url(settings),
-        "sheets": result.get("sheets") or [],
-    }

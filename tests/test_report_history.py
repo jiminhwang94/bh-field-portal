@@ -91,7 +91,7 @@ check("sync.js 가 밀린 상태 변경을 시트에 반영한다",
 check("같은 줄의 상태는 마지막 것만 남긴다", "lastStatusByRow" in store_js)
 
 # ----------------------------------------------------------------- 화면
-check("이력 화면에 상태별 건수 타일이 있다", "hist-tile" in view_js)
+check("이력 화면에 상태별 건수 타일이 있다", "stat-grid" in view_js)
 check("타일이 필터로 동작한다", "data-act=\"filter\"" in view_js)
 check("검색이 식당명과 날짜를 함께 본다",
       "e.store" in view_js and "e.date" in view_js)

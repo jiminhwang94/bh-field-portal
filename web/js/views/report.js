@@ -388,13 +388,13 @@ export async function reportListView(view) {
 
   function tilesHtml() {
     const c = counts();
-    return `<div class="hist-tiles">
+    return `<div class="stat-grid">
       ${TRACK.map((t) => `
-        <button class="hist-tile hist-tile--${t.cls} ${filter === t.value ? 'is-on' : ''}"
+        <button class="stat ${filter === t.value ? 'is-active' : ''}"
                 data-act="filter" data-value="${h(t.value)}" type="button"
                 aria-pressed="${filter === t.value}">
-          <span class="hist-tile__n">${c[t.value]}</span>
-          <span class="hist-tile__l">${h(t.short)}</span>
+          <span class="stat__n tnum">${c[t.value]}</span>
+          <span class="stat__label">${h(t.value)}</span>
         </button>`).join('')}
     </div>`;
   }
@@ -406,27 +406,26 @@ export async function reportListView(view) {
         query || filter ? '조건에 맞는 리포트가 없습니다.' : '이 달에 기록된 리포트가 없습니다.'
       }</div>`;
     }
-    return `<div class="hist-table">
-      <div class="hist-th"><div>날짜</div><div>식당 · 내용</div><div>상태</div></div>
+    return `<div class="scroll"><div class="rows">
       ${list.map((e) => {
-        const t = trackOf(e.status);
-        const attach = e.links.length ? `<span class="hist-clip">📎 ${e.links.length}</span>` : '';
+        const attach = e.links.length
+          ? ` · 첨부 <span class="tnum">${e.links.length}</span>` : '';
+        const detail = [e.code, e.summary].filter(Boolean).join(' · ');
         return `
-          <div class="hist-tr" data-key="${h(e.key)}">
-            <button class="hist-tr__main" data-act="open" data-key="${h(e.key)}" type="button">
-              <span class="hist-tr__d">${h(shortDate(e.date))}</span>
-              <span class="hist-tr__m">
-                <span class="hist-tr__t">${h(e.store || '(식당명 없음)')}${attach}</span>
-                <span class="hist-tr__s">${h([e.code, e.summary].filter(Boolean).join(' · ') || '-')}</span>
-              </span>
+          <div class="row">
+            <button class="row__code tnum" data-act="open" data-key="${h(e.key)}"
+                    type="button" aria-label="상세 보기">${h(shortDate(e.date))}</button>
+            <button class="row__main" data-act="open" data-key="${h(e.key)}" type="button">
+              <span class="row__title">${h(e.store || '(식당명 없음)')}</span>
+              <span class="row__meta">${h(e.author || '-')}${attach}${detail ? ` · ${h(detail)}` : ''}</span>
             </button>
-            <select class="hist-sel hist-sel--${t.cls}" data-act="status" data-key="${h(e.key)}"
+            <select class="select status-select" data-act="status" data-key="${h(e.key)}"
                     aria-label="${h(e.store || '리포트')} 상태">
-              ${TRACK.map((o) => `<option value="${h(o.value)}" ${o.value === e.status ? 'selected' : ''}>${h(o.short)}</option>`).join('')}
+              ${TRACK.map((o) => `<option value="${h(o.value)}" ${o.value === e.status ? 'selected' : ''}>${h(o.value)}</option>`).join('')}
             </select>
           </div>`;
       }).join('')}
-    </div>`;
+    </div></div>`;
   }
 
   function localHtml() {
@@ -453,16 +452,12 @@ export async function reportListView(view) {
       </div>`;
   }
 
-  function metaHtml() {
+  function paintMeta() {
+    const el = $('#histMeta');
+    if (!el) return;
     const total = (data.entries || []).length;
     const shown = visible().length;
-    return `
-      <div class="hist-meta">
-        <span>${filter || query ? `${shown} / ${total}건` : `${total}건`}</span>
-        ${filter ? '<button class="btn btn--ghost btn--sm" data-act="clear" type="button">필터 해제</button>' : ''}
-        <div class="spacer"></div>
-        <button class="btn btn--ghost btn--sm" data-act="refresh" type="button">🔄 시트에서 받기</button>
-      </div>`;
+    el.textContent = (filter || query) ? `${shown} / ${total}건` : `${total}건`;
   }
 
   /** 못 받아 왔으면 왜인지 화면에 적는다 — 그냥 비워 두면 원인을 알 수 없다. */
@@ -489,17 +484,20 @@ export async function reportListView(view) {
    */
   function renderShell() {
     view.innerHTML = `
-      <div id="pageRoot">
+      <div id="pageRoot" style="display:flex;flex-direction:column;gap:var(--space-4);flex:1;min-height:0">
         <div class="page-head">
-          <h1>🗂 현장 리포트 이력</h1>
-        </div>
-        <div id="histTop"></div>
-        <div class="hist-controls">
-          <input class="input" id="histQ" type="search"
-                 placeholder="🔍 식당명 또는 날짜로 검색" />
+          <h1 class="page-head__title">리포트 이력</h1>
+          <span class="page-head__meta" id="histMeta"></span>
+          <span class="page-head__spacer"></span>
           <select class="select" id="histMonth" aria-label="월 선택"></select>
         </div>
-        <div id="histBody"></div>
+        <div id="histTop"></div>
+        <div class="toolbar">
+          <input class="input" id="histQ" type="search"
+                 placeholder="식당명 · 날짜 (미트로, 08-22)" aria-label="이력 검색" />
+          <button class="btn btn-secondary" data-act="refresh" type="button">🔄 시트에서 받기</button>
+        </div>
+        <div id="histBody" style="display:flex;flex-direction:column;gap:var(--space-3);flex:1;min-height:0"></div>
       </div>`;
 
     const root = $('#pageRoot');
@@ -528,7 +526,8 @@ export async function reportListView(view) {
     const body = $('#histBody');
     if (!top || !body) return;
     top.innerHTML = tilesHtml();
-    body.innerHTML = metaHtml() + noticeHtml() + localHtml() + rowsHtml();
+    body.innerHTML = noticeHtml() + localHtml() + rowsHtml();
+    paintMeta();
   }
 
   async function onClick(ev) {

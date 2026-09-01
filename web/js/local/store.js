@@ -17,7 +17,8 @@ export function now() {
     + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-const qtyKey = (vehicleName, partName) => `${vehicleName}\u0000${partName}`;
+/** 수량 저장소의 키. sync.js 도 이 함수를 써야 한다 (다르면 값이 통째로 버려진다). */
+export const qtyKey = (vehicleName, partName) => `${vehicleName}\u0000${partName}`;
 const byText = (a, b) => String(a).localeCompare(String(b), 'ko');
 
 // ------------------------------------------------------------------ meta
@@ -422,6 +423,11 @@ export async function collectInventoryState() {
  * (시트가 공유 원본 — 차량 이름 변경·품목 추가/삭제도 여기로 내려온다)
  * 아직 시트로 보내지 못한 내 수량 변경(outbox)은 덮지 않는다.
  */
+/** 아직 시트에 못 올린 차량·품목 구조 변경이 대기 중인가 */
+async function hasPendingStructureChange() {
+  return (await idb.getAll('outbox')).some((op) => op.type === 'invsheet-push');
+}
+
 export async function applyInventorySheet(state) {
   const stamp = now();
   const names = [];
@@ -471,6 +477,32 @@ export async function applyInventorySheet(state) {
   // 내 대기 중 수량은 기기 값을 유지한다 (전송되면 시트 값과 같아진다).
   for (const q of await idb.getAll('quantities')) {
     if (pending.has(q.key)) quantityRows.push(q);
+  }
+
+  // 아직 시트에 못 올린 **구조 변경**(차량·품목 추가)도 지키고 지나간다.
+  // 시트에는 없지만 기기에만 있는 줄을 지우면, 오프라인에서 추가한 품목이
+  // 전송되기도 전에 사라진다. 그 뒤 invsheet-push 는 이미 지워진 상태를 올려
+  // 되돌릴 수 없게 된다.
+  if (await hasPendingStructureChange()) {
+    for (const [key, prev] of prevItems) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      inventoryRows.push(prev);
+      if (!names.includes(prev.vehicleName)) {
+        names.push(prev.vehicleName);
+        vehicleRows.push({
+          name: prev.vehicleName,
+          displayOrder: vehicleRows.length + 1,
+          createdAt: (prevVehicles.get(prev.vehicleName) || {}).createdAt || stamp,
+        });
+      }
+      if (!pending.has(key)) {
+        quantityRows.push({
+          key, vehicleName: prev.vehicleName, partName: prev.partName,
+          quantity: prev.quantity, updatedAt: stamp,
+        });
+      }
+    }
   }
 
   await idb.replaceStores({
@@ -650,6 +682,16 @@ export async function pruneOrphanMedia() {
       }
     }
   }
+  // 아직 저장하지 않은 작성 중 리포트의 첨부도 쓰이는 중이다.
+  // (임시보관은 localStorage 에 있어 위 조회에 잡히지 않는다)
+  try {
+    const draft = JSON.parse(localStorage.getItem('bh_report_draft') || 'null');
+    for (const entry of Object.values((draft && draft.values) || {})) {
+      for (const media of (entry && entry.media) || []) {
+        if (media.filename) used.add(media.filename.replace(/^.*\//, ''));
+      }
+    }
+  } catch { /* 임시보관이 깨져 있으면 무시한다 */ }
   let deleted = 0;
   for (const media of await idb.getAll('media')) {
     if (used.has(media.filename)) continue;
@@ -741,9 +783,6 @@ export async function applySnapshot(snapshot) {
       sheetsWebappUrl: incomingSettings.sheetsWebappUrl,
       sheetsSpreadsheetId: incomingSettings.sheetsSpreadsheetId,
     });
-  }
-  if (incomingSettings.pinEnabled !== undefined) {
-    await setMeta('pinEnabled', Boolean(incomingSettings.pinEnabled));
   }
 
   await setMeta('baseRevision', snapshot.revision || 0);

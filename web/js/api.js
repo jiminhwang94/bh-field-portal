@@ -7,17 +7,9 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.1.0';
+export const APP_VERSION = '3.2.0';
 
-export const setUnauthorizedHandler = sync.setUnauthorizedHandler;
 export const deviceId = sync.deviceId;
-
-async function sha256(text) {
-  const data = new TextEncoder().encode(String(text));
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0')).join('');
-}
 
 export const api = {
   deviceId: sync.deviceId,
@@ -37,44 +29,6 @@ export const api = {
       return local;      // 오프라인 — 기기에 있는 정보로 표시
     }
   },
-
-  // ------------------------------------------------------------ 접근 보호
-  async authStatus() {
-    try {
-      const status = await sync.serverRequest('GET', '/api/auth/status', undefined,
-                                              { timeout: 5000 });
-      await store.setMeta('pinEnabled', Boolean(status.pinEnabled));
-      return status;
-    } catch {
-      const pinEnabled = Boolean(await store.getMeta('pinEnabled', false));
-      const unlocked = Boolean(await store.getMeta('unlocked', false));
-      return { pinEnabled, authorized: !pinEnabled || unlocked, offline: true };
-    }
-  },
-
-  async authLogin(pin) {
-    try {
-      const result = await sync.serverRequest('POST', '/api/auth', { pin },
-                                              { timeout: 8000 });
-      if (result && result.token) sync.saveToken(result.token);
-      // 오프라인에서도 잠금을 풀 수 있도록 확인값을 기기에 남긴다.
-      await store.setMeta('pinCheck', await sha256(pin));
-      await store.setMeta('unlocked', true);
-      return result;
-    } catch (err) {
-      if (!err.offline) throw err;
-      const expected = await store.getMeta('pinCheck', '');
-      if (expected && expected === await sha256(pin)) {
-        await store.setMeta('unlocked', true);
-        return { ok: true, offline: true };
-      }
-      throw new Error(
-        expected ? 'PIN 이 올바르지 않습니다.'
-          : '오프라인에서는 처음 잠금 해제를 할 수 없습니다. 사무실 Wi-Fi 에서 한 번 접속해 주세요.');
-    }
-  },
-
-  meta: () => sync.serverRequest('GET', '/api/meta'),
 
   // ------------------------------------------------- 업데이트(공개본 동기화)
   state: () => sync.state(),
@@ -207,25 +161,11 @@ export const api = {
       server_url: settings.serverUrl,
       sheetsReady: Boolean((settings.sheetsWebappUrl || '').trim()),
       spreadsheetUrl: spreadsheetUrl(settings),
-      pinEnabled: Boolean(await store.getMeta('pinEnabled', false)),
       pendingCount: await store.outboxCount(),
     };
   },
 
   async saveSettings(payload) {
-    if (payload.access_pin !== undefined) {
-      // PIN 은 팀 공용이라 서버에 저장한다(온라인 필요).
-      const saved = await sync.serverRequest('PUT', '/api/settings',
-                                             { access_pin: payload.access_pin });
-      // PIN 이 바뀌면 기존 토큰이 무효가 되므로 새 토큰으로 갈아끼운다.
-      if (saved && saved.newToken) sync.saveToken(saved.newToken);
-      await store.setMeta('pinEnabled', Boolean(payload.access_pin));
-      if (payload.access_pin) {
-        await store.setMeta('pinCheck', await sha256(payload.access_pin));
-      } else {
-        await store.setMeta('pinCheck', '');
-      }
-    }
     await store.saveSettings({
       sheetsWebappUrl: payload.sheets_webapp_url,
       sheetsSpreadsheetId: payload.sheets_spreadsheet_id === undefined
@@ -245,6 +185,9 @@ export const api = {
   },
 
   testSheets: () => testConnection(),
+
+  /** 올릴 대기 건수 (홈 화면 요약용) */
+  pendingCount: () => store.outboxCount(),
 
   // ------------------------------------------------------------------ 사진
   uploadMedia: (file) => store.saveMedia(file),

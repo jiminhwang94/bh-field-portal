@@ -9,11 +9,6 @@ import { callAppsScript, STATUS_VALUES, DEFAULT_STATUS } from './sheets.js';
 const CACHE_PREFIX = 'sheetReports:';
 const MONTHS_KEY = 'sheetReportMonths';
 
-/** '2026-08' 처럼 이번 달 이름 */
-export function currentMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
 
 export function isKnownStatus(value) {
   return STATUS_VALUES.includes(String(value || '').trim());
@@ -176,19 +171,30 @@ export async function pullMonth(sheetName, { refresh = true } = {}) {
 export async function setStatus(sheetName, row, status) {
   if (!isKnownStatus(status)) throw new Error('알 수 없는 상태입니다.');
 
+  const before = await cachedStatus(sheetName, row);
   await patchCache(sheetName, row, status);
 
-  const op = { type: 'report-status', sheetName, row, status };
   try {
     await callAppsScript({ reports: 'status', sheetName, row, status }, 30000);
     return { queued: false, status };
   } catch (err) {
     if (err && err.offline) {
-      await store.enqueue(op);
+      // 오프라인이면 기기 값을 그대로 두고, 연결될 때 시트에 올린다.
+      await store.enqueue({ type: 'report-status', sheetName, row, status });
       return { queued: true, status };
     }
+    // 시트에 못 쓴 값을 기기에 남겨 두면 다음에 열었을 때 거짓을 보여 준다.
+    if (before !== null) await patchCache(sheetName, row, before);
     throw err;
   }
+}
+
+/** 기기 사본에 들어 있는 현재 상태 (없으면 null) */
+async function cachedStatus(sheetName, row) {
+  const cached = await store.getMeta(CACHE_PREFIX + sheetName, null);
+  if (!cached) return null;
+  const found = (cached.entries || []).find((e) => e.row === row);
+  return found ? found.status : null;
 }
 
 /** 기기 사본의 상태 값을 고친다 (화면이 곧바로 새 값을 보여 주도록). */

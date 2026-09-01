@@ -9,9 +9,6 @@ let loaded = null;
 let latest = null;
 let pending = false;
 
-export function getBuildInfo() {
-  return { loaded, latest, hasUpdate: hasUpdate() };
-}
 
 function hasUpdate() {
   return !!(loaded && latest && latest.buildHash !== loaded.buildHash);
@@ -29,6 +26,9 @@ function safeToReload() {
 }
 
 export async function applyUpdate() {
+  // 캐시를 지우면 앱 화면 파일이 사라진다. 지금 못 받아오면 앱이 아예 안 열리므로
+  // 연결이 확실할 때만 지운다. (현장에서 신호가 끊긴 채 갱신되면 복구할 수 없다)
+  if (!navigator.onLine) return;
   try {
     if (window.caches && caches.keys) {
       const keys = await caches.keys();

@@ -94,7 +94,7 @@ jobs:
           SRC=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
           # 파일 이름은 영문으로 짓는다. Releases 는 한글을 지워 버려서
           # "현장포털-v3.0.0-빌드6.apk" 가 "-v3.0.0-.6.apk" 로 올라간다.
-          NAME="FieldPortal-v3.1.0-build${{ github.run_number }}.apk"
+          NAME="FieldPortal-v3.2.0-build${{ github.run_number }}.apk"
           cp "$SRC" "$NAME"
           echo "path=$NAME" >> "$GITHUB_OUTPUT"
           ls -lh "$NAME"
@@ -125,7 +125,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: 현장 포털 v3.1.0 (빌드 ${{ github.run_number }})
+          name: 현장 포털 v3.2.0 (빌드 ${{ github.run_number }})
           files: ${{ steps.apk.outputs.path }}
           body: |
             ## ⚠️ 먼저 — 흰 페이지가 뜬다면

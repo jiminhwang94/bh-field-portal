@@ -32,7 +32,7 @@ mimetypes.add_type("application/manifest+json", ".webmanifest")
 # 서버와 **다른 출처**가 된다. 그래서 이 출처만 골라서 허용한다.
 # (아무 사이트나 허용하면 사내망 서버가 외부 웹페이지에서 호출될 수 있다)
 ALLOWED_ORIGINS = ("https://appassets.androidplatform.net",)
-ALLOWED_HEADERS = "Content-Type, X-Device-Id, X-Access-Token"
+ALLOWED_HEADERS = "Content-Type, X-Device-Id"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -133,6 +133,9 @@ class Handler(BaseHTTPRequestHandler):
         if size <= 0:
             return b""
         if size > api.MAX_UPLOAD_BYTES + 1024:
+            # 본문을 읽지 않고 응답하면 남은 바이트가 다음 요청으로 섞여
+            # 연결이 깨진다. 이 연결은 응답 뒤 닫는다.
+            self.close_connection = True
             raise api.ApiError(413, "요청 본문이 너무 큽니다.")
         return self.rfile.read(size)
 
@@ -149,26 +152,14 @@ class Handler(BaseHTTPRequestHandler):
                     self.headers.get("Content-Type", ""),
                     self.headers,
                 )
-                extra = None
-                # 로그인 성공 / PIN 변경 시 이 기기에 접근 쿠키를 심는다.
-                token = None
-                if isinstance(payload, dict):
-                    token = payload.pop("setCookie", None) or payload.get("newToken")
-                if token:
-                    extra = {"Set-Cookie":
-                             f"{api.AUTH_COOKIE}={token}; Path=/; Max-Age=31536000; "
-                             "SameSite=Lax"}
-                self._json(status, payload, extra)
+                self._json(status, payload)
                 return
             if path.startswith("/media/"):
-                # 사진도 데이터이므로 PIN 이 설정돼 있으면 보호한다.
-                device = self.headers.get("X-Device-Id", "")
-                if not api.authorized(self.headers, device):
-                    self._error(401, "접근 PIN 이 필요합니다.")
-                    return
                 self._serve_media(path[len("/media/"):])
                 return
             if method != "GET":
+                # 본문이 남아 있을 수 있다 — 다음 요청과 섞이지 않게 연결을 닫는다.
+                self.close_connection = True
                 self._error(405, "허용되지 않는 메서드입니다.")
                 return
             self._serve_static(path)
@@ -274,16 +265,11 @@ def main():
                         help="HTTPS 로 실행 (도메인 서비스용)")
     parser.add_argument("--cert", help="인증서 파일 (기본: data/cert/cert.pem)")
     parser.add_argument("--key", help="개인키 파일 (기본: data/cert/key.pem)")
-    parser.add_argument("--reset-pin", action="store_true",
-                        help="접근 PIN 을 해제한다 (분실 시 사용)")
+
     args = parser.parse_args()
 
     db.init()
 
-    if args.reset_pin:
-        db.set_access_pin("")
-        print("접근 PIN 을 해제했습니다. 설정 화면에서 다시 지정할 수 있습니다.")
-        return
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     scheme = "http"
 
@@ -307,8 +293,6 @@ def main():
     if scheme == "https":
         print("  ※ 자체 서명 인증서면 브라우저가 경고를 띄웁니다.")
         print("    운영에서는 정식 인증서(리버스 프록시)를 쓰세요.")
-    pin_on = bool(db.access_pin())
-    print(f"  접근 보호      : {'PIN 사용 중' if pin_on else '없음 (설정에서 지정 가능)'}")
     site = (db.get_settings().get("site_url") or "").strip()
     if site:
         print(f"  서비스 주소    : {site}  (설정에서 지정됨)")
