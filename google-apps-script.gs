@@ -41,8 +41,14 @@ function doPost(e) {
         ok: true,
         spreadsheetName: ss.getName(),
         spreadsheetUrl: ss.getUrl(),
-        sheets: names
+        sheets: names,
+        drive: driveSpace()
       });
+    }
+
+    // 남은 용량만 따로 (설정 화면·업로드 전 확인용)
+    if (body.drive === 'space') {
+      return json({ ok: true, drive: driveSpace() });
     }
 
     // 차량 재고 동기화 — '차량재고' 탭을 팀 공유 저장소로 쓴다.
@@ -377,10 +383,25 @@ var GUIDE_SHEETS = {
   HARDWARE_SOP: '하드웨어 교체 SOP',
   SOFTWARE_CMD: 'SW·명령어',
 };
-var GUIDE_HEADER = ['코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일'];
-var GUIDE_WIDTHS = [160, 260, 160, 300, 420, 130];
+/** 줄바꿈 한 글자. 시트 칸 안에서 명령어·단계를 나누는 기준이다. */
+var NEWLINE = String.fromCharCode(10);
+
+var GUIDE_ID_HEADER = 'ID(고치지 마세요)';
+var GUIDE_HEADER = ['코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일',
+                    GUIDE_ID_HEADER];
+var GUIDE_WIDTHS = [160, 260, 160, 300, 420, 130, 200];
 
 function handleGuides(ss, body) {
+  // 시트에서 고친 가이드를 앱으로 돌려준다 (v3.3 — 양방향)
+  if (body.guides === 'pull') {
+    var out = [];
+    for (var t in GUIDE_SHEETS) {
+      var sh = ss.getSheetByName(GUIDE_SHEETS[t]);
+      if (!sh) continue;
+      out = out.concat(readGuideSheet(sh, t));
+    }
+    return json({ ok: true, items: out });
+  }
   if (body.guides !== 'push') return json({ ok: false, error: '알 수 없는 요청입니다.' });
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -403,6 +424,74 @@ function handleGuides(ss, body) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * 가이드 탭을 앱이 이해하는 구조로 읽는다 (시트 → 앱).
+ *
+ * 사람이 시트에서 고친 내용을 되받기 위한 것이다. 명령어·단계는 한 칸에
+ * 줄바꿈으로 들어 있으므로 줄 단위로 되돌린다.
+ *  - 단계  : "1. 내용  (기준: 값)" 형태를 되짚는다
+ *  - 명령어: "이름: 명령  — 설명" 형태를 되짚는다
+ * ID 열(맨 뒤, 숨김)로 같은 가이드를 알아본다. 비어 있으면 새 가이드로 본다.
+ */
+function readGuideSheet(sheet, categoryType) {
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 3 || lastCol < 1) return [];
+
+  var header = sheet.getRange(2, 1, 1, lastCol).getValues()[0];
+  var idCol = -1;
+  for (var c = 0; c < header.length; c++) {
+    if (String(header[c] || '').trim() === GUIDE_ID_HEADER) { idCol = c; break; }
+  }
+
+  var data = sheet.getRange(3, 1, lastRow - 2, lastCol).getDisplayValues();
+  var out = [];
+  for (var r = 0; r < data.length; r++) {
+    var row = data[r];
+    var title = String(row[0] || '').trim();
+    if (!title) continue;
+
+    var commands = [];
+    String(row[3] || '').split(NEWLINE).forEach(function (line) {
+      var text = line.trim();
+      if (!text) return;
+      var desc = '';
+      var dash = text.indexOf('  — ');
+      if (dash >= 0) { desc = text.slice(dash + 4).trim(); text = text.slice(0, dash); }
+      var label = '';
+      var colon = text.indexOf(': ');
+      if (colon >= 0) { label = text.slice(0, colon).trim(); text = text.slice(colon + 2); }
+      commands.push({ label: label, cmd: text.trim(), desc: desc });
+    });
+
+    var steps = [];
+    String(row[4] || '').split(NEWLINE).forEach(function (line) {
+      var text = line.trim();
+      if (!text) return;
+      text = text.replace(/^\d+\.\s*/, '');
+      var metric = '';
+      var mark = text.indexOf('  (기준: ');
+      if (mark >= 0) {
+        metric = text.slice(mark + 7).replace(/\)$/, '').trim();
+        text = text.slice(0, mark);
+      }
+      steps.push({ instruction: text.trim(), expectedMetric: metric || null });
+    });
+
+    out.push({
+      id: idCol >= 0 ? String(row[idCol] || '').trim() : '',
+      categoryType: categoryType,
+      codeOrTitle: title,
+      summary: String(row[1] || '').trim(),
+      requiredTools: String(row[2] || '').trim(),
+      commands: commands,
+      steps: steps,
+      updatedAt: String(row[5] || '').trim()
+    });
+  }
+  return out;
 }
 
 function writeGuideSheet(ss, name, list) {
@@ -449,6 +538,8 @@ function writeGuideSheet(ss, name, list) {
   range.setValues(rows);
   range.setVerticalAlignment('top');
   range.setWrap(true);
+  // ID 열은 앱이 같은 가이드를 알아보는 용도라 사람에게는 감춘다.
+  sheet.hideColumns(GUIDE_HEADER.length);
 }
 
 /* ============================================================ 첨부 파일(드라이브)
@@ -483,6 +574,24 @@ function saveMediaToDrive(ss, media) {
   var out = { byColumn: {}, count: 0, skipped: [] };
   if (!media || !media.length) return out;
 
+  // 용량이 모자라면 파일이 조용히 안 올라간다. 미리 재 보고 이유를 분명히 남긴다.
+  var space = driveSpace();
+  var needed = 0;
+  for (var n = 0; n < media.length; n++) {
+    needed += Math.ceil((String((media[n] || {}).data || '').length * 3) / 4);
+  }
+  if (space.free !== null && needed > space.free) {
+    for (var k = 0; k < media.length; k++) {
+      out.skipped.push({
+        filename: (media[k] || {}).filename || '(이름 없음)',
+        reason: '구글 드라이브 용량이 부족합니다 (남은 공간 '
+          + Math.round(space.free / 1048576) + 'MB, 필요 '
+          + Math.round(needed / 1048576) + 'MB)'
+      });
+    }
+    return out;
+  }
+
   var folder = mediaFolder(ss);
   for (var i = 0; i < media.length; i++) {
     var item = media[i] || {};
@@ -506,6 +615,23 @@ function saveMediaToDrive(ss, media) {
     }
   }
   return out;
+}
+
+/**
+ * 구글 드라이브 남은 용량. 조회에 실패하면 free 를 null 로 돌려준다
+ * (막지 않고 그냥 진행한다 — 확인이 안 된다고 업로드를 멈출 이유는 없다).
+ */
+function driveSpace() {
+  try {
+    var free = DriveApp.getStorageLimit() - DriveApp.getStorageUsed();
+    return {
+      limit: DriveApp.getStorageLimit(),
+      used: DriveApp.getStorageUsed(),
+      free: free
+    };
+  } catch (err) {
+    return { limit: null, used: null, free: null };
+  }
 }
 
 /* ============================================================ 리포트 이력

@@ -803,3 +803,49 @@ img { display: block; max-width: 100%; }
   flex: 1 1 100%; margin: 6px 0 0;
   font-size: 14px; color: var(--color-muted); line-height: 1.6;
 }
+
+/* ── 첨부 전체 화면 뷰어 ─────────────────────────────────────────────── */
+.viewer {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; flex-direction: column;
+  background: rgba(11, 13, 18, .94);
+}
+.viewer__bar {
+  flex: none; display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: #fff; border-bottom: 1px solid rgba(255, 255, 255, .12);
+}
+.viewer__label { font-size: 15px; font-weight: 600; }
+.viewer__count { font-size: 13px; opacity: .75; font-variant-numeric: tabular-nums; }
+.viewer__bar .btn { color: #fff; background: transparent; border-color: rgba(255, 255, 255, .28); }
+.viewer__bar .btn:hover { background: rgba(255, 255, 255, .12); }
+
+.viewer__stage {
+  flex: 1; min-height: 0; position: relative;
+  display: grid; place-items: center; padding: var(--space-4);
+}
+.viewer__img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius-md); }
+.viewer__img.is-broken { display: none; }
+.viewer__img.is-broken + .viewer__fallback { display: block; }
+.viewer__fallback {
+  display: none; color: rgba(255, 255, 255, .8);
+  text-align: center; line-height: 1.8; font-size: 15px;
+}
+.viewer__stage > .viewer__fallback:only-child { display: block; }
+
+.viewer__nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 56px; height: 88px; border: 0; border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, .1); color: #fff;
+  font-size: 34px; line-height: 1; cursor: pointer;
+}
+.viewer__nav:hover { background: rgba(255, 255, 255, .2); }
+.viewer__nav--prev { left: var(--space-3); }
+.viewer__nav--next { right: var(--space-3); }
+
+/* ── 홈: 이번 달 미조치 요약 ─────────────────────────────────────────── */
+.home-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); }
+.home-stats .stat { min-height: 64px; padding: var(--space-2) var(--space-3); }
+.home-stats .stat__n { font-size: 22px; }
+.home-stats .stat__label { font-size: 12px; }
+@media (max-width: 720px) { .home-stats { grid-template-columns: repeat(2, 1fr); } }

@@ -250,5 +250,14 @@ export async function testConnection() {
     spreadsheetName: result.spreadsheetName || '',
     spreadsheetUrl: result.spreadsheetUrl || spreadsheetUrl(settings),
     sheets: result.sheets || [],
+    drive: result.drive || null,
   };
+}
+
+/** 사람이 읽는 용량 문자열 */
+export function formatBytes(n) {
+  if (n === null || n === undefined) return '-';
+  const gb = n / 1073741824;
+  if (gb >= 1) return `${gb.toFixed(1)}GB`;
+  return `${Math.round(n / 1048576)}MB`;
 }

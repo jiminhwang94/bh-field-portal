@@ -1,12 +1,21 @@
 // 현장 리포트 작성 (동적 폼) · 이력 · 상세 / 구글 시트 업로드
 import { api } from '../api.js';
 import {
-  $, h, confirmDialog, copyText, loading, openSheet, toast,
+  $, closeModal, confirmDialog, copyText, h, loading, openSheet, toast,
 } from '../ui.js';
 import { reportToText, shareReport } from '../share.js';
-import { explain as explainError, thumbUrl } from '../reportsheet.js';
+import { explain as explainError, findVisits, thumbUrl } from '../reportsheet.js';
 
 const DRAFT_KEY = 'bh_report_draft';
+const SEED_KEY = 'bh_report_seed';   // 이력에서 [이어서 작성] 로 넘겨받는 값
+
+/** 이력의 한 건을 새 리포트의 출발점으로 넘긴다. */
+export function seedFromEntry(entry) {
+  sessionStorage.setItem(SEED_KEY, JSON.stringify({
+    store: entry.store || '', code: entry.code || '',
+    serial: (entry.values.find((v) => v.label.includes('시리얼')) || {}).value || '',
+  }));
+}
 
 // ------------------------------------------------------------ 작성 화면
 export async function reportFormView(view) {
@@ -25,6 +34,30 @@ export async function reportFormView(view) {
     if (!values[f.id]) values[f.id] = { value: '', media: [] };
     if (!Array.isArray(values[f.id].media)) values[f.id].media = [];
   });
+
+  // 이력에서 [이어서 작성] 으로 왔으면 아는 값을 미리 채운다.
+  let seeded = null;
+  try {
+    seeded = JSON.parse(sessionStorage.getItem(SEED_KEY) || 'null');
+  } catch { /* 무시 */ }
+  if (seeded) {
+    sessionStorage.removeItem(SEED_KEY);
+    for (const f of fields) {
+      const label = f.fieldLabel;
+      if (seeded.store && (label.includes('식당') || label.includes('매장'))) {
+        values[f.id].value = seeded.store;
+      } else if (seeded.serial && label.includes('시리얼')) {
+        values[f.id].value = seeded.serial;
+      } else if (seeded.code && label.includes('오류 코드')) {
+        values[f.id].value = seeded.code;
+      }
+    }
+    saveDraft();
+  }
+
+  // 지난 방문을 찾을 기준이 되는 항목 (식당명)
+  const storeField = fields.find(
+    (f) => f.fieldLabel.includes('식당') || f.fieldLabel.includes('매장'));
 
   const hasDraft = fields.some((f) => values[f.id].value || values[f.id].media.length);
   const sheetsReady = !!settings.sheetsReady;
@@ -100,6 +133,8 @@ export async function reportFormView(view) {
             </div>
           </div>` : ''}
 
+        <div id="pastVisits"></div>
+
         <form id="reportForm" autocomplete="off">
           <div class="panel">
             ${fields.length ? fields.map(fieldHtml).join('')
@@ -128,6 +163,10 @@ export async function reportFormView(view) {
       if (!id) return;
       values[id].value = ev.target.value;
       saveDraft();
+      if (storeField && id === storeField.id) {
+        clearTimeout(visitTimer);
+        visitTimer = setTimeout(paintPastVisits, 350);
+      }
     });
     root.addEventListener('change', (ev) => {
       const id = ev.target.dataset.input;
@@ -136,6 +175,52 @@ export async function reportFormView(view) {
       saveDraft();
     });
     $('#reportForm').addEventListener('submit', submit);
+    paintPastVisits();
+  }
+
+  /**
+   * 같은 식당의 지난 방문을 보여 준다.
+   *
+   * 이 부분만 갈아 끼운다 — 입력 칸을 다시 만들면 한글 조합이 깨진다.
+   * (이력 검색창에서 겪은 것과 같은 문제)
+   */
+  let visitTimer = null;
+  async function paintPastVisits() {
+    const box = $('#pastVisits');
+    if (!box || !storeField) return;
+    const name = values[storeField.id].value;
+    const visits = await findVisits(name, 3);
+    if (!visits.length) { box.innerHTML = ''; return; }
+
+    box.innerHTML = `
+      <div class="panel">
+        <h2 class="panel__title">${h(name)} · 지난 방문 ${visits.length}건</h2>
+        <div class="list">
+          ${visits.map((v) => {
+            const t = trackOf(v.status);
+            const attach = v.links.length
+              ? ` · 첨부 <span class="tnum">${v.links.length}</span>` : '';
+            return `
+              <button class="item" data-act="visit" data-key="${h(v.key)}" type="button"
+                      style="width:100%;text-align:left;background:none;border:0;font:inherit;color:inherit">
+                <span class="item__body">
+                  <span class="item__title">${h(v.date)} · ${h(v.code || '코드 없음')}</span>
+                  <span class="item__sub">${h(v.summary || '-')}${attach}</span>
+                </span>
+                <span class="pill pill--${t.cls}">${h(v.status)}</span>
+              </button>`;
+          }).join('')}
+        </div>
+        <p class="hint" style="margin:10px 0 0">
+          눌러서 그때 무엇을 했는지 볼 수 있습니다. 기기에 받아 둔 이력에서 찾으므로 오프라인에서도 됩니다.
+        </p>
+      </div>`;
+    box.querySelectorAll('[data-act="visit"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const found = visits.find((v) => v.key === btn.dataset.key);
+        if (found) showSheetEntry(found);
+      });
+    });
   }
 
   function collectPayload() {
@@ -319,6 +404,130 @@ const TRACK = [
   { value: '교체 예정',    short: '교체 예정', cls: 'swap' },
 ];
 const trackOf = (value) => TRACK.find((t) => t.value === value) || TRACK[2];
+
+/**
+ * 시트 한 줄의 전체 내용 + 첨부를 모달로 보여 준다.
+ * 이력 화면과 새 리포트의 [지난 방문] 이 같은 모달을 쓴다.
+ */
+export function showSheetEntry(entry) {
+  const t = trackOf(entry.status);
+  const body = `
+    <div class="hist-detail">
+      <div class="row" style="gap:8px;margin-bottom:12px">
+        <span class="pill pill--${t.cls}">${h(entry.status)}</span>
+        <span class="badge">${h(entry.createdAt || entry.date)}</span>
+        ${entry.author ? `<span class="badge">${h(entry.author)}</span>` : ''}
+        <span class="spacer"></span>
+        <button class="btn btn--ghost btn--sm" data-act="reuse" type="button">
+          📝 이어서 작성
+        </button>
+      </div>
+      ${entry.links.length ? `
+        <div class="media-grid">
+          ${entry.links.map((l, i) => `
+            <button class="media-tile" data-act="view" data-idx="${i}" type="button"
+                    style="padding:0;cursor:zoom-in">
+              ${l.id
+                ? `<img src="${h(thumbUrl(l.id, 300))}" alt="${h(l.label)}" loading="lazy"
+                        onerror="this.classList.add('is-broken')" />`
+                : ''}
+              <span class="media-tile__none">📎 열어 보기</span>
+              <span class="media-tile__name">${h(l.label)}</span>
+            </button>`).join('')}
+        </div>` : ''}
+      ${entry.values.map((v) => `
+        <div class="field">
+          <label>${h(v.label)}</label>
+          <div class="sub-card" style="white-space:pre-wrap">${h(v.value)}</div>
+        </div>`).join('')}
+    </div>`;
+
+  const box = openSheet(entry.store || '리포트', body);
+  box.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    if (btn.dataset.act === 'reuse') {
+      seedFromEntry(entry);
+      closeModal();
+      location.hash = '#/report/new';
+      toast('지난 기록을 바탕으로 새 리포트를 엽니다.', 'ok');
+    }
+    if (btn.dataset.act === 'view') {
+      openViewer(entry.links, Number(btn.dataset.idx));
+    }
+  });
+}
+
+/**
+ * 첨부 전체 화면 뷰어 — 좌우로 넘겨 본다.
+ *
+ * 드라이브를 새 창으로 여는 것보다 현장에서 빠르다.
+ * 원본(드라이브)으로 나가는 길도 남겨 둔다.
+ */
+export function openViewer(links, start = 0) {
+  let at = Math.max(0, Math.min(start, links.length - 1));
+
+  const root = document.createElement('div');
+  root.className = 'viewer';
+  root.tabIndex = -1;
+  document.body.appendChild(root);
+  document.body.style.overflow = 'hidden';
+
+  function close() {
+    root.remove();
+    document.body.style.overflow = '';
+    document.removeEventListener('keydown', onKey);
+  }
+  function go(step) {
+    at = (at + step + links.length) % links.length;
+    draw();
+  }
+  function onKey(ev) {
+    if (ev.key === 'Escape') close();
+    if (ev.key === 'ArrowLeft') go(-1);
+    if (ev.key === 'ArrowRight') go(1);
+  }
+
+  function draw() {
+    const l = links[at];
+    root.innerHTML = `
+      <div class="viewer__bar">
+        <span class="viewer__label">${h(l.label)}</span>
+        <span class="viewer__count tnum">${at + 1} / ${links.length}</span>
+        <span class="spacer"></span>
+        <a class="btn btn--ghost btn--sm" href="${h(l.url)}" target="_blank"
+           rel="noopener">드라이브에서 열기 ↗</a>
+        <button class="btn btn--ghost btn--icon" data-act="close" type="button"
+                aria-label="닫기">✕</button>
+      </div>
+      <div class="viewer__stage">
+        ${links.length > 1 ? '<button class="viewer__nav viewer__nav--prev" data-act="prev" type="button" aria-label="이전">‹</button>' : ''}
+        ${l.id
+          ? `<img class="viewer__img" src="${h(thumbUrl(l.id, 1600))}" alt="${h(l.label)}"
+                  onerror="this.classList.add('is-broken')" />
+             <div class="viewer__fallback">미리보기를 불러오지 못했습니다.<br />
+               위의 [드라이브에서 열기] 로 원본을 볼 수 있습니다.</div>`
+          : '<div class="viewer__fallback">미리보기를 만들 수 없는 형식입니다.</div>'}
+        ${links.length > 1 ? '<button class="viewer__nav viewer__nav--next" data-act="next" type="button" aria-label="다음">›</button>' : ''}
+      </div>`;
+  }
+
+  root.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) {
+      if (ev.target === root || ev.target.classList.contains('viewer__stage')) close();
+      return;
+    }
+    if (btn.dataset.act === 'close') close();
+    if (btn.dataset.act === 'prev') go(-1);
+    if (btn.dataset.act === 'next') go(1);
+  });
+  document.addEventListener('keydown', onKey);
+  draw();
+  root.focus();
+}
+
+
 
 /** 연도는 위 월 선택기에 이미 있으므로 줄에는 월-일만 보여 준다. */
 const shortDate = (value) => {
@@ -544,7 +753,7 @@ export async function reportListView(view) {
     if (act === 'clear') { filter = null; paint(); return; }
     if (act === 'open') {
       const entry = (data.entries || []).find((e) => e.key === btn.dataset.key);
-      if (entry) showEntry(entry);
+      if (entry) showSheetEntry(entry);
       return;
     }
     if (act === 'refresh') {
@@ -590,36 +799,6 @@ export async function reportListView(view) {
         toast(err.message, 'err');
       }
     }
-  }
-
-  /** 시트 한 줄의 전체 내용 + 첨부를 모달로 보여 준다. */
-  function showEntry(entry) {
-    const body = `
-      <div class="hist-detail">
-        <div class="row" style="gap:8px;margin-bottom:12px">
-          <span class="pill pill--${trackOf(entry.status).cls}">${h(entry.status)}</span>
-          <span class="badge">${h(entry.createdAt || entry.date)}</span>
-          ${entry.author ? `<span class="badge">${h(entry.author)}</span>` : ''}
-        </div>
-        ${entry.links.length ? `
-          <div class="media-grid">
-            ${entry.links.map((l) => `
-              <a class="media-tile" href="${h(l.url)}" target="_blank" rel="noopener">
-                ${l.id
-                  ? `<img src="${h(thumbUrl(l.id, 300))}" alt="${h(l.label)}" loading="lazy"
-                          onerror="this.classList.add('is-broken')" />`
-                  : ''}
-                <div class="media-tile__none">📎 열어 보기</div>
-                <div class="media-tile__name">${h(l.label)}</div>
-              </a>`).join('')}
-          </div>` : ''}
-        ${entry.values.map((v) => `
-          <div class="field">
-            <label>${h(v.label)}</label>
-            <div class="sub-card" style="white-space:pre-wrap">${h(v.value)}</div>
-          </div>`).join('')}
-      </div>`;
-    openSheet(entry.store || '리포트', body);
   }
 
   renderShell();

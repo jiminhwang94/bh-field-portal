@@ -76,6 +76,30 @@ function toEntry(headers, row, sheetName) {
 }
 
 /**
+ * 그 식당의 지난 방문 기록을 찾는다 (최근 것부터).
+ *
+ * 같은 식당을 여러 번 가는 업무라, 새 리포트를 쓸 때 "지난번에 뭐 했더라" 를
+ * 이력 화면으로 건너가지 않고 그 자리에서 보게 하려는 것이다.
+ * 기기에 받아 둔 사본만 뒤지므로 오프라인에서도 동작하고, 네트워크를 쓰지 않는다.
+ */
+export async function findVisits(storeName, limit = 3) {
+  const needle = String(storeName || '').trim().toLowerCase();
+  if (needle.length < 2) return [];
+
+  const months = ((await store.getMeta(MONTHS_KEY, [])) || []).slice(0, 6);
+  const found = [];
+  for (const month of months) {
+    const cached = await store.getMeta(CACHE_PREFIX + month, null);
+    for (const entry of (cached && cached.entries) || []) {
+      if (String(entry.store || '').toLowerCase().includes(needle)) found.push(entry);
+    }
+    if (found.length >= limit * 3) break;      // 충분히 모였으면 더 뒤지지 않는다
+  }
+  found.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return found.slice(0, limit);
+}
+
+/**
  * 이력을 못 받아 온 이유를 사람 말로 바꾼다.
  *
  * 가장 흔한 경우가 **스프레드시트의 Apps Script 가 아직 예전 버전**인 것이다.

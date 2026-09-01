@@ -47,12 +47,23 @@ def call(method, path, origin=None, headers=None):
 
 shutil.rmtree(ROOT, ignore_errors=True)
 os.makedirs(os.path.join(ROOT, "media"), exist_ok=True)
-env = dict(os.environ, DATABASE_URL=os.path.join(ROOT, "app.db"),
-           MEDIA_DIR=os.path.join(ROOT, "media"))
+# 운영 데이터를 절대 건드리지 않도록 데이터 폴더를 통째로 옮긴다.
+env = dict(os.environ, BH_DATA_DIR=ROOT)
 proc = subprocess.Popen([sys.executable, "server.py", "--port", str(PORT),
                          "--host", "127.0.0.1"], cwd=CODE, env=env,
                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-time.sleep(2.5)
+
+# 고정 시간 대기는 느린 CI 에서 깨진다. 뜰 때까지 기다린다.
+for _ in range(60):
+    if proc.poll() is not None:
+        raise SystemExit(f"서버가 죽었습니다: {proc.stderr.read().decode()[:400]}")
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/version", timeout=1)
+        break
+    except Exception:
+        time.sleep(0.5)
+else:
+    raise SystemExit("서버가 시간 안에 뜨지 않았습니다.")
 
 print("=" * 62)
 print("APK 앱 ↔ 서버 연결 규칙 검사")

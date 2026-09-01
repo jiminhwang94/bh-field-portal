@@ -20,7 +20,14 @@ import time
 import uuid
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+
+# 데이터 폴더는 BH_DATA_DIR 로 옮길 수 있다.
+#
+# 이게 없으면 테스트나 확인용 서버가 **운영 데이터를 그대로 건드린다.**
+# 실제로 v3.0 개발 중 리포트가 날아갔고, v3.2 작업 중에도 충돌 테스트가
+# 운영 가이드를 덮어써 백업에서 되살렸다. 두 번 같은 사고가 났으므로
+# 폴더를 갈아끼울 수 있게 만들어 두고, tests/ 는 항상 이 값을 쓴다.
+DATA_DIR = os.environ.get("BH_DATA_DIR") or os.path.join(BASE_DIR, "data")
 DB_PATH = os.environ.get("DATABASE_URL") or os.path.join(DATA_DIR, "app.db")
 MEDIA_DIR = os.environ.get("MEDIA_DIR") or os.path.join(DATA_DIR, "media")
 
@@ -28,7 +35,7 @@ CATEGORY_TYPES = ("ERROR_CODE", "HARDWARE_SOP", "SOFTWARE_CMD")
 FIELD_TYPES = ("TEXT", "TEXTAREA", "NUMBER", "DROPDOWN", "MEDIA")
 VEHICLES = ("스타리아 1호차", "스타리아 2호차")
 
-APP_VERSION = "3.2.0"
+APP_VERSION = "3.3.0"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS vehicle (

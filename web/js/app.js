@@ -79,6 +79,7 @@ async function mainView() {
   const items = (await api.listGuides()).items;      // 전부 기기에 있다 (오프라인 OK)
   const drafts = (await api.listReports()).items.filter((r) => r.status !== 'UPLOADED');
   const pending = await api.pendingCount();
+  const month = await monthSummary();
 
   const codes = items
     .filter((g) => g.categoryType === 'ERROR_CODE')
@@ -109,6 +110,18 @@ async function mainView() {
           ${codes.map((g) => `
             <a class="btn btn-secondary code-btn" href="#/guides/${g.id}"
                title="${h(g.summary || '')}">${h(g.codeOrTitle.split(' ')[0])}</a>`).join('')}
+        </div>
+      </section>` : ''}
+
+    ${month ? `
+      <section class="quick-block">
+        <div class="label">${h(month.name)} 처리 현황</div>
+        <div class="home-stats">
+          ${month.tiles.map((t) => `
+            <a class="stat ${t.n && t.open ? 'is-active' : ''}" href="#/reports">
+              <span class="stat__n tnum">${t.n}</span>
+              <span class="stat__label">${h(t.label)}</span>
+            </a>`).join('')}
         </div>
       </section>` : ''}
 
@@ -145,6 +158,37 @@ async function mainView() {
 }
 
 const SHORT = { ERROR_CODE: '', HARDWARE_SOP: 'SOP', SOFTWARE_CMD: 'CMD' };
+
+/**
+ * 이번 달 리포트를 상태별로 센다.
+ *
+ * 기기에 받아 둔 이력 사본만 본다 — 홈을 열 때마다 시트를 부르면 느리고,
+ * 오프라인에서는 아예 안 된다. 사본이 없으면 이 구역을 통째로 감춘다.
+ */
+async function monthSummary() {
+  try {
+    const store = await import('./local/store.js');
+    const d = new Date();
+    const name = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const cached = await store.getMeta(`sheetReports:${name}`, null);
+    if (!cached || !(cached.entries || []).length) return null;
+
+    const order = ['조치 진행 중', '교체 예정', '모니터링', '조치 완료'];
+    const count = {};
+    for (const entry of cached.entries) {
+      count[entry.status] = (count[entry.status] || 0) + 1;
+    }
+    return {
+      name,
+      // 아직 안 끝난 것을 왼쪽에 둔다 — 홈에서 먼저 눈에 들어와야 하는 값이다.
+      tiles: order.map((label) => ({
+        label, n: count[label] || 0, open: label !== '조치 완료',
+      })),
+    };
+  } catch {
+    return null;
+  }
+}
 
 function recentRow(guide) {
   const meta = CATEGORY[guide.categoryType] || { label: '' };

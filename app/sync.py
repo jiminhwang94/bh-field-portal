@@ -132,10 +132,24 @@ def _text(value, limit=4000) -> str:
     return str(value if value is not None else "")[:limit]
 
 
-def apply_snapshot(payload: dict, device_name="") -> dict:
+class StaleSnapshot(Exception):
+    """내가 받아간 뒤 다른 사람이 먼저 올렸다."""
+
+    def __init__(self, current, mine):
+        super().__init__("다른 사용자가 먼저 업데이트했습니다.")
+        self.current = current
+        self.mine = mine
+
+
+def apply_snapshot(payload: dict, device_name="", force=False) -> dict:
     """기기가 보낸 내용으로 공개본 공유 테이블을 통째로 교체한다.
 
     두 사람이 동시에 눌러도 반쪽만 반영되지 않도록 잠금 + 단일 트랜잭션으로 처리한다.
+
+    **덮어쓰기 방지**: 기기는 자기가 마지막으로 받아간 버전(baseRevision)을 함께 보낸다.
+    그 사이 다른 사람이 먼저 올렸다면 지금 올리는 내용이 그 사람의 변경을 지운다.
+    그래서 기본은 거절하고, 사용자가 화면에서 확인한 뒤 force 로 다시 부른다.
+    (예전에는 이 값을 무시하고 그냥 덮어써서, 먼저 올린 사람의 가이드가 말없이 사라졌다)
     """
     guides = payload.get("guides") or []
     vehicles = payload.get("vehicles") or []
@@ -148,6 +162,12 @@ def apply_snapshot(payload: dict, device_name="") -> dict:
 
     stamp = db.now()
     with db.PUBLISH_LOCK:
+        if not force:
+            current = int(db.published_state().get("revision") or 0)
+            mine = payload.get("baseRevision")
+            # baseRevision 을 안 보내는 예전 앱은 그대로 통과시킨다.
+            if mine is not None and int(mine or 0) < current:
+                raise StaleSnapshot(current, int(mine or 0))
         conn = db.connect()
         try:
             conn.execute("PRAGMA foreign_keys = OFF")

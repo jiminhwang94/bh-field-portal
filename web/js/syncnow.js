@@ -130,7 +130,7 @@ export async function runSync(btn) {
   }
 
   if (btn) { btn.disabled = true; btn.textContent = '맞추는 중…'; }
-  const done = { uploaded: 0, published: false, pulled: false, sheet: false };
+  const done = { uploaded: 0, published: false, pulled: false, sheet: false, guides: 0 };
   const problems = [];
 
   // 1. 밀린 것 올리기 (리포트·재고 수량·이력 상태·가이드 탭)
@@ -144,8 +144,31 @@ export async function runSync(btn) {
   // 2·3. 가이드·항목 설정을 서버와 맞춘다
   try {
     if (await store.isDirty()) {
-      await api.publish(name || '이름 없음');
-      done.published = true;
+      try {
+        await api.publish(name || '이름 없음');
+        done.published = true;
+      } catch (err) {
+        if (err.status !== 409) throw err;
+        // 내가 받아간 뒤 다른 사람이 먼저 올렸다.
+        // 그냥 올리면 그 사람의 가이드가 지워지므로 반드시 물어본다.
+        const ok = await confirmDialog(
+          '다른 사람이 먼저 업데이트했습니다',
+          [
+            err.message,
+            '',
+            '지금 올리면 내 화면의 가이드·항목 설정이 최종본이 되어',
+            '그 사람의 변경이 지워집니다.',
+            '',
+            '먼저 [내 변경 버리고 최신 받기] 로 확인해 보는 것을 권합니다.',
+          ].join('\n'),
+          '그래도 내 것으로 덮어쓰기', true);
+        if (ok) {
+          await api.publish(name || '이름 없음', { force: true });
+          done.published = true;
+        } else {
+          problems.push('가이드는 올리지 않았습니다 (다른 사람 변경 유지)');
+        }
+      }
     } else {
       done.pulled = await sync.autoPullIfClean();
     }
@@ -153,7 +176,7 @@ export async function runSync(btn) {
     problems.push(`가이드 동기화: ${err.message}`);
   }
 
-  // 4. 시트에서 최신 자료 받기 (재고 + 리포트 이력)
+  // 4. 시트에서 최신 자료 받기 (재고 · 가이드 · 리포트 이력)
   try {
     if (await store.sheetInventoryOn()) {
       const invsheet = await import('./invsheet.js');
@@ -163,6 +186,16 @@ export async function runSync(btn) {
     }
   } catch (err) {
     problems.push(`시트 받기: ${err.message}`);
+  }
+
+  try {
+    if (await store.sheetInventoryOn()) {
+      const guidesheet = await import('./guidesheet.js');
+      const got = await guidesheet.pullGuides();
+      done.guides = (got.changed || 0) + (got.added || 0);
+    }
+  } catch (err) {
+    problems.push(`가이드 받기: ${err.message}`);
   }
 
   await store.setMeta(LAST_SYNC_KEY, store.now());
@@ -176,6 +209,7 @@ export async function runSync(btn) {
   if (done.uploaded) parts.push(`${done.uploaded}건 올림`);
   if (done.published) parts.push('가이드 반영');
   if (done.sheet) parts.push('시트 받음');
+  if (done.guides) parts.push(`가이드 ${done.guides}건 갱신`);
   if (problems.length) {
     toast(`일부 실패 — ${problems[0]}`, 'err');
   } else {
