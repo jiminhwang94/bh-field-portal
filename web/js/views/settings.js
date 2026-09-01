@@ -7,16 +7,17 @@ import {
   showManualGuide,
 } from '../install.js';
 import {
-  deviceName, getPublishState, publishSummaryText, refreshState, runPublish,
+  deviceName, getSyncState, syncSummaryText, refreshState, runSync,
   runTakeLatest, setDeviceName,
-} from '../publish.js';
+} from '../syncnow.js';
 
 export async function settingsView(view) {
   loading(view);
   const [settings, build] = await Promise.all([api.getSettings(), api.version()]);
   await refreshState();
-  const state = getPublishState();
+  const state = getSyncState();
   const install = installStateLabel();
+  const waiting = state.pending + (state.dirty ? 1 : 0);
 
   view.innerHTML = `
     <div id="pageRoot">
@@ -90,9 +91,9 @@ export async function settingsView(view) {
           <li>리포트를 업로드하면 <strong>월마다 새 시트</strong>가 만들어집니다. (시트 이름 = <span class="mono">YYYY-MM</span>)</li>
           <li><strong>1행은 비워 두고</strong>, <strong>2행에 항목명</strong>, <strong>3행부터</strong> 리포트가 한 줄씩 쌓입니다.</li>
           <li>열 순서는 <a class="link" href="#/fields">🧩 항목 설정</a> 순서를 그대로 따릅니다. (앞에 작성일시·작성자 2열)</li>
-          <li><strong>촬영한 사진은 해당 칸에 이미지로 바로 삽입됩니다</strong> (링크 아님).
-              여러 장이면 가로로 나란히 들어갑니다.</li>
-          <li>영상·PDF 는 시트에 넣을 수 없어 링크로 기록됩니다.</li>
+          <li><strong>사진·영상은 구글 드라이브</strong>의 [현장 리포트 첨부] 폴더에 저장되고,
+              시트 칸에는 링크가 들어갑니다. 이력 화면에서 미리보기로 볼 수 있습니다.</li>
+          <li>첨부 크기는 한 개 20MB, 리포트 하나당 25MB 까지입니다.</li>
         </ul>
       </details>
 
@@ -104,56 +105,25 @@ export async function settingsView(view) {
         <a class="btn btn--ghost" href="#/fields">🧩 항목 설정 열기</a>
       </div>
 
-      <details class="panel panel--fold">
-        <summary class="panel__title">🔒 접근 보호 (공용 PIN)</summary>
-        <div class="row" style="gap:8px;margin:14px 0">
-          <span class="badge ${settings.pinEnabled ? 'badge--ok' : 'badge--warn'}">
-            ${settings.pinEnabled ? 'PIN 사용 중' : '보호 없음'}
-          </span>
-        </div>
-        <p class="muted" style="margin:0 0 14px;line-height:1.65">
-          PIN 을 정하면 접속 시 1회 입력해야 합니다(기기가 기억). 팀 전체가 같은 PIN 을 씁니다.
-          비워서 저장하면 보호가 해제됩니다.
-        </p>
-        <div class="grid-2">
-          <div class="field">
-            <label>접근 PIN (숫자 4~12자리)</label>
-            <input class="input mono" id="sPin" type="password" inputmode="numeric"
-                   placeholder="${settings.pinEnabled ? '변경할 PIN 입력 (그대로 두면 유지)' : '예) 1234'}" />
-          </div>
-          <div class="field" style="align-self:end">
-            <button class="btn btn--primary" data-act="save-pin" type="button">🔒 PIN 저장</button>
-          </div>
-        </div>
-        ${settings.pinEnabled ? `
-          <button class="btn btn--danger btn--sm" data-act="clear-pin" type="button">
-            보호 해제
-          </button>` : ''}
-        <p class="muted" style="margin:12px 0 0;font-size:.86rem;line-height:1.6">
-          PIN 을 잊었다면 서버 PC 에서 <span class="mono">python3 server.py --reset-pin</span> 으로 해제할 수 있습니다.
-        </p>
-      </details>
-
       <div class="panel">
-        <h2 class="panel__title">⬆️ 업데이트 (모든 사용자에게 적용)</h2>
+        <h2 class="panel__title">⬆ 업데이트 (시트와 맞추기)</h2>
         <p class="muted" style="margin:0 0 14px;line-height:1.65">
-          가이드·차량 재고·리포트 항목을 바꾸면 <strong>내 화면에만</strong> 반영됩니다.
-          상단 <strong>[⬆️ 업데이트]</strong> 를 눌러야 모든 사용자가 보는 내용이 됩니다.
-          다른 사람이 업데이트하면, 내 변경이 없는 한 자동으로 최신 내용을 받습니다.
+          오프라인에서 작성한 리포트·재고 변경·이력 상태를 <strong>구글 시트로 올리고</strong>,
+          이어서 <strong>시트의 최신 내용을 받아옵니다.</strong>
+          현장에서 일하다 인터넷이 되는 곳에서 한 번만 누르면 됩니다.
         </p>
         <div class="row" style="gap:8px;margin-bottom:14px">
-          <span class="badge ${state.hasLocalChanges ? 'badge--warn' : 'badge--ok'}">
-            ${state.hasLocalChanges ? '적용 안 된 내 변경 있음' : '모든 사용자와 동일'}
+          <span class="badge ${waiting ? 'badge--warn' : 'badge--ok'}">
+            ${waiting ? `올릴 내용 ${waiting}건` : '시트와 같은 내용'}
           </span>
-          <span class="badge">공개 버전 ${state.published.revision || 0}</span>
         </div>
-        <p class="muted" style="margin:0 0 14px;font-size:.9rem">${h(publishSummaryText())}</p>
+        <p class="muted" style="margin:0 0 14px;font-size:.9rem">${h(syncSummaryText())}</p>
         <div class="row">
-          <button class="btn ${state.hasLocalChanges ? 'btn--pending' : 'btn--ghost'}"
-                  data-act="do-publish" type="button">⬆️ 업데이트</button>
-          ${state.hasLocalChanges ? `
+          <button class="btn ${waiting ? 'btn--pending' : 'btn--ghost'}"
+                  data-act="do-publish" type="button">⬆ 지금 맞추기</button>
+          ${state.dirty ? `
             <button class="btn btn--danger" data-act="take-latest" type="button">
-              내 변경 버리고 최신 받기
+              내 가이드 변경 버리고 최신 받기
             </button>` : ''}
         </div>
 
@@ -162,12 +132,8 @@ export async function settingsView(view) {
           <label>내 이름 / 기기 이름</label>
           <input class="input" id="sDevice" value="${h(deviceName() || settings.device_name)}"
                  placeholder="예) 황지민" />
-          <span class="hint">한 번 등록하면 계속 사용됩니다. 누가 업데이트했는지 표시됩니다.</span>
+          <span class="hint">한 번 등록하면 계속 사용됩니다. 리포트에 작성자로 들어갑니다.</span>
         </div>
-        <p class="muted" style="margin:12px 0 0;font-size:.86rem;line-height:1.6">
-          ※ 작성한 <strong>리포트</strong>는 내 기기에만 저장되며 다른 사용자에게 공유되지 않습니다.
-          팀과 공유하려면 구글 시트로 업로드하세요.
-        </p>
       </div>
 
       <details class="panel panel--fold">
@@ -230,26 +196,6 @@ export async function settingsView(view) {
     if (!btn) return;
     const act = btn.dataset.act;
 
-    if (act === 'save-pin' || act === 'clear-pin') {
-      const pin = act === 'clear-pin' ? '' : $('#sPin').value.trim();
-      if (act === 'save-pin' && !pin) {
-        toast('저장할 PIN 을 입력하세요. (해제는 [보호 해제])', 'err');
-        return;
-      }
-      if (act === 'clear-pin') {
-        const ok = await confirmDialog('보호 해제',
-          'PIN 없이 누구나 접속할 수 있게 됩니다. 사내망에서만 사용하세요.',
-          '해제', true);
-        if (!ok) return;
-      }
-      try {
-        await api.saveSettings({ access_pin: pin });
-        toast(pin ? 'PIN 을 저장했습니다. 팀에 공유하세요.' : '보호를 해제했습니다.', 'ok');
-        settingsView(view);
-      } catch (err) { toast(err.message, 'err'); }
-      return;
-    }
-
     if (act === 'install') { await installApp(); return; }
     if (act === 'install-help') { showManualGuide(); return; }
     if (act === 'sheets-help') { openSheetsGuide(settings); return; }
@@ -262,7 +208,7 @@ export async function settingsView(view) {
 
     if (act === 'do-publish') {
       $('#sDevice').value.trim() && setDeviceName($('#sDevice').value.trim());
-      await runPublish(btn);
+      await runSync(btn);
       settingsView(view);
       return;
     }

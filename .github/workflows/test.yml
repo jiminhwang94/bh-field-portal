@@ -36,8 +36,8 @@ jobs:
       - name: 구글 시트 전송 검사
         run: python tests/test_sheets_relay.py
 
-      - name: 접근 보호(PIN) 테스트
-        run: python tests/test_access_pin.py
+      - name: 리포트 이력 계약 검사
+        run: python tests/test_report_history.py
 
       - name: APK 앱 ↔ 서버 연결 규칙 테스트
         run: python tests/test_apk_cors.py

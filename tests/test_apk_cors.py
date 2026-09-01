@@ -73,8 +73,8 @@ try:
           "POST" in (headers.get("Access-Control-Allow-Methods") or ""),
           headers.get("Access-Control-Allow-Methods") or "없음")
     allowed = (headers.get("Access-Control-Allow-Headers") or "").lower()
-    check("기기 구분·토큰 헤더를 허용한다",
-          "x-device-id" in allowed and "x-access-token" in allowed,
+    check("기기 구분 헤더를 허용한다",
+          "x-device-id" in allowed,
           headers.get("Access-Control-Allow-Headers") or "없음")
 
     # ---------------------------------------------------------- 실제 요청

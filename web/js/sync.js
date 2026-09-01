@@ -6,13 +6,6 @@ import * as store from './local/store.js';
 import * as idb from './local/idb.js';
 
 const DEVICE_KEY = 'bh_device_id';
-const TOKEN_KEY = 'bh_access_token';
-
-/** 접근 토큰 보관 (APK 앱은 쿠키를 쓸 수 없어 헤더로 보낸다) */
-export function saveToken(token) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
-}
 
 export function deviceId() {
   let id = localStorage.getItem(DEVICE_KEY);
@@ -31,7 +24,6 @@ let serverReachable = null;      // null = 아직 확인 안 함
 const listeners = new Set();
 
 export const isOnline = () => online;
-export const isServerReachable = () => serverReachable === true;
 /** 인터넷은 되는데 사무실 서버에만 못 닿는 상태 (현장 LTE 등) */
 export const serverUnreachable = () => online && serverReachable === false;
 
@@ -73,8 +65,6 @@ export async function serverBase() {
   return '';       // file:// 등 — 서버 주소 미설정
 }
 
-let onUnauthorized = null;
-export function setUnauthorizedHandler(fn) { onUnauthorized = fn; }
 
 class OfflineError extends Error {
   constructor(message) {
@@ -97,9 +87,6 @@ async function request(method, path, body, { timeout = 15000 } = {}) {
     credentials: 'include',
     signal: controller.signal,
   };
-  // APK 앱은 서버와 출처가 달라 쿠키가 오가지 않는다. 토큰을 헤더로 보낸다.
-  const token = localStorage.getItem(TOKEN_KEY);
-  if (token) opts.headers['X-Access-Token'] = token;
   if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
@@ -119,9 +106,6 @@ async function request(method, path, body, { timeout = 15000 } = {}) {
   let data = null;
   if (text) { try { data = JSON.parse(text); } catch { data = null; } }
   if (!res.ok) {
-    if (res.status === 401 && onUnauthorized && !path.startsWith('/api/auth')) {
-      onUnauthorized();
-    }
     const error = new Error((data && data.error) || `요청 실패 (${res.status})`);
     error.status = res.status;
     throw error;
@@ -246,88 +230,102 @@ export async function flushOutbox() {
   const statusOps = rows.filter((r) => r.type === 'report-status');
   let sent = 0;
 
+  // 종류마다 따로 감싼다. 한 종류가 실패해도 나머지는 계속 보내야 한다.
+  // 예전에는 가이드 탭 갱신 한 번이 실패하면 밀린 리포트가 전부 막혔다.
+  const failed = [];
+  const step = async (label, fn) => {
+    try { await fn(); } catch (err) { failed.push(`${label}: ${err.message}`); }
+  };
+
+  const onSheet = await store.sheetInventoryOn();
+
   // 가이드 열람용 탭 갱신 (시트 연결 시)
-  if (guidePushOps.length && await store.sheetInventoryOn()) {
-    const guidesheet = await import('./guidesheet.js');
-    await guidesheet.pushGuides();
-    for (const op of guidePushOps) {
-      await store.dequeue(op.id);
-      sent += 1;
-    }
+  if (guidePushOps.length && onSheet) {
+    await step('가이드 탭', async () => {
+      const guidesheet = await import('./guidesheet.js');
+      await guidesheet.pushGuides();
+      for (const op of guidePushOps) {
+        await store.dequeue(op.id);
+        sent += 1;
+      }
+    });
   }
 
   // 오프라인에서 바꾼 이력 상태 — 한 건씩 시트에 반영한다.
-  if (statusOps.length && await store.sheetInventoryOn()) {
-    const reportsheet = await import('./reportsheet.js');
-    for (const op of statusOps) {
-      try {
+  if (statusOps.length && onSheet) {
+    await step('이력 상태', async () => {
+      const reportsheet = await import('./reportsheet.js');
+      for (const op of statusOps) {
         await reportsheet.pushStatusOps([op]);
         await store.dequeue(op.id);
         sent += 1;
-      } catch {
-        break;        // 한 건이라도 실패하면 다음 기회에 다시 시도
       }
-    }
+    });
   }
 
-  if (await store.sheetInventoryOn()) {
+  if (onSheet) {
     // 재고를 구글 시트로 관리 — 서버 대신 시트에 반영한다.
     if (sheetPushOps.length || quantityOps.length) {
-      const invsheet = await import('./invsheet.js');
-      let result;
-      if (sheetPushOps.length) {
-        // 구조 변경(차량·품목)이 있으면 탭 전체를 다시 쓴다 (수량도 함께 실린다).
-        result = await invsheet.pushInventory();
-      } else {
-        result = await invsheet.pushQuantityOps(quantityOps.map((r) => ({
+      await step('재고', async () => {
+        const invsheet = await import('./invsheet.js');
+        let result;
+        if (sheetPushOps.length) {
+          // 구조 변경(차량·품목)이 있으면 탭 전체를 다시 쓴다 (수량도 함께 실린다).
+          result = await invsheet.pushInventory();
+        } else {
+          result = await invsheet.pushQuantityOps(quantityOps.map((r) => ({
+            type: r.type, vehicleName: r.vehicleName, partName: r.partName,
+            quantity: r.quantity, updatedAt: r.updatedAt,
+          })));
+        }
+        for (const op of [...sheetPushOps, ...quantityOps]) {
+          await store.dequeue(op.id);
+          sent += 1;
+        }
+        // 시트가 돌려준 상태가 최종 결과다 — 다른 기기의 변경도 이때 내려온다.
+        if (!sheetPushOps.length && result && result.items) {
+          await store.applyInventorySheet(result);
+        }
+      });
+    }
+  } else if (quantityOps.length) {
+    await step('재고 수량', async () => {
+      const result = await request('POST', '/api/sync/quantities', {
+        ops: quantityOps.map((r) => ({
           type: r.type, vehicleName: r.vehicleName, partName: r.partName,
           quantity: r.quantity, updatedAt: r.updatedAt,
-        })));
-      }
-      for (const op of [...sheetPushOps, ...quantityOps]) {
+        })),
+      });
+      for (const op of quantityOps) {
         await store.dequeue(op.id);
         sent += 1;
       }
-      // 시트가 돌려준 상태가 최종 결과다 — 다른 기기의 변경도 이때 내려온다.
-      if (!sheetPushOps.length && result && result.items) {
-        await store.applyInventorySheet(result);
+      // 서버가 돌려준 값이 최종 결과다.
+      // (같은 부품을 다른 사람이 더 나중에 만졌다면 그 값이 남는다)
+      const stillPending = await store.pendingQuantityKeys();
+      for (const row of result.quantities || []) {
+        // 키는 반드시 store.qtyKey 로 만든다. 예전에는 공백으로 이어 붙여서
+        // 서버가 돌려준 값이 통째로 버려지고 읽을 수 없는 줄만 쌓였다.
+        const key = store.qtyKey(row.vehicleName, row.partName);
+        if (stillPending.has(key)) continue;    // 그 사이 또 바뀐 것은 건드리지 않는다
+        await idb.put('quantities', { key, ...row });
       }
-    }
-  } else if (quantityOps.length) {
-    const result = await request('POST', '/api/sync/quantities', {
-      ops: quantityOps.map((r) => ({
-        type: r.type, vehicleName: r.vehicleName, partName: r.partName,
-        quantity: r.quantity, updatedAt: r.updatedAt,
-      })),
     });
-    for (const op of quantityOps) {
-      await store.dequeue(op.id);
-      sent += 1;
-    }
-    // 서버가 돌려준 값이 최종 결과다.
-    // (같은 부품을 다른 사람이 더 나중에 만졌다면 그 값이 남는다)
-    const stillPending = await store.pendingQuantityKeys();
-    for (const row of result.quantities || []) {
-      const key = `${row.vehicleName} ${row.partName}`;
-      if (stillPending.has(key)) continue;      // 그 사이 또 바뀐 것은 건드리지 않는다
-      await idb.put('quantities', { key, ...row });
-    }
   }
 
-  // 시트 업로드 대기분
-  const { uploadReport } = await import('./sheets.js');
-  for (const row of rows.filter((r) => r.type === 'sheet')) {
-    const report = await store.getReport(row.reportId);
-    if (!report) { await store.dequeue(row.id); continue; }
-    try {
+  // 시트 업로드 대기분 — 가장 중요하므로 위에서 무엇이 실패했든 반드시 시도한다.
+  await step('리포트 업로드', async () => {
+    const { uploadReport } = await import('./sheets.js');
+    for (const row of rows.filter((r) => r.type === 'sheet')) {
+      const report = await store.getReport(row.reportId);
+      if (!report) { await store.dequeue(row.id); continue; }
       await uploadReport(report);
       await store.dequeue(row.id);
       sent += 1;
-    } catch {
-      break;      // 한 건이라도 실패하면 다음 기회에 다시 시도
     }
-  }
-  return { sent };
+  });
+
+  return { sent, failed };
 }
 
 let working = false;

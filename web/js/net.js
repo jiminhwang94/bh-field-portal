@@ -3,48 +3,32 @@ import * as sync from './sync.js';
 import * as store from './local/store.js';
 import { closeModal, openSheet, toast } from './ui.js';
 
-const BAR_ID = 'netBar';
-
-function bar() {
-  let el = document.getElementById(BAR_ID);
-  if (!el) {
-    el = document.createElement('div');
-    el.id = BAR_ID;
-    el.className = 'netbar';
-    document.body.prepend(el);
-  }
-  return el;
-}
-
+/**
+ * 상단 오프라인 띠와 동기화 칩을 현재 상태에 맞춘다.
+ * 띠는 index.html 에 미리 있고 여기서 보이고/숨긴다.
+ */
 async function paint() {
-  const el = bar();
+  const banner = document.getElementById('offline-banner');
+  const count = document.getElementById('queue-count');
   const pending = await store.outboxCount();
   const online = sync.isOnline();
+  const stuck = online && sync.serverUnreachable() && pending > 0;
 
-  if (online && !pending) {
-    el.className = 'netbar';           // 평소에는 숨긴다
-    el.innerHTML = '';
-    document.body.classList.remove('has-netbar');
-    return;
+  if (count) count.textContent = String(pending);
+  if (banner) {
+    banner.hidden = online && !stuck;
+    if (!online) {
+      banner.textContent = pending
+        ? `📴 오프라인 — 기기에 저장하며 계속 사용할 수 있습니다 · 대기 중 ${pending}건`
+        : '📴 오프라인 — 기기에 저장하며 계속 사용할 수 있습니다';
+    } else if (stuck) {
+      banner.textContent =
+        `⏳ 대기 ${pending}건 — 사무실 서버에 닿으면 자동으로 반영됩니다`;
+    }
   }
-  document.body.classList.add('has-netbar');
-
-  // 인터넷 자체가 없는 경우
-  if (!online) {
-    el.className = 'netbar netbar--offline is-on';
-    el.innerHTML = '📴 오프라인 — 기기에 저장하며 계속 사용할 수 있습니다.'
-      + (pending ? ` <strong>연결되면 처리할 작업 ${pending}건</strong>` : '');
-    return;
-  }
-  // 인터넷은 되지만 사무실 서버에 못 닿는 경우 (현장 LTE 등)
-  if (sync.serverUnreachable()) {
-    el.className = 'netbar netbar--offline is-on';
-    el.innerHTML = `⏳ 처리 대기 ${pending}건 — `
-      + '<strong>사무실 서버에 연결되면 자동으로 반영</strong>됩니다.';
-    return;
-  }
-  el.className = 'netbar netbar--pending is-on';
-  el.innerHTML = `⏳ 대기 중인 작업 ${pending}건을 처리하고 있습니다…`;
+  // 상단바 칩은 syncnow.js 가 그린다 (같은 사실을 두 곳에 적지 않는다).
+  const syncnow = await import('./syncnow.js');
+  syncnow.paint();
 }
 
 /** 처음 실행이면 서버에서 자료를 한 번 받아온다. */

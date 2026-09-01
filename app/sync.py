@@ -89,11 +89,10 @@ def build_snapshot() -> dict:
         "media": _guide_media(guides),
         "summary": db.shared_summary(),
         # 팀 공통 설정도 함께 내려보낸다 — 기기가 오프라인이어도
-        # 구글 시트로 바로 보낼 수 있어야 하기 때문이다. (PIN 값 자체는 보내지 않는다)
+        # 구글 시트로 바로 보낼 수 있어야 하기 때문이다.
         "settings": {
             "sheetsWebappUrl": settings.get("sheets_webapp_url") or "",
             "sheetsSpreadsheetId": settings.get("sheets_spreadsheet_id") or "",
-            "pinEnabled": bool((settings.get("access_pin") or "").strip()),
         },
     }
 

@@ -61,12 +61,10 @@ check("버전 정보를 준다", bool(version and version.get("version")),
       version.get("version") if version else "")
 check("빌드 해시를 준다", bool(version and version.get("buildHash")))
 
-meta = call("GET", "/api/meta")
-check("카테고리·항목 종류를 준다",
-      bool(meta and meta.get("categoryTypes") and meta.get("fieldTypes")))
-
-auth = call("GET", "/api/auth/status")
-check("PIN 설정 여부를 준다", bool(auth) and "pinEnabled" in auth)
+# v3.2 에서 없앤 경로 — 남아 있으면 죽은 코드가 되살아난 것이다.
+for gone in ("/api/meta", "/api/auth/status", "/api/settings"):
+    call("GET", gone, expect=404)
+check("v3.2 에서 없앤 경로가 사라졌다 (meta · auth · settings 조회)", True)
 
 # ------------------------------------------------------------- 동기화
 head = call("GET", "/api/sync/head")
@@ -102,8 +100,10 @@ check("이전 버전 리포트 넘겨주기 경로가 있다",
       bool(legacy) and isinstance(legacy.get("reports"), list))
 
 # ------------------------------------------------------------------ 설정
-settings = call("GET", "/api/settings")
-check("PIN 값 자체는 내보내지 않는다",
+# 설정은 PUT 응답으로만 돌려준다 (조회 경로는 v3.2 에서 제거).
+# 폐기된 키가 예전 DB 에 남아 있어도 밖으로 나가면 안 된다.
+settings = call("PUT", "/api/settings", {"site_url": ""})
+check("폐기된 PIN 키를 내보내지 않는다",
       bool(settings) and "access_pin" not in settings and "auth_secret" not in settings)
 
 call("PUT", "/api/settings", {"sheets_webapp_url": "https://example.com/notascript"},
