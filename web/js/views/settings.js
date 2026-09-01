@@ -2,6 +2,7 @@
 import { api } from '../api.js';
 import { $, h, confirmDialog, copyText, loading, openSheet, toast } from '../ui.js';
 import { isOnline } from '../sync.js';
+import { formatBytes } from '../sheets.js';
 import {
   canInstallDirectly, installApp, installStateLabel, isStandalone,
   showManualGuide,
@@ -10,6 +11,24 @@ import {
   deviceName, getSyncState, syncSummaryText, refreshState, runSync,
   runTakeLatest, setDeviceName,
 } from '../syncnow.js';
+
+/**
+ * 드라이브 남은 용량 안내.
+ *
+ * 사진·영상이 드라이브에 쌓이므로 용량이 차면 리포트가 조용히 안 올라간다.
+ * 여유가 500MB 아래면 눈에 띄게 알린다.
+ */
+function driveLine(drive) {
+  if (!drive || drive.free === null || drive.free === undefined) return '';
+  const low = drive.free < 500 * 1048576;
+  return `
+    <p class="${low ? 'hint' : 'muted'}" style="margin:10px 0 0${low ? ';color:var(--color-danger);font-weight:600' : ''}">
+      ${low ? '⚠️ ' : '💾 '}구글 드라이브 남은 공간
+      <strong>${h(formatBytes(drive.free))}</strong>
+      (전체 ${h(formatBytes(drive.limit))} 중 ${h(formatBytes(drive.used))} 사용)
+      ${low ? '<br />공간이 부족하면 사진·영상이 올라가지 않습니다. 드라이브를 정리해 주세요.' : ''}
+    </p>`;
+}
 
 export async function settingsView(view) {
   loading(view);
@@ -229,6 +248,7 @@ export async function settingsView(view) {
           <h2 class="panel__title">✅ 연결 성공</h2>
           <p class="muted">스프레드시트: <strong>${h(result.spreadsheetName || '-')}</strong>
             ${result.spreadsheetUrl ? ` · <a class="link" href="${h(result.spreadsheetUrl)}" target="_blank" rel="noopener">열기 ↗</a>` : ''}</p>
+          ${driveLine(result.drive)}
           ${(result.sheets || []).length ? `
             <div class="tag-list" style="margin-top:10px">
               ${result.sheets.map((name) => `<span class="badge">${h(name)}</span>`).join('')}

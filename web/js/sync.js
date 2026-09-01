@@ -186,7 +186,7 @@ async function downloadMissingMedia(list) {
 // ------------------------------------------------------------------- 올리기
 
 /** [업데이트] — 기기 내용을 모든 사용자가 보는 공개본으로 만든다. */
-export async function push(deviceName) {
+export async function push(deviceName, { force = false } = {}) {
   // 1) 기기에만 있는 가이드 사진을 먼저 서버로 올린다.
   const base = await serverBase();
   for (const media of await store.localOnlyGuideMedia()) {
@@ -205,6 +205,7 @@ export async function push(deviceName) {
   const result = await request('POST', '/api/sync/push', {
     deviceName: deviceName || '',
     baseRevision: local.baseRevision,
+    force,
     ...snapshot,
   }, { timeout: 30000 });
 

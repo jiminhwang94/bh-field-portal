@@ -21,6 +21,21 @@ export function now() {
 export const qtyKey = (vehicleName, partName) => `${vehicleName}\u0000${partName}`;
 const byText = (a, b) => String(a).localeCompare(String(b), 'ko');
 
+/**
+ * 재고 변경을 한 번에 하나씩만 처리한다.
+ *
+ * [−] 를 빠르게 두 번 누르면 두 호출이 **같은 현재 수량을 읽고** 각자 1을 빼서,
+ * 2개를 썼는데 1개만 빠진다. 장갑 낀 손으로 급하게 누를 때 실제로 나온다.
+ * 앞의 작업이 끝난 뒤에 다음이 시작하도록 줄을 세운다.
+ */
+let inventoryChain = Promise.resolve();
+function serialize(fn) {
+  const next = inventoryChain.then(fn, fn);
+  // 실패해도 줄이 끊기지 않게 한다 (에러는 호출한 쪽으로 그대로 넘긴다).
+  inventoryChain = next.then(() => undefined, () => undefined);
+  return next;
+}
+
 // ------------------------------------------------------------------ meta
 
 export async function getMeta(key, fallback = null) {
@@ -287,7 +302,11 @@ async function setQuantity(vehicleName, partName, quantity, stamp) {
   return value;
 }
 
-export async function addInventoryItem(vehicleName, partName, quantity = 0,
+export function addInventoryItem(...args) {
+  return serialize(() => _addInventoryItem(...args));
+}
+
+async function _addInventoryItem(vehicleName, partName, quantity = 0,
                                        minQuantity = 0) {
   vehicleName = (vehicleName || '').trim();
   partName = (partName || '').trim();
@@ -327,8 +346,12 @@ export async function addInventoryItem(vehicleName, partName, quantity = 0,
   return { ...row, pending: true };
 }
 
-export async function updateInventoryItem(itemId, { delta, quantity, minQuantity,
-                                                    partName } = {}) {
+export function updateInventoryItem(itemId, patch = {}) {
+  return serialize(() => _updateInventoryItem(itemId, patch));
+}
+
+async function _updateInventoryItem(itemId, { delta, quantity, minQuantity,
+                                              partName } = {}) {
   const row = await idb.get('inventory', itemId);
   if (!row) return null;
   const live = await quantityMap();
@@ -384,7 +407,11 @@ export async function updateInventoryItem(itemId, { delta, quantity, minQuantity
            quantity: nextQty, minQuantity: nextMin, updatedAt: stamp, pending: true };
 }
 
-export async function deleteInventoryItem(itemId) {
+export function deleteInventoryItem(itemId) {
+  return serialize(() => _deleteInventoryItem(itemId));
+}
+
+async function _deleteInventoryItem(itemId) {
   const row = await idb.get('inventory', itemId);
   if (!row) return false;
   // 품목은 모든 차량 공용 — 전 차량에서 함께 삭제한다.

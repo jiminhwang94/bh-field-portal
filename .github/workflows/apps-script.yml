@@ -1,0 +1,109 @@
+name: Apps Script 자동 배포
+
+# google-apps-script.gs 를 고쳐서 main 에 올리면, 스프레드시트의 스크립트를
+# 자동으로 갱신하고 기존 배포를 새 버전으로 올린다. 웹 앱 URL 은 그대로 유지된다.
+#
+# ▣ 쓰기 전에 한 번만 (사장님 구글 계정으로 직접 해야 합니다)
+#
+#  1. 이 PC 에서 clasp 로그인 — 구글 계정 승인 창이 뜹니다
+#       npx @google/clasp login
+#     끝나면 인증 파일이 만들어집니다:
+#       Windows : %USERPROFILE%\.clasprc.json
+#       macOS   : ~/.clasprc.json
+#
+#  2. 그 파일 **내용 전체**를 복사해
+#     저장소 → Settings → Secrets and variables → Actions → New repository secret
+#       이름: CLASP_CREDENTIALS
+#       값  : .clasprc.json 내용 전체
+#
+#  3. 스크립트 ID 를 secret 으로 등록
+#     스프레드시트 → [확장 프로그램] → [Apps Script] → ⚙️ 프로젝트 설정 →
+#     "스크립트 ID" 를 복사
+#       이름: APPS_SCRIPT_ID
+#       값  : 복사한 스크립트 ID
+#
+#  두 secret 이 없으면 이 워크플로는 **조용히 건너뜁니다** (실패로 뜨지 않습니다).
+#  그때까지는 지금처럼 손으로 붙여넣고 재배포하면 됩니다.
+
+on:
+  push:
+    branches: [main]
+    paths: ['google-apps-script.gs']
+  workflow_dispatch:
+    inputs:
+      note:
+        description: '이번 배포 설명 (선택)'
+        required: false
+        default: ''
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 등록된 인증이 있는지 확인
+        id: guard
+        env:
+          CREDS: ${{ secrets.CLASP_CREDENTIALS }}
+          SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
+        run: |
+          if [ -n "$CREDS" ] && [ -n "$SCRIPT_ID" ]; then
+            echo "ready=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLASP_CREDENTIALS / APPS_SCRIPT_ID 가 아직 등록되지 않아 건너뜁니다. 워크플로 파일 맨 위 안내를 참고하세요."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.guard.outputs.ready == 'yes'
+        with:
+          node-version: '20'
+
+      - name: clasp 준비
+        if: steps.guard.outputs.ready == 'yes'
+        env:
+          CREDS: ${{ secrets.CLASP_CREDENTIALS }}
+          SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
+        run: |
+          npm install -g @google/clasp@2.4.2
+          printf '%s' "$CREDS" > ~/.clasprc.json
+          mkdir -p build
+          cp google-apps-script.gs build/Code.gs
+          cat > build/appsscript.json <<'JSON'
+          { "timeZone": "Asia/Seoul", "exceptionLogging": "STACKDRIVER",
+            "runtimeVersion": "V8" }
+          JSON
+          printf '{"scriptId":"%s","rootDir":"build"}' "$SCRIPT_ID" > .clasp.json
+
+      - name: 스크립트 올리기
+        if: steps.guard.outputs.ready == 'yes'
+        run: clasp push --force
+
+      - name: 기존 배포를 새 버전으로 갱신
+        if: steps.guard.outputs.ready == 'yes'
+        env:
+          NOTE: ${{ github.event.inputs.note }}
+        run: |
+          DESC="${NOTE:-자동 배포 $(date +%Y-%m-%d)}"
+          # 활성 배포 전부를 같은 새 버전으로 올린다 (URL 유지).
+          # @HEAD 는 개발용이라 건드리지 않는다.
+          clasp deployments | tail -n +2 | awk '{print $2}' | while read -r ID; do
+            [ -z "$ID" ] && continue
+            echo "갱신: $ID"
+            clasp deploy --deploymentId "$ID" --description "$DESC"
+          done
+
+      - name: 결과 안내
+        if: always()
+        run: |
+          if [ "${{ steps.guard.outputs.ready }}" = "yes" ]; then
+            echo "## ✅ Apps Script 배포 완료" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "웹 앱 URL 은 그대로입니다. 기기 설정을 바꿀 필요가 없습니다." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## ⏭ 건너뜀 — 인증이 아직 등록되지 않았습니다" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`.github/workflows/apps-script.yml\` 맨 위의 3단계를 한 번만 해 두면," >> "$GITHUB_STEP_SUMMARY"
+            echo "이후 \`google-apps-script.gs\` 를 고쳐 올릴 때마다 자동으로 배포됩니다." >> "$GITHUB_STEP_SUMMARY"
+          fi

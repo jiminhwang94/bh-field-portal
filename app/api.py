@@ -114,7 +114,15 @@ def handle(method: str, path: str, query: dict, body, content_type="",
             data = json_body()
             name = (data.get("deviceName") or "").strip()
             try:
-                return 200, sync.apply_snapshot(data, name)
+                return 200, sync.apply_snapshot(
+                    data, name, force=bool(data.get("force")))
+            except sync.StaleSnapshot as exc:
+                # 409 = 그 사이 다른 사람이 먼저 올렸다. 앱이 사용자에게 묻는다.
+                published = db.published_state()
+                raise ApiError(409, "다른 사용자가 먼저 업데이트했습니다. "
+                                    f"(공개 버전 {exc.current} · "
+                                    f"{published.get('by') or '-'} · "
+                                    f"{published.get('at') or '-'})")
             except ValueError as exc:
                 raise ApiError(400, str(exc))
 

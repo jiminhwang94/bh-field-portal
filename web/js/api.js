@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.2.0';
+export const APP_VERSION = '3.3.0';
 
 export const deviceId = sync.deviceId;
 
@@ -32,7 +32,7 @@ export const api = {
 
   // ------------------------------------------------- 업데이트(공개본 동기화)
   state: () => sync.state(),
-  publish: (deviceName) => sync.push(deviceName),
+  publish: (deviceName, opts) => sync.push(deviceName, opts),
   takeLatest: () => sync.pull(),
 
   // ------------------------------------------------------------------ 가이드

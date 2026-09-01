@@ -44,8 +44,7 @@ jobs:
 
       - name: 서버 API 스모크 테스트
         env:
-          DATABASE_URL: /tmp/ci.db
-          MEDIA_DIR: /tmp/ci-media
+          BH_DATA_DIR: /tmp/ci-data
         run: |
           python server.py --port 8788 --host 127.0.0.1 &
           for i in $(seq 1 30); do
@@ -53,3 +52,15 @@ jobs:
             sleep 0.5
           done
           python tests/test_api_smoke.py
+
+      - name: 동시 업데이트 덮어쓰기 방지 검사
+        env:
+          BH_DATA_DIR: /tmp/ci-conflict
+          BH_TEST_BASE: http://127.0.0.1:8793
+        run: |
+          python server.py --port 8793 --host 127.0.0.1 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8793/api/version > /dev/null && break
+            sleep 0.5
+          done
+          python tests/test_publish_conflict.py
