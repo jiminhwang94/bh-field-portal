@@ -20,6 +20,10 @@ export function seedFromEntry(entry, { edit = false } = {}) {
     // 이게 없으면 저장할 때 같은 방문이 두 줄이 된다.
     sheetLink: edit ? { sheetName: entry.sheetName, row: entry.row } : null,
     values: edit ? entry.values : null,
+    // 이미 올라가 있는 사진·영상. 이걸 안 넘기면 저장할 때 시트의 링크가
+    // 빈 칸으로 덮여 **드라이브에는 있는데 리포트에서는 사라진다.**
+    links: edit ? entry.links.map((l) => ({ label: l.label, url: l.url, id: l.id }))
+                : null,
   }));
 }
 
@@ -39,6 +43,8 @@ export async function reportFormView(view) {
   fields.forEach((f) => {
     if (!values[f.id]) values[f.id] = { value: '', media: [] };
     if (!Array.isArray(values[f.id].media)) values[f.id].media = [];
+    // kept = 이미 시트/드라이브에 올라가 있는 첨부 (수정으로 들어왔을 때)
+    if (!Array.isArray(values[f.id].kept)) values[f.id].kept = [];
   });
 
   // 이력에서 [이어서 작성] 으로 왔으면 아는 값을 미리 채운다.
@@ -47,7 +53,12 @@ export async function reportFormView(view) {
     seeded = JSON.parse(sessionStorage.getItem(SEED_KEY) || 'null');
   } catch { /* 무시 */ }
   // 고치기로 왔으면 이 줄을 다시 쓴다. 새로 올리면 같은 방문이 두 줄이 된다.
-  const editingLink = (seeded && seeded.sheetLink) || null;
+  // 임시보관에 남아 있던 것도 되살린다 (폼을 벗어났다 돌아온 경우).
+  let savedLink = null;
+  try {
+    savedLink = (JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null') || {}).sheetLink;
+  } catch { /* 무시 */ }
+  const editingLink = (seeded && seeded.sheetLink) || savedLink || null;
 
   if (seeded) {
     sessionStorage.removeItem(SEED_KEY);
@@ -57,6 +68,12 @@ export async function reportFormView(view) {
       for (const f of fields) {
         const found = byLabel.get(f.fieldLabel);
         if (found !== undefined) values[f.id].value = found;
+      }
+      // 이미 올라가 있는 첨부는 그대로 들고 간다 (지우지 않는 한 유지).
+      for (const link of seeded.links || []) {
+        const field = fields.find((f) => f.fieldLabel === link.label)
+          || fields.find((f) => f.fieldType === 'MEDIA');
+        if (field) values[field.id].kept.push(link);
       }
     } else {
       // 이어서 작성 — 아는 것만 채운다.
@@ -78,12 +95,17 @@ export async function reportFormView(view) {
   const storeField = fields.find(
     (f) => f.fieldLabel.includes('식당') || f.fieldLabel.includes('매장'));
 
-  const hasDraft = fields.some((f) => values[f.id].value || values[f.id].media.length);
+  const hasDraft = fields.some(
+    (f) => values[f.id].value || values[f.id].media.length || values[f.id].kept.length);
   const sheetsReady = !!settings.sheetsReady;
   let reportId = null;   // 저장 후 재업로드 대상
 
   function saveDraft() {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ values, savedAt: new Date().toISOString() }));
+    // 수정 대상(어느 줄을 고쳐 쓰는지)도 함께 담는다. 이게 빠지면 폼을 벗어났다
+    // 돌아왔을 때 새 줄로 저장돼 같은 방문이 두 개가 된다.
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+      values, sheetLink: editingLink, savedAt: new Date().toISOString(),
+    }));
   }
 
   function mediaTile(fieldId, media, idx) {
@@ -98,6 +120,21 @@ export async function reportFormView(view) {
       </div>`;
   }
 
+  /** 이미 드라이브에 있는 첨부 — 새로 올리지 않고 링크만 유지한다. */
+  function keptTile(fieldId, link, idx) {
+    return `
+      <a class="media-tile" href="${h(link.url)}" target="_blank" rel="noopener">
+        ${link.id
+          ? `<img src="${h(thumbUrl(link.id, 300))}" alt="${h(link.label)}"
+                  loading="lazy" onerror="this.classList.add('is-broken')" />`
+          : ''}
+        <span class="media-tile__none">📎 올라간 첨부</span>
+        <button class="media-tile__del" data-act="del-kept" data-field="${fieldId}"
+                data-idx="${idx}" type="button" aria-label="첨부 빼기">✕</button>
+        <span class="media-tile__name">${h(link.label || '이미 올림')}</span>
+      </a>`;
+  }
+
   function fieldHtml(field) {
     const state = values[field.id];
     const label = `<label>${h(field.fieldLabel)}${field.isRequired ? '<span class="req">*</span>' : ''}</label>`;
@@ -109,9 +146,16 @@ export async function reportFormView(view) {
           <div class="row">
             <button class="btn btn--ghost" data-act="capture" data-field="${field.id}" type="button">📷 촬영</button>
             <button class="btn btn--ghost" data-act="pick" data-field="${field.id}" type="button">🖼 앨범/파일 선택</button>
-            <span class="badge">${state.media.length}개 첨부</span>
+            <span class="badge">${state.kept.length + state.media.length}개 첨부</span>
           </div>
-          ${state.media.length ? `<div class="media-grid">${state.media.map((m, i) => mediaTile(field.id, m, i)).join('')}</div>` : ''}
+          ${state.kept.length || state.media.length ? `
+            <div class="media-grid">
+              ${state.kept.map((l, i) => keptTile(field.id, l, i)).join('')}
+              ${state.media.map((m, i) => mediaTile(field.id, m, i)).join('')}
+            </div>` : ''}
+          ${state.kept.length ? `<span class="hint">
+            이미 올라가 있는 첨부 ${state.kept.length}개는 그대로 유지됩니다.
+            빼려면 ✕ 를 누르세요.</span>` : ''}
           <span class="hint">사진·영상은 <strong>구글 드라이브에 저장</strong>되고 시트에는 링크가 들어갑니다.
             이력 화면에서 미리보기로 볼 수 있습니다. (한 개 20MB, 리포트당 25MB 까지)</span>
         </div>`;
@@ -250,6 +294,7 @@ export async function reportFormView(view) {
       type: field.fieldType,
       value: values[field.id].value,
       media: values[field.id].media,
+      kept: values[field.id].kept,
     }));
   }
 
@@ -320,6 +365,13 @@ export async function reportFormView(view) {
       input.value = '';
       input.onchange = () => uploadFiles(btn.dataset.field, input.files);
       input.click();
+      return;
+    }
+    if (act === 'del-kept') {
+      ev.preventDefault();          // <a> 안의 버튼이라 링크 이동을 막는다
+      values[btn.dataset.field].kept.splice(Number(btn.dataset.idx), 1);
+      saveDraft();
+      render();
       return;
     }
     if (act === 'del-media') {

@@ -388,13 +388,15 @@ check('공유 드라이브에 저장했다 (개인 드라이브가 아니다)', 
       `mediaShared=${result.mediaShared}`);
 check('첨부 2개가 저장됐다', result.media === 2, String(result.media));
 
-const MEDIA_ROOT = '필드팀 유지보수(이미지,동영상)';
-check('공유 드라이브에 첨부 폴더를 만든다', !!findPath(MEDIA_ROOT));
-const photoDir = findPath(MEDIA_ROOT, '사진', '옥동식 서초점', '2026-09-05');
-const videoDir = findPath(MEDIA_ROOT, '동영상', '옥동식 서초점', '2026-09-05');
-check('사진 → 매장 → 날짜 폴더가 만들어진다', !!photoDir,
+// 받은 폴더 바로 아래부터 시작한다 — 같은 이름 폴더를 또 만들면 안 된다.
+check('받은 폴더 안에 같은 이름 폴더를 또 만들지 않는다',
+      !findPath('필드팀 유지보수(이미지,동영상)'),
+      [...driveTree.folders.keys()].join(' | '));
+const photoDir = findPath('옥동식 서초점', '2026-09-05', '사진');
+const videoDir = findPath('옥동식 서초점', '2026-09-05', '동영상');
+check('매장 → 날짜 → 사진 순으로 폴더가 만들어진다', !!photoDir,
       photoDir ? photoDir.path : '없음');
-check('동영상 → 매장 → 날짜 폴더가 만들어진다', !!videoDir,
+check('매장 → 날짜 → 동영상 순으로 폴더가 만들어진다', !!videoDir,
       videoDir ? videoDir.path : '없음');
 check('사진이 사진 폴더로 들어간다',
       !!photoDir && photoDir.files.length === 1
@@ -416,8 +418,9 @@ call({
             storeName: '옥동식 서초점', dateText: '2026-09-05', data: 'CCC' }],
 });
 check('같은 매장·같은 날은 폴더를 다시 만들지 않는다',
-      findPath(MEDIA_ROOT, '사진', '옥동식 서초점').folders.size === 1
-      && findPath(MEDIA_ROOT, '사진', '옥동식 서초점', '2026-09-05').files.length === 2);
+      findPath('옥동식 서초점').folders.size === 1
+      && findPath('옥동식 서초점', '2026-09-05', '사진').files.length === 2,
+      `날짜 폴더 ${findPath('옥동식 서초점').folders.size}개`);
 
 // 폴더 이름에 못 쓰는 글자를 걸러낸다
 call({
@@ -427,8 +430,8 @@ call({
             storeName: 'A/B*점', dateText: '2026-09-06', data: 'DDD' }],
 });
 check('폴더 이름에 못 쓰는 글자를 걸러낸다',
-      [...findPath(MEDIA_ROOT, '사진').folders.keys()].some((n) => n === 'A B 점'),
-      [...findPath(MEDIA_ROOT, '사진').folders.keys()].join(' | '));
+      [...driveTree.folders.keys()].some((n) => n === 'A B 점'),
+      [...driveTree.folders.keys()].join(' | '));
 
 // 첨부 종류 조회 — 영상인지 알 수 있어야 재생할 수 있다
 const videoId = videoDir.files[0].id;
@@ -439,6 +442,48 @@ check('영상을 영상으로 알려 준다',
       (result.files.find((f) => f.id === videoId) || {}).isVideo === true);
 check('사진을 영상으로 잘못 보지 않는다',
       (result.files.find((f) => f.id === photoId) || {}).isVideo === false);
+
+// 수정할 때 기존 첨부를 지키고 새 것만 덧붙인다
+const NL = String.fromCharCode(10);
+const splitLines = (cell) => String(cell).split(NL).filter(Boolean);
+const MEDIA_HEADERS = ['작성일시', '작성자', '방문 식당명', '현장 사진', '상태'];
+result = call({
+  sheetName: '2026-10', headers: MEDIA_HEADERS,
+  row: ['2026-10-01 09:00', '황지민', '옥동식 서초점', '', '조치 진행 중'],
+  media: [{ column: 4, filename: '첫사진.jpg', mimeType: 'image/jpeg',
+            storeName: '옥동식 서초점', dateText: '2026-10-01', data: 'AAA' }],
+});
+const mediaRow = result.row;
+result = call({ reports: 'pull', sheetName: '2026-10' });
+const mediaCol = result.headers.indexOf('현장 사진');
+const firstLinks = splitLines(result.rows[0].cells[mediaCol]);
+check('첫 첨부가 칸에 적힌다', firstLinks.length === 1, `${firstLinks.length}개`);
+
+// 앱은 기존 링크를 그대로 다시 적고, 새 것만 media 로 보낸다
+const keptCell = firstLinks.join(NL);
+result = call({
+  reports: 'update', sheetName: '2026-10', row: mediaRow, headers: MEDIA_HEADERS,
+  row_values: ['2026-10-01 09:00', '황지민', '옥동식 서초점', keptCell, '조치 완료'],
+  media: [{ column: 4, filename: '추가영상.mp4', mimeType: 'video/mp4',
+            storeName: '옥동식 서초점', dateText: '2026-10-01', data: 'BBB' }],
+});
+check('첨부를 더하며 수정할 수 있다', result.ok === true, result.error || '');
+result = call({ reports: 'pull', sheetName: '2026-10' });
+const afterLinks = splitLines(result.rows[0].cells[mediaCol]);
+check('기존 첨부가 지워지지 않는다', afterLinks.includes(firstLinks[0]),
+      `${afterLinks.length}개`);
+check('새 첨부가 덧붙는다', afterLinks.length === 2, `${afterLinks.length}개`);
+check('수정해도 줄이 늘지 않는다', result.rows.length === 1);
+
+// 기존 첨부를 뺀 채로 저장하면 그것만 빠진다
+result = call({
+  reports: 'update', sheetName: '2026-10', row: mediaRow, headers: MEDIA_HEADERS,
+  row_values: ['2026-10-01 09:00', '황지민', '옥동식 서초점', afterLinks[1], '조치 완료'],
+});
+result = call({ reports: 'pull', sheetName: '2026-10' });
+const finalLinks = splitLines(result.rows[0].cells[mediaCol]);
+check('뺀 첨부만 빠진다', finalLinks.length === 1 && finalLinks[0] === afterLinks[1],
+      `${finalLinks.length}개`);
 
 console.log('='.repeat(62));
 if (failures.length) {
