@@ -10,10 +10,14 @@ const DRAFT_KEY = 'bh_report_draft';
 const SEED_KEY = 'bh_report_seed';   // 이력에서 [이어서 작성] 로 넘겨받는 값
 
 /** 이력의 한 건을 새 리포트의 출발점으로 넘긴다. */
-export function seedFromEntry(entry) {
+export function seedFromEntry(entry, { edit = false } = {}) {
   sessionStorage.setItem(SEED_KEY, JSON.stringify({
     store: entry.store || '', code: entry.code || '',
     serial: (entry.values.find((v) => v.label.includes('시리얼')) || {}).value || '',
+    // 고치기로 들어왔으면 어느 줄을 고쳐 쓸지 함께 넘긴다.
+    // 이게 없으면 저장할 때 같은 방문이 두 줄이 된다.
+    sheetLink: edit ? { sheetName: entry.sheetName, row: entry.row } : null,
+    values: edit ? entry.values : null,
   }));
 }
 
@@ -40,16 +44,29 @@ export async function reportFormView(view) {
   try {
     seeded = JSON.parse(sessionStorage.getItem(SEED_KEY) || 'null');
   } catch { /* 무시 */ }
+  // 고치기로 왔으면 이 줄을 다시 쓴다. 새로 올리면 같은 방문이 두 줄이 된다.
+  const editingLink = (seeded && seeded.sheetLink) || null;
+
   if (seeded) {
     sessionStorage.removeItem(SEED_KEY);
-    for (const f of fields) {
-      const label = f.fieldLabel;
-      if (seeded.store && (label.includes('식당') || label.includes('매장'))) {
-        values[f.id].value = seeded.store;
-      } else if (seeded.serial && label.includes('시리얼')) {
-        values[f.id].value = seeded.serial;
-      } else if (seeded.code && label.includes('오류 코드')) {
-        values[f.id].value = seeded.code;
+    if (seeded.values) {
+      // 고치기 — 시트에 있던 값을 항목 이름으로 맞춰 전부 채운다.
+      const byLabel = new Map(seeded.values.map((v) => [v.label, v.value]));
+      for (const f of fields) {
+        const found = byLabel.get(f.fieldLabel);
+        if (found !== undefined) values[f.id].value = found;
+      }
+    } else {
+      // 이어서 작성 — 아는 것만 채운다.
+      for (const f of fields) {
+        const label = f.fieldLabel;
+        if (seeded.store && (label.includes('식당') || label.includes('매장'))) {
+          values[f.id].value = seeded.store;
+        } else if (seeded.serial && label.includes('시리얼')) {
+          values[f.id].value = seeded.serial;
+        } else if (seeded.code && label.includes('오류 코드')) {
+          values[f.id].value = seeded.code;
+        }
       }
     }
     saveDraft();
@@ -119,9 +136,10 @@ export async function reportFormView(view) {
     view.innerHTML = `
       <div id="pageRoot">
         <div class="page-head">
-          <h1>📝 새 현장 리포트</h1>
-          <p>입력 항목은 [🧩 항목 설정]에서 언제든 바꿀 수 있습니다.
-            작성 중 내용은 자동 임시보관됩니다.</p>
+          <h1>${editingLink ? '✏️ 리포트 수정' : '📝 새 현장 리포트'}</h1>
+          <p>${editingLink
+            ? `구글 시트 <strong>${h(editingLink.sheetName)}</strong> 시트 ${editingLink.row}행을 고쳐 씁니다. 새 줄이 생기지 않습니다.`
+            : '입력 항목은 [🧩 항목 설정]에서 언제든 바꿀 수 있습니다. 작성 중 내용은 자동 임시보관됩니다.'}</p>
         </div>
 
         ${hasDraft ? `
@@ -143,7 +161,7 @@ export async function reportFormView(view) {
           ${fields.length ? `
             <div class="form-actions">
               <button class="btn btn--ghost" data-act="save-draft" type="button">💾 저장만</button>
-              <button class="btn btn--primary" type="submit">📊 구글 시트로 업로드</button>
+              <button class="btn btn--primary" type="submit">${editingLink ? '💾 시트에 저장' : '📊 구글 시트로 업로드'}</button>
             </div>
             <p class="muted" style="margin:12px 0 0;font-size:.9rem;line-height:1.6">
               ${sheetsReady
@@ -338,7 +356,8 @@ export async function reportFormView(view) {
         return null;
       }
     }
-    const payload = { values: collectPayload(), draft: !requireComplete };
+    const payload = { values: collectPayload(), draft: !requireComplete,
+                      sheetLink: editingLink };
     try {
       const saved = reportId
         ? await api.updateReport(reportId, payload)
@@ -418,8 +437,14 @@ export function showSheetEntry(entry) {
         <span class="badge">${h(entry.createdAt || entry.date)}</span>
         ${entry.author ? `<span class="badge">${h(entry.author)}</span>` : ''}
         <span class="spacer"></span>
+        <button class="btn btn--ghost btn--sm" data-act="edit" type="button">
+          ✏️ 수정
+        </button>
         <button class="btn btn--ghost btn--sm" data-act="reuse" type="button">
           📝 이어서 작성
+        </button>
+        <button class="btn btn--danger btn--sm" data-act="delete" type="button">
+          🗑 삭제
         </button>
       </div>
       ${entry.links.length ? `
@@ -443,14 +468,48 @@ export function showSheetEntry(entry) {
     </div>`;
 
   const box = openSheet(entry.store || '리포트', body);
-  box.addEventListener('click', (ev) => {
+  box.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
     if (btn.dataset.act === 'reuse') {
+      // 새 방문 — 아는 값만 채우고 시트에는 새 줄로 들어간다.
       seedFromEntry(entry);
       closeModal();
       location.hash = '#/report/new';
       toast('지난 기록을 바탕으로 새 리포트를 엽니다.', 'ok');
+    }
+    if (btn.dataset.act === 'edit') {
+      // 같은 방문을 고침 — 시트의 그 줄을 다시 쓴다.
+      seedFromEntry(entry, { edit: true });
+      closeModal();
+      location.hash = '#/report/new';
+      toast('이 리포트를 고칩니다. 저장하면 같은 줄이 바뀝니다.', 'ok');
+    }
+    if (btn.dataset.act === 'delete') {
+      const ok = await confirmDialog(
+        '구글 시트에서 삭제',
+        [
+          `${entry.store || '이 리포트'} · ${entry.date}`,
+          '',
+          '구글 시트에서 이 줄을 지웁니다. 팀 전체에서 사라집니다.',
+          '되돌릴 수 없습니다.',
+          '',
+          '드라이브에 저장된 사진·영상은 지워지지 않습니다.',
+        ].join(String.fromCharCode(10)),
+        '시트에서 삭제', true);
+      if (!ok) return;
+      btn.disabled = true;
+      btn.textContent = '지우는 중…';
+      try {
+        await api.deleteSheetReport(entry.sheetName, entry.row);
+        closeModal();
+        toast('구글 시트에서 지웠습니다.', 'ok');
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      } catch (err) {
+        toast(err.message, 'err');
+        btn.disabled = false;
+        btn.textContent = '🗑 삭제';
+      }
     }
     if (btn.dataset.act === 'view') {
       openViewer(entry.links, Number(btn.dataset.idx));

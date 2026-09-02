@@ -231,6 +231,20 @@ async function patchCache(sheetName, row, status) {
   await store.setMeta(cacheKey, { ...cached, entries });
 }
 
+/**
+ * 시트에서 그 줄을 지운다.
+ *
+ * 지우면 아래 줄들의 번호가 하나씩 당겨지므로, 기기에 받아 둔 사본을 그대로 두면
+ * 다음 상태 변경이 **엉뚱한 줄**에 적힌다. 그래서 그 달 사본을 비워
+ * 다음에 화면을 열 때 새로 받아오게 한다.
+ */
+export async function removeEntry(sheetName, row) {
+  const result = await callAppsScript(
+    { reports: 'delete', sheetName, row }, 30000);
+  await store.setMeta(CACHE_PREFIX + sheetName, null);
+  return result;
+}
+
 /** 대기열에 쌓인 상태 변경을 시트에 반영한다 (sync.js 가 부른다). */
 export async function pushStatusOps(ops) {
   for (const op of ops) {

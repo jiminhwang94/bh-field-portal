@@ -603,6 +603,8 @@ export async function reorderFields(orderedIds) {
 const reportOut = (r) => ({
   id: r.id, title: r.title, payload: r.payload || [], status: r.status,
   sheetName: r.sheetName || null, sheetRow: r.sheetRow || null,
+  // 이력에서 [이어서 작성] 으로 온 경우, 고쳐 쓸 시트 줄
+  sheetLink: r.sheetLink || null,
   errorMessage: r.errorMessage || null,
   createdAt: r.createdAt, updatedAt: r.updatedAt,
 });
@@ -640,6 +642,8 @@ export async function saveReport(payload, reportId = null) {
     title,
     payload: values,
     status: existing ? existing.status : 'DRAFT',
+    sheetLink: payload.sheetLink !== undefined
+      ? payload.sheetLink : (existing ? existing.sheetLink : null),
     sheetName: existing ? existing.sheetName : null,
     sheetRow: existing ? existing.sheetRow : null,
     errorMessage: existing ? existing.errorMessage : null,
