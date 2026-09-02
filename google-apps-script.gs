@@ -528,10 +528,13 @@ function writeGuideSheet(ss, name, list) {
       if (step.expectedMetric) text += '  (기준: ' + step.expectedMetric + ')';
       steps.push(text);
     }
+    // 칸 수는 GUIDE_HEADER 와 반드시 같아야 한다. 다르면 setValues 가 예외를 던지는데,
+    // 그 직전에 clearContents() 가 이미 실행돼 탭이 비워진 채로 남는다.
     rows.push([
       g.codeOrTitle || '', g.summary || '', g.requiredTools || '',
-      commands.join('\n'), steps.join('\n'),
+      commands.join(NEWLINE), steps.join(NEWLINE),
       String(g.updatedAt || '').replace('T', ' '),
+      g.id || '',
     ]);
   }
   var range = sheet.getRange(3, 1, rows.length, GUIDE_HEADER.length);
@@ -667,6 +670,62 @@ function handleReports(ss, body) {
     var sheet = ss.getSheetByName(String(body.sheetName || '').trim());
     if (!sheet) return json({ ok: true, exists: false, headers: [], rows: [] });
     return json(readReportSheet(sheet));
+  }
+
+  // 이미 올린 줄을 고쳐 쓴다 (이력 → [이어서 작성] → 저장).
+  // 새 줄을 만들면 같은 방문이 두 줄이 된다.
+  if (body.reports === 'update') {
+    var lockU = LockService.getScriptLock();
+    lockU.waitLock(30000);
+    try {
+      var target = ss.getSheetByName(String(body.sheetName || '').trim());
+      if (!target) return json({ ok: false, error: '그 달의 시트가 없습니다.' });
+      var rowIndex = Math.floor(Number(body.row) || 0);
+      if (rowIndex < REPORT_DATA_ROW) {
+        return json({ ok: false, error: '줄 번호가 올바르지 않습니다.' });
+      }
+      var line = body.row_values || [];
+      if (!line.length) return json({ ok: false, error: 'row 가 비어 있습니다.' });
+
+      if ((body.headers || []).length) writeHeaders(target, body.headers);
+
+      // 첨부를 새로 올렸으면 드라이브에 저장하고 그 칸만 바꾼다.
+      var savedU = saveMediaToDrive(ss, body.media || []);
+      for (var colU in savedU.byColumn) {
+        var idx = Number(colU) - 1;
+        var had = String(line[idx] || '').trim();
+        line[idx] = (had ? had + NEWLINE : '') + savedU.byColumn[colU].join(NEWLINE);
+      }
+
+      target.getRange(rowIndex, 1, 1, line.length).setValues([line]);
+      target.getRange(rowIndex, 1, 1, line.length)
+        .setVerticalAlignment('top').setWrap(true);
+      SpreadsheetApp.flush();
+      return json({ ok: true, sheetName: body.sheetName, row: rowIndex,
+                    media: savedU.count, mediaSkipped: savedU.skipped,
+                    spreadsheetUrl: ss.getUrl() });
+    } finally {
+      lockU.releaseLock();
+    }
+  }
+
+  // 올린 리포트를 지운다 (이력 화면의 [삭제]).
+  if (body.reports === 'delete') {
+    var lockD = LockService.getScriptLock();
+    lockD.waitLock(30000);
+    try {
+      var sheetD = ss.getSheetByName(String(body.sheetName || '').trim());
+      if (!sheetD) return json({ ok: false, error: '그 달의 시트가 없습니다.' });
+      var rowD = Math.floor(Number(body.row) || 0);
+      if (rowD < REPORT_DATA_ROW || rowD > sheetD.getLastRow()) {
+        return json({ ok: false, error: '줄 번호가 올바르지 않습니다.' });
+      }
+      sheetD.deleteRow(rowD);
+      SpreadsheetApp.flush();
+      return json({ ok: true, sheetName: body.sheetName, row: rowD });
+    } finally {
+      lockD.releaseLock();
+    }
   }
 
   if (body.reports === 'status') {

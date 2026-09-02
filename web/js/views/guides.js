@@ -129,14 +129,16 @@ export async function guideDetailView(view, guideId) {
       const idx = el.dataset.idx;
       if (done.has(idx)) { done.delete(idx); } else { done.add(idx); }
       el.classList.toggle('is-done', done.has(idx));
-      btn.textContent = done.has(idx) ? '✅' : '○';
+      el.setAttribute('aria-pressed', String(done.has(idx)));
       localStorage.setItem(DONE_KEY(guideId), JSON.stringify([...done]));
     }
     if (act === 'reset-check') {
       done.clear();
       localStorage.removeItem(DONE_KEY(guideId));
-      $$('.step').forEach((el) => el.classList.remove('is-done'));
-      $$('.step__check').forEach((el) => { el.textContent = '○'; });
+      $$('.step').forEach((el) => {
+        el.classList.remove('is-done');
+        el.setAttribute('aria-pressed', 'false');
+      });
       toast('체크를 초기화했습니다.');
     }
     if (act === 'delete') {
@@ -153,19 +155,26 @@ export async function guideDetailView(view, guideId) {
 
 function stepHtml(step, idx, done) {
   const isDone = done.has(String(idx));
+  // 줄 전체가 버튼이다 — 장갑 낀 손으로 작은 체크 칸만 겨냥하기 어렵다.
   return `
-    <div class="step ${isDone ? 'is-done' : ''}" data-idx="${idx}">
-      <div class="step__no">${step.stepOrder || idx + 1}</div>
-      <div class="step__body">
-        <div class="step__text">${h(step.instruction).replace(/\n/g, '<br />')}</div>
+    <button class="step ${isDone ? 'is-done' : ''}" data-idx="${idx}"
+            data-act="toggle-step" type="button" aria-pressed="${isDone}">
+      <span class="step__no">${step.stepOrder || idx + 1}</span>
+      <span class="step__body">
+        <span class="step__text">${h(step.instruction).replace(/\n/g, '<br />')}</span>
         ${step.expectedMetric ? `
-          <div class="step__meta">
-            <span class="badge badge--metric">📏 기준값 ${h(step.expectedMetric)}</span>
-          </div>` : ''}
+          <span class="step__meta">
+            <span class="badge badge--metric">기준값 ${h(step.expectedMetric)}</span>
+          </span>` : ''}
         ${step.imageUrl ? `<img class="step__img" src="${h(step.imageUrl)}" alt="단계 ${idx + 1} 참고 이미지" loading="lazy" />` : ''}
-      </div>
-      <button class="step__check" data-act="toggle-step" type="button" aria-label="완료 체크">${isDone ? '✅' : '○'}</button>
-    </div>`;
+      </span>
+      <span class="step__check" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4.5 12.5 9.5 17.5 19.5 7" />
+        </svg>
+      </span>
+    </button>`;
 }
 
 // ---------------------------------------------------------------- 편집

@@ -130,7 +130,8 @@ export async function runSync(btn) {
   }
 
   if (btn) { btn.disabled = true; btn.textContent = '맞추는 중…'; }
-  const done = { uploaded: 0, published: false, pulled: false, sheet: false, guides: 0 };
+  const done = { uploaded: 0, published: false, pulled: false, sheet: false,
+                 guides: 0, guidesRemoved: 0 };
   const problems = [];
 
   // 1. 밀린 것 올리기 (리포트·재고 수량·이력 상태·가이드 탭)
@@ -193,6 +194,7 @@ export async function runSync(btn) {
       const guidesheet = await import('./guidesheet.js');
       const got = await guidesheet.pullGuides();
       done.guides = (got.changed || 0) + (got.added || 0);
+      done.guidesRemoved = got.removed || 0;
     }
   } catch (err) {
     problems.push(`가이드 받기: ${err.message}`);
@@ -210,6 +212,7 @@ export async function runSync(btn) {
   if (done.published) parts.push('가이드 반영');
   if (done.sheet) parts.push('시트 받음');
   if (done.guides) parts.push(`가이드 ${done.guides}건 갱신`);
+  if (done.guidesRemoved) parts.push(`중복 가이드 ${done.guidesRemoved}건 정리`);
   if (problems.length) {
     toast(`일부 실패 — ${problems[0]}`, 'err');
   } else {

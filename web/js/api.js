@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.3.1';
+export const APP_VERSION = '3.3.2';
 
 export const deviceId = sync.deviceId;
 
@@ -116,6 +116,10 @@ export const api = {
   sheetReports: async (month, refresh = true) => {
     const reportsheet = await import('./reportsheet.js');
     return reportsheet.pullMonth(month, { refresh });
+  },
+  deleteSheetReport: async (sheetName, row) => {
+    const reportsheet = await import('./reportsheet.js');
+    return reportsheet.removeEntry(sheetName, row);
   },
   setReportStatus: async (sheetName, row, status) => {
     const reportsheet = await import('./reportsheet.js');

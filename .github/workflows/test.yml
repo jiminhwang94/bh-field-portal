@@ -42,6 +42,9 @@ jobs:
       - name: 화면 ↔ 스타일 계약 검사
         run: python tests/test_css_contract.py
 
+      - name: Apps Script 실제 실행 검사
+        run: node tests/test_apps_script.mjs
+
       - name: APK 앱 ↔ 서버 연결 규칙 테스트
         run: python tests/test_apk_cors.py
 

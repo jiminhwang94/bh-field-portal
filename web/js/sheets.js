@@ -223,7 +223,20 @@ export async function uploadReport(report) {
   const deviceName = localStorage.getItem('bh_device_name') || '';
   const payload = await buildPayload(report, fields, deviceName);
 
-  const result = await callAppsScript(payload, 120000);
+  // 이미 시트에 있는 줄을 손보는 중이면 그 줄을 고쳐 쓴다.
+  // 새로 올리면 같은 방문이 두 줄이 된다.
+  const link = report.sheetLink;
+  const editing = link && link.sheetName && link.row;
+  const result = editing
+    ? await callAppsScript({
+      reports: 'update',
+      sheetName: link.sheetName,
+      row: link.row,
+      headers: payload.headers,
+      row_values: payload.row,
+      media: payload.media,
+    }, 120000)
+    : await callAppsScript(payload, 120000);
 
   await store.markReport(report.id, {
     status: 'UPLOADED',
