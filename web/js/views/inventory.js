@@ -70,11 +70,12 @@ export async function inventoryView(view) {
               품목·차량 추가/삭제는 상단 <strong>[⬆️ 업데이트]</strong> 후 공유됩니다.</p>`}
         </div>
 
-        <div class="tabs">
+        <div class="veh-tabs">
           ${vehicles.map((v) => `
-            <button class="tab ${v.name === current ? 'is-on' : ''}" data-act="vehicle"
+            <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
                     data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
-          <button class="tab" data-act="manage-vehicles" type="button">🚐 차량 관리</button>
+          <button class="veh-tab veh-tab--manage" data-act="manage-vehicles"
+                  type="button">🚐 차량 관리</button>
         </div>
 
         ${current ? `
@@ -88,8 +89,11 @@ export async function inventoryView(view) {
             </div>
             <div class="row" style="gap:8px">
               ${sheetMode ? `
-                <button class="chip" data-act="sheet-refresh" type="button">🔄 시트에서 받기</button>` : ''}
-              <button class="chip ${lowOnly ? 'is-on' : ''}" data-act="toggle-low" type="button">부족 항목만</button>
+                <button class="btn btn--ghost btn--sm" data-act="sheet-refresh"
+                        type="button">🔄 시트에서 받기</button>` : ''}
+              <button class="btn btn--sm filter-toggle ${lowOnly ? 'is-on' : ''}"
+                      data-act="toggle-low" type="button"
+                      aria-pressed="${lowOnly}">부족 항목만</button>
               <button class="btn btn--primary btn--sm" data-act="add-item" type="button">＋ 품목 추가</button>
             </div>
           </div>

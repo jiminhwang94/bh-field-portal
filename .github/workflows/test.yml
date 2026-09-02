@@ -39,6 +39,9 @@ jobs:
       - name: 리포트 이력 계약 검사
         run: python tests/test_report_history.py
 
+      - name: 화면 ↔ 스타일 계약 검사
+        run: python tests/test_css_contract.py
+
       - name: APK 앱 ↔ 서버 연결 규칙 테스트
         run: python tests/test_apk_cors.py
 

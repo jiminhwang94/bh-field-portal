@@ -18,9 +18,10 @@ export async function guideListView(view, categoryType) {
       <h1>${meta.emoji} ${h(meta.label)}</h1>
       <p>${h(meta.desc)} · 총 ${items.length}건</p>
     </div>
-    <div class="search">
-      <input id="filterInput" type="search" placeholder="이 카테고리 내에서 필터" autocomplete="off" />
-      <a class="btn btn--primary" href="#/guides/new/${categoryType}">＋ 새 가이드</a>
+    <div class="toolbar">
+      <input class="input" id="filterInput" type="search"
+             placeholder="이 카테고리 안에서 찾기" autocomplete="off" />
+      <a class="btn btn-primary" href="#/guides/new/${categoryType}">＋ 새 가이드</a>
     </div>
     <div class="list" id="guideList">
       ${items.length ? items.map((g) => row(g, categoryType)).join('')

@@ -177,6 +177,9 @@ img { display: block; max-width: 100%; }
   letter-spacing: -0.01em;
   color: var(--color-text);
   background: transparent; border: 1px solid transparent;
+  /* 디자인 규칙: 조작 요소는 최소 44px. 크기를 따로 정한 버튼(검색·코드·수량)은
+     자기 min-height 로 덮어쓴다. */
+  min-height: 44px;
   padding: 10px var(--space-4);
   border-radius: var(--radius-md);
   transition: background-color .12s ease, border-color .12s ease, color .12s ease;
@@ -661,7 +664,23 @@ img { display: block; max-width: 100%; }
 @media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
 .hint { font-size: 13px; color: var(--color-muted); line-height: 1.6; }
 .req { color: var(--color-accent); margin-left: 3px; }
-.textarea { min-height: 96px; line-height: 1.6; resize: vertical; }
+/* textarea 는 .input 을 함께 달지 않은 곳이 있어 여기서 같은 모양을 준다.
+   빠지면 브라우저 기본값(흰 배경 · 검은 글자)이라 다크 모드에서 글자가 안 보인다. */
+.textarea, textarea.input {
+  width: 100%; min-height: 96px; padding: 10px var(--space-3);
+  font: inherit; font-size: 16px; line-height: 1.6;
+  color: var(--color-text); caret-color: var(--color-accent);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  resize: vertical;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.textarea::placeholder { color: var(--color-neutral-500); }
+.textarea:hover { border-color: var(--color-border-strong); }
+.textarea:focus-visible {
+  border-color: var(--color-accent); outline: none;
+  box-shadow: 0 0 0 3px var(--color-accent-tint-2);
+}
 .upload-zone {
   border: 1px dashed var(--color-border-strong); border-radius: var(--radius-lg);
   padding: var(--space-6); text-align: center; color: var(--color-muted);
@@ -849,3 +868,111 @@ img { display: block; max-width: 100%; }
 .home-stats .stat__n { font-size: 22px; }
 .home-stats .stat__label { font-size: 12px; }
 @media (max-width: 720px) { .home-stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   15. 디자인 교체 때 정의를 잃은 화면 요소들
+   ──────────────────────────────────────────────────────────────────────────
+   스타일이 안 붙은 button 은 브라우저 기본 모양으로 찌그러져 보인다.
+   재고 화면의 차량 탭·수량 버튼·필터가 그랬다.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 재고: 차량 탭 ───────────────────────────────────────────────────── */
+.veh-tabs { flex-wrap: wrap; align-items: flex-end; }
+/* [차량 관리]는 차량 선택이 아니므로 탭 줄에서 살짝 떼어 놓는다 */
+.veh-tab--manage {
+  margin-left: auto;
+  font-weight: 500;
+  font-size: 15px;
+  border-bottom-color: transparent;
+}
+.veh-tab--manage:hover { color: var(--color-accent); }
+
+/* ── 재고: 수량 [−] / [＋] ───────────────────────────────────────────── */
+.qty { flex: none; gap: var(--space-2); }
+.qty__btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: var(--touch-sm); min-height: var(--touch-sm); padding: 0;
+  font: inherit; font-size: 22px; font-weight: 500; line-height: 1;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.qty__btn:hover {
+  background: var(--color-accent-tint);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.qty__btn:active { background: var(--color-accent-tint-2); }
+.qty__btn:disabled { opacity: .4; cursor: not-allowed; }
+.qty__val {
+  min-width: 48px; text-align: center;
+  font-size: 20px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 켜고 끄는 필터 (부족 항목만) ────────────────────────────────────── */
+.filter-toggle {
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-4);
+  white-space: nowrap;
+}
+.filter-toggle:hover { border-color: var(--color-border-strong); background: var(--color-surface); }
+.filter-toggle.is-on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 600;
+}
+
+/* ── 목록 행의 오른쪽 아이콘 (수정·삭제) ─────────────────────────────── */
+.item__actions .btn--icon { font-size: 16px; }
+
+/* ── 가이드 상세: 명령어 ─────────────────────────────────────────────── */
+.cmd { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+.cmd__label { font-size: 13px; font-weight: 600; color: var(--color-muted); }
+.cmd__row { display: flex; align-items: center; gap: var(--space-3); }
+.cmd__row .cmd__code { flex: 1; min-width: 0; margin: 0; }
+.cmd__row .btn { flex: none; min-height: 44px; min-width: 78px; }
+.cmd__desc { margin: 0; font-size: 14px; color: var(--color-muted); line-height: 1.6; }
+
+/* ── 가이드 상세: 단계 ───────────────────────────────────────────────── */
+.step__text { font-size: 16px; font-weight: 500; line-height: 1.6; }
+.step__meta { margin-top: 4px; }
+.badge--metric {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-accent-tint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 항목 설정: 체크박스 라벨 ────────────────────────────────────────── */
+.check {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  min-height: var(--touch-sm);
+  font-size: 15px; font-weight: 500; color: var(--color-text);
+  cursor: pointer;
+}
+.check input[type="checkbox"] {
+  width: 22px; height: 22px; margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+/* ── 이력 상세 모달 본문 ─────────────────────────────────────────────── */
+.hist-detail { display: flex; flex-direction: column; gap: var(--space-3); }
+
+/* ── 좁은 화면: 재고 행이 넘치지 않게 ───────────────────────────────── */
+@media (max-width: 720px) {
+  .veh-tab--manage { margin-left: 0; }
+  .qty__btn { min-width: 48px; min-height: 48px; }
+  .item__actions .btn--icon { min-width: 40px; min-height: 40px; }
+}
+
+/* 두 칸 배치에서 체크박스만 있는 칸은 옆 입력칸 아래선에 맞춘다 */
+.grid-2 .field > .check { margin-top: auto; }
