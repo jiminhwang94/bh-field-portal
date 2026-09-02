@@ -8,25 +8,30 @@ export async function fieldsView(view) {
   loading(view);
   let fields = (await api.listFields()).items;
 
+  /** 항목 한 줄. 디자인의 `.row` + `.order-btns` 구조. */
   function fieldRow(field, index) {
+    const sub = [
+      FIELD_TYPE_LABEL[field.fieldType] || field.fieldType,
+      `시트 ${index + 3}번째 열`,
+      field.fieldType === 'DROPDOWN' && field.options ? field.options : '',
+    ].filter(Boolean).join(' · ');
     return `
-      <div class="item" style="cursor:default">
-        <div class="step__no">${index + 1}</div>
-        <div class="item__body">
-          <div class="item__title">
+      <div class="row">
+        <span class="row__code tnum">${index + 1}</span>
+        <span class="row__main">
+          <span class="row__title">
             ${h(field.fieldLabel)}${field.isRequired ? '<span class="req">*</span>' : ''}
-          </div>
-          <div class="item__sub">
-            ${h(FIELD_TYPE_LABEL[field.fieldType] || field.fieldType)}
-            ${field.fieldType === 'DROPDOWN' && field.options ? ` · ${h(field.options)}` : ''}
-          </div>
-        </div>
-        <div class="item__actions">
-          <button class="btn btn--icon btn--ghost" data-act="up" data-idx="${index}" type="button" ${index === 0 ? 'disabled' : ''} aria-label="위로">▲</button>
-          <button class="btn btn--icon btn--ghost" data-act="down" data-idx="${index}" type="button" ${index === fields.length - 1 ? 'disabled' : ''} aria-label="아래로">▼</button>
-          <button class="btn btn--icon btn--ghost" data-act="edit" data-id="${field.id}" type="button" aria-label="수정">✏️</button>
-          <button class="btn btn--icon btn--danger" data-act="del" data-id="${field.id}" type="button" aria-label="삭제">🗑</button>
-        </div>
+          </span>
+          <span class="row__meta">${h(sub)}</span>
+        </span>
+        <span class="order-btns">
+          <button class="btn btn-secondary" data-act="up" data-idx="${index}" type="button"
+                  ${index === 0 ? 'disabled' : ''} aria-label="${h(field.fieldLabel)} 위로">↑</button>
+          <button class="btn btn-secondary" data-act="down" data-idx="${index}" type="button"
+                  ${index === fields.length - 1 ? 'disabled' : ''} aria-label="${h(field.fieldLabel)} 아래로">↓</button>
+          <button class="btn btn-secondary" data-act="edit" data-id="${field.id}" type="button">수정</button>
+          <button class="btn btn-secondary" data-act="del" data-id="${field.id}" type="button">삭제</button>
+        </span>
       </div>`;
   }
 
@@ -34,20 +39,20 @@ export async function fieldsView(view) {
     view.innerHTML = `
       <div id="pageRoot">
         <div class="page-head">
-          <h1>🧩 리포트 항목 설정</h1>
-          <p>여기서 만든 항목이 [새 현장 리포트] 입력 폼이 되고, 구글 시트의
-            <strong>열 순서(2행 항목명)</strong> 도 이 순서를 그대로 따릅니다.</p>
-        </div>
-
-        <div class="row row--between" style="margin-bottom:14px">
-          <div class="row" style="gap:8px">
-            <span class="badge">항목 ${fields.length}개</span>
-            <span class="badge">필수 ${fields.filter((f) => f.isRequired).length}개</span>
+          <div>
+            <a class="back" href="#/settings">← 설정</a>
+            <h1 class="page-head__title">리포트 항목 설정</h1>
           </div>
-          <button class="btn btn--primary btn--sm" data-act="add" type="button">＋ 항목 추가</button>
+          <span class="page-head__meta">
+            항목 <span class="tnum">${fields.length}</span>개 ·
+            필수 <span class="tnum">${fields.filter((f) => f.isRequired).length}</span>개 ·
+            구글 시트의 열 순서도 이 순서를 따릅니다
+          </span>
+          <span class="page-head__spacer"></span>
+          <button class="btn btn-primary" data-act="add" type="button">＋ 항목 추가</button>
         </div>
 
-        <div class="list">
+        <div class="rows">
           ${fields.length ? fields.map(fieldRow).join('')
             : '<div class="empty">입력 항목이 없습니다. [＋ 항목 추가]로 리포트 폼을 구성하세요.</div>'}
         </div>
@@ -77,7 +82,7 @@ export async function fieldsView(view) {
       return `<div class="field">${label}<select class="select" disabled>${opts.map((o) => `<option>${h(o)}</option>`).join('')}</select></div>`;
     }
     if (field.fieldType === 'MEDIA') {
-      return `<div class="field">${label}<div class="upload-zone">📷 사진 · 영상 촬영/선택</div></div>`;
+      return `<div class="field">${label}<div class="upload-zone">사진 · 영상 촬영/선택</div></div>`;
     }
     const type = field.fieldType === 'NUMBER' ? 'number' : 'text';
     return `<div class="field">${label}<input class="input" type="${type}" disabled placeholder="${field.fieldType === 'NUMBER' ? '숫자 입력' : '한 줄 입력'}" /></div>`;

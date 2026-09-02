@@ -1,5 +1,5 @@
 // 설정 — 구글 시트 연결 · 업데이트(공개본) · 앱 설치
-import { api } from '../api.js';
+import { api, APP_VERSION } from '../api.js';
 import { $, h, confirmDialog, copyText, loading, openSheet, toast } from '../ui.js';
 import { isOnline } from '../sync.js';
 import { formatBytes } from '../sheets.js';
@@ -41,13 +41,16 @@ export async function settingsView(view) {
   view.innerHTML = `
     <div id="pageRoot">
       <div class="page-head">
-        <h1>⚙️ 설정</h1>
-        <p>리포트를 팀 공유 스프레드시트로 올리기 위한 연결 정보와 앱 설정입니다.</p>
+        <h1 class="page-head__title">설정</h1>
+        <span class="page-head__meta">
+          기기 ${h(deviceName() || '이름 없음')} · 앱 <span class="tnum">v${APP_VERSION}</span>
+        </span>
       </div>
 
+      <div class="settings-list">
       <form id="sheetsForm" autocomplete="off">
         <div class="panel">
-          <h2 class="panel__title">📊 구글 시트 연결</h2>
+          <h2 class="panel__title">구글 시트 연결</h2>
           <div class="row" style="gap:8px;margin-bottom:14px">
             <span class="badge ${settings.sheetsReady ? 'badge--ok' : 'badge--danger'}">
               ${settings.sheetsReady ? '연결됨' : '연결 필요'}
@@ -96,8 +99,8 @@ export async function settingsView(view) {
 
           <div class="form-actions">
             <button class="btn btn--ghost" data-act="sheets-help" type="button">📖 설치 방법</button>
-            <button class="btn btn--ghost" data-act="sheets-test" type="button">🔌 연결 테스트</button>
-            <button class="btn btn--primary" type="submit">💾 저장</button>
+            <button class="btn btn--ghost" data-act="sheets-test" type="button">연결 테스트</button>
+            <button class="btn btn--primary" type="submit">저장</button>
           </div>
         </div>
       </form>
@@ -105,7 +108,7 @@ export async function settingsView(view) {
       <div class="panel" id="testResult" style="display:none"></div>
 
       <details class="panel panel--fold">
-        <summary class="panel__title">📊 기록 방식</summary>
+        <summary class="panel__title">기록 방식</summary>
         <ul class="muted" style="line-height:1.9;padding-left:20px;margin:0">
           <li>리포트를 업로드하면 <strong>월마다 새 시트</strong>가 만들어집니다. (시트 이름 = <span class="mono">YYYY-MM</span>)</li>
           <li><strong>1행은 비워 두고</strong>, <strong>2행에 항목명</strong>, <strong>3행부터</strong> 리포트가 한 줄씩 쌓입니다.</li>
@@ -117,15 +120,15 @@ export async function settingsView(view) {
       </details>
 
       <div class="panel">
-        <h2 class="panel__title">🧩 리포트 항목 설정</h2>
+        <h2 class="panel__title">리포트 항목 설정</h2>
         <p class="muted" style="margin:0 0 14px;line-height:1.65">
           리포트 입력 항목과 구글 시트 열 순서를 정합니다.
         </p>
-        <a class="btn btn--ghost" href="#/fields">🧩 항목 설정 열기</a>
+        <a class="btn btn--ghost" href="#/fields">항목 설정 열기</a>
       </div>
 
       <div class="panel">
-        <h2 class="panel__title">⬆ 업데이트 (시트와 맞추기)</h2>
+        <h2 class="panel__title">업데이트 — 시트와 맞추기</h2>
         <p class="muted" style="margin:0 0 14px;line-height:1.65">
           오프라인에서 작성한 리포트·재고 변경·이력 상태를 <strong>구글 시트로 올리고</strong>,
           이어서 <strong>시트의 최신 내용을 받아옵니다.</strong>
@@ -156,7 +159,7 @@ export async function settingsView(view) {
       </div>
 
       <details class="panel panel--fold">
-        <summary class="panel__title">📱 앱 설치 · 접속 주소</summary>
+        <summary class="panel__title">앱 설치 · 접속 주소</summary>
         <div class="row" style="gap:8px;margin-bottom:14px">
           <span class="badge">버전 v${h(build.version)}</span>
           <span class="badge mono">빌드 ${h(build.buildHash)}</span>
@@ -168,7 +171,7 @@ export async function settingsView(view) {
           </p>`
         : `
           <div class="row">
-            <button class="btn btn--primary" data-act="install" type="button">📲 앱 설치하기</button>
+            <button class="btn btn--primary" data-act="install" type="button">앱 설치하기</button>
             <button class="btn btn--ghost" data-act="install-help" type="button">설치 방법 보기</button>
           </div>
           <p class="muted" style="margin:14px 0 0;font-size:.9rem;line-height:1.65">
@@ -185,7 +188,7 @@ export async function settingsView(view) {
       </details>
 
       <details class="panel panel--fold">
-        <summary class="panel__title">📴 오프라인 사용</summary>
+        <summary class="panel__title">오프라인 사용</summary>
         <div class="row" style="gap:8px;margin:14px 0">
           <span class="badge ${isOnline() ? 'badge--ok' : 'badge--warn'}">
             ${isOnline() ? '🟢 온라인' : '📴 오프라인'}
@@ -202,10 +205,11 @@ export async function settingsView(view) {
           <li><strong>[⬆️ 업데이트]</strong>(팀과 내용 주고받기)만 사무실 서버 연결이 필요합니다.</li>
         </ul>
         <div class="divider"></div>
-        <button class="btn btn--ghost btn--sm" data-act="pull-now" type="button">
-          📥 서버에서 최신 자료 받기
+        <button class="btn btn-secondary" data-act="pull-now" type="button">
+          서버에서 최신 자료 받기
         </button>
       </details>
+      </div>
     </div>`;
 
   const root = $('#pageRoot');
@@ -245,7 +249,7 @@ export async function settingsView(view) {
         const result = await api.testSheets();
         box.style.display = 'block';
         box.innerHTML = `
-          <h2 class="panel__title">✅ 연결 성공</h2>
+          <h2 class="panel__title">연결 성공</h2>
           <p class="muted">스프레드시트: <strong>${h(result.spreadsheetName || '-')}</strong>
             ${result.spreadsheetUrl ? ` · <a class="link" href="${h(result.spreadsheetUrl)}" target="_blank" rel="noopener">열기 ↗</a>` : ''}</p>
           ${driveLine(result.drive)}
@@ -256,12 +260,12 @@ export async function settingsView(view) {
         toast('구글 시트에 연결되었습니다.', 'ok');
       } catch (err) {
         box.style.display = 'block';
-        box.innerHTML = `<h2 class="panel__title" style="color:var(--danger)">❌ 연결 실패</h2>
+        box.innerHTML = `<h2 class="panel__title" style="color:var(--danger)">연결 실패</h2>
           <p class="muted" style="white-space:pre-wrap">${h(err.message)}</p>`;
         toast(err.message, 'err');
       }
       btn.disabled = false;
-      btn.textContent = '🔌 연결 테스트';
+      btn.textContent = '연결 테스트';
     }
   });
 

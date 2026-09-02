@@ -63,7 +63,7 @@ function showEmptyGuide() {
     </div>
     <div class="form-actions">
       <button class="btn btn--ghost" type="button" data-act="close">나중에</button>
-      <button class="btn btn--primary" type="button" data-act="pull-now">📥 지금 받기</button>
+      <button class="btn btn--primary" type="button" data-act="pull-now">지금 받기</button>
     </div>`);
 
   body.addEventListener('click', async (ev) => {
@@ -79,7 +79,7 @@ function showEmptyGuide() {
     } catch (err) {
       toast(err.message, 'err');
       btn.disabled = false;
-      btn.textContent = '📥 지금 받기';
+      btn.textContent = '지금 받기';
     }
   });
 }

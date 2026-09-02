@@ -1,7 +1,7 @@
 // 현장 리포트 작성 (동적 폼) · 이력 · 상세 / 구글 시트 업로드
 import { api } from '../api.js';
 import {
-  $, closeModal, confirmDialog, copyText, h, loading, openSheet, toast,
+  $, closeModal, confirmDialog, copyText, h, loading, openSheet, toast, when,
 } from '../ui.js';
 import { reportToText, shareReport } from '../share.js';
 import {
@@ -157,7 +157,7 @@ export async function reportFormView(view) {
           ? `<img src="${h(thumbUrl(link.id, 300))}" alt="${h(link.label)}"
                   loading="lazy" onerror="this.classList.add('is-broken')" />`
           : ''}
-        <span class="media-tile__none">📎 올라간 첨부</span>
+        <span class="media-tile__none">올라간 첨부</span>
         <button class="media-tile__del" data-act="del-kept" data-field="${fieldId}"
                 data-idx="${idx}" type="button" aria-label="첨부 빼기">✕</button>
         <span class="media-tile__name">${h(link.label || '이미 올림')}</span>
@@ -170,11 +170,11 @@ export async function reportFormView(view) {
 
     if (field.fieldType === 'MEDIA') {
       return `
-        <div class="field" data-field-id="${field.id}">
+        <div class="field field--wide" data-field-id="${field.id}">
           ${label}
           <div class="row">
-            <button class="btn btn--ghost" data-act="capture" data-field="${field.id}" type="button">📷 촬영</button>
-            <button class="btn btn--ghost" data-act="pick" data-field="${field.id}" type="button">🖼 앨범/파일 선택</button>
+            <button class="btn btn--ghost" data-act="capture" data-field="${field.id}" type="button">촬영</button>
+            <button class="btn btn--ghost" data-act="pick" data-field="${field.id}" type="button">앨범 · 파일</button>
             <span class="badge">${state.kept.length + state.media.length}개 첨부</span>
           </div>
           ${state.kept.length || state.media.length ? `
@@ -190,8 +190,9 @@ export async function reportFormView(view) {
         </div>`;
     }
     if (field.fieldType === 'TEXTAREA') {
-      return `<div class="field">${label}
-        <textarea class="textarea" data-input="${field.id}" placeholder="자세히 기록">${h(state.value)}</textarea></div>`;
+      // 여러 줄 항목은 두 칸을 다 쓴다 (디자인의 .field--wide)
+      return `<div class="field field--wide">${label}
+        <textarea class="input textarea" data-input="${field.id}" placeholder="자세히 기록">${h(state.value)}</textarea></div>`;
     }
     if (field.fieldType === 'DROPDOWN') {
       const opts = (field.options || '').split(',').map((o) => o.trim()).filter(Boolean);
@@ -211,10 +212,12 @@ export async function reportFormView(view) {
     view.innerHTML = `
       <div id="pageRoot">
         <div class="page-head">
-          <h1>${editingLink ? '✏️ 리포트 수정' : '📝 새 현장 리포트'}</h1>
-          <p>${editingLink
-            ? `구글 시트 <strong>${h(editingLink.sheetName)}</strong> 시트 ${editingLink.row}행을 고쳐 씁니다. 새 줄이 생기지 않습니다.`
-            : '입력 항목은 [🧩 항목 설정]에서 언제든 바꿀 수 있습니다. 작성 중 내용은 자동 임시보관됩니다.'}</p>
+          <h1 class="page-head__title">${editingLink ? '리포트 수정' : '새 현장 리포트'}</h1>
+          <span class="page-head__meta">${editingLink
+            ? `${h(editingLink.sheetName)} 시트 <span class="tnum">${editingLink.row}</span>행을 고쳐 씁니다 — 새 줄이 생기지 않습니다`
+            : '입력 즉시 기기에 임시보관 — 새로고침해도 복구됩니다'}</span>
+          <span class="page-head__spacer"></span>
+          <a class="btn btn-secondary" href="#/fields">항목 설정</a>
         </div>
 
         ${hasDraft ? `
@@ -229,20 +232,19 @@ export async function reportFormView(view) {
         <div id="pastVisits"></div>
 
         <form id="reportForm" autocomplete="off">
-          <div class="panel">
-            ${fields.length ? fields.map(fieldHtml).join('')
-              : '<div class="empty">입력 항목이 없습니다. <a class="link" href="#/fields">🧩 항목 설정</a>에서 먼저 항목을 만드세요.</div>'}
-          </div>
           ${fields.length ? `
+            <div class="form-grid">${fields.map(fieldHtml).join('')}</div>
+
             <div class="form-actions">
-              <button class="btn btn--ghost" data-act="save-draft" type="button">💾 저장만</button>
-              <button class="btn btn--primary" type="submit">${editingLink ? '💾 시트에 저장' : '📊 구글 시트로 업로드'}</button>
-            </div>
-            <p class="muted" style="margin:12px 0 0;font-size:.9rem;line-height:1.6">
-              ${sheetsReady
-                ? '업로드하면 공유 스프레드시트의 <strong>이번 달 시트</strong>에 한 줄로 기록됩니다.'
-                : '<span style="color:var(--danger);font-weight:700">구글 시트 연결이 아직 설정되지 않았습니다. ⚙️ 설정에서 먼저 연결하세요.</span>'}
-            </p>` : ''}
+              <span class="page-head__meta" style="margin-right:auto">
+                ${sheetsReady
+                  ? '올리면 공유 스프레드시트의 이번 달 시트에 한 줄로 기록됩니다'
+                  : '<span style="color:var(--color-danger);font-weight:600">구글 시트 연결이 아직 없습니다 — 설정에서 먼저 연결하세요</span>'}
+              </span>
+              <button class="btn btn-secondary" data-act="save-draft" type="button">임시보관</button>
+              <button class="btn btn-primary" type="submit">${editingLink ? '시트에 저장' : '구글 시트로 업로드'}</button>
+            </div>`
+            : '<div class="empty">입력 항목이 없습니다. <a class="link" href="#/fields">항목 설정</a>에서 먼저 항목을 만드세요.</div>'}
         </form>
 
         <input type="file" id="mediaCapture" accept="image/*" capture="environment" style="display:none" />
@@ -521,13 +523,13 @@ export function showSheetEntry(entry) {
     <div class="hist-detail">
       <div class="row" style="gap:8px">
         <span class="pill pill--${t.cls}">${h(entry.status)}</span>
-        <span class="badge">${h(entry.createdAt || entry.date)}</span>
+        <span class="badge">${h(when(entry.createdAt || entry.date))}</span>
         ${entry.author ? `<span class="badge">${h(entry.author)}</span>` : ''}
       </div>
       <div class="hist-actions">
-        <button class="btn btn--ghost btn--sm" data-act="edit" type="button">✏️ 수정</button>
-        <button class="btn btn--ghost btn--sm" data-act="reuse" type="button">📝 이어서 작성</button>
-        <button class="btn btn--danger btn--sm" data-act="delete" type="button">🗑 삭제</button>
+        <button class="btn btn--ghost btn--sm" data-act="edit" type="button">수정</button>
+        <button class="btn btn--ghost btn--sm" data-act="reuse" type="button">이어서 작성</button>
+        <button class="btn btn--danger btn--sm" data-act="delete" type="button">삭제</button>
       </div>
       ${entry.links.length ? `
         <div class="media-grid" id="entryMedia">
@@ -538,7 +540,7 @@ export function showSheetEntry(entry) {
                 ? `<img src="${h(thumbUrl(l.id, 300))}" alt="${h(l.label)}" loading="lazy"
                         onerror="this.classList.add('is-broken')" />`
                 : ''}
-              <span class="media-tile__none">📎 열어 보기</span>
+              <span class="media-tile__none">열어 보기</span>
               <span class="media-tile__name">${h(l.label)}</span>
             </button>`).join('')}
         </div>` : ''}
@@ -594,7 +596,7 @@ export function showSheetEntry(entry) {
       } catch (err) {
         toast(err.message, 'err');
         btn.disabled = false;
-        btn.textContent = '🗑 삭제';
+        btn.textContent = '삭제';
       }
     }
     if (btn.dataset.act === 'view') {
@@ -721,7 +723,7 @@ export async function reportListView(view) {
   const settings = await api.getSettings();
   if (!settings.sheetsReady) {
     view.innerHTML = `
-      <div class="page-head"><h1>🗂 현장 리포트 이력</h1></div>
+      <div class="page-head"><h1 class="page-head__title">리포트 이력</h1></div>
       <div class="empty">
         구글 시트 연결이 아직 설정되지 않았습니다.<br />
         <a class="link" href="#/settings">⚙️ 설정</a> 에서 웹 앱 URL 을 먼저 등록하세요.
@@ -825,7 +827,7 @@ export async function reportListView(view) {
               <a class="item" href="#/reports/${r.id}">
                 <div class="item__body">
                   <div class="item__title">${h(r.title)}</div>
-                  <div class="item__sub">${h(r.createdAt)}</div>
+                  <div class="item__sub">${h(when(r.createdAt))}</div>
                 </div>
                 <span class="${cls}">${label}</span>
                 <span class="item__chevron">›</span>
@@ -841,6 +843,12 @@ export async function reportListView(view) {
     const total = (data.entries || []).length;
     const shown = visible().length;
     el.textContent = (filter || query) ? `${shown} / ${total}건` : `${total}건`;
+
+    const sync = $('#histSync');
+    if (sync) {
+      sync.textContent = data.fromCache
+        ? '받아 둔 내용 표시 중' : `${new Date().toTimeString().slice(0, 5)} 수신`;
+    }
   }
 
   /** 못 받아 왔으면 왜인지 화면에 적는다 — 그냥 비워 두면 원인을 알 수 없다. */
@@ -870,7 +878,7 @@ export async function reportListView(view) {
       <div id="pageRoot" style="display:flex;flex-direction:column;gap:var(--space-4);flex:1;min-height:0">
         <div class="page-head">
           <h1 class="page-head__title">리포트 이력</h1>
-          <span class="page-head__meta" id="histMeta"></span>
+          <span class="page-head__meta">구글 시트의 팀 전체 기록 · <span id="histMeta"></span></span>
           <span class="page-head__spacer"></span>
           <select class="select" id="histMonth" aria-label="월 선택"></select>
         </div>
@@ -878,9 +886,15 @@ export async function reportListView(view) {
         <div class="toolbar">
           <input class="input" id="histQ" type="search"
                  placeholder="식당명 · 날짜 (미트로, 08-22)" aria-label="이력 검색" />
-          <button class="btn btn-secondary" data-act="refresh" type="button">🔄 시트에서 받기</button>
+          <button class="btn btn-secondary" data-act="refresh" type="button">시트에서 받기</button>
         </div>
         <div id="histBody" style="display:flex;flex-direction:column;gap:var(--space-3);flex:1;min-height:0"></div>
+
+        <div class="page-head">
+          <span class="page-head__meta">상태 변경은 시트에 즉시 기록 · 오프라인이면 대기 후 자동 전송</span>
+          <span class="page-head__spacer"></span>
+          <span class="tag tag-neutral" id="histSync"></span>
+        </div>
       </div>`;
 
     const root = $('#pageRoot');
@@ -1006,11 +1020,14 @@ export async function reportDetailView(view, reportId) {
   view.innerHTML = `
     <div id="pageRoot">
       <div class="page-head">
-        <div class="row" style="gap:8px">
-          <span class="${cls}">${label}</span>
-          <span class="badge">${h(report.createdAt)}</span>
+        <div>
+          <a class="back" href="#/reports">← 리포트 이력</a>
+          <h1 class="page-head__title">${h(report.title)}</h1>
         </div>
-        <h1 style="margin-top:10px">${h(report.title)}</h1>
+        <span class="page-head__meta">
+          <span class="${cls}">${label}</span> · ${h(when(report.createdAt))}
+        </span>
+        <span class="page-head__spacer"></span>
         ${report.sheetName ? `<p class="muted">구글 시트 <strong>${h(report.sheetName)}</strong> 시트 ${report.sheetRow || '-'}행
           ${settings.spreadsheetUrl ? `· <a class="link" href="${h(settings.spreadsheetUrl)}" target="_blank" rel="noopener">스프레드시트 열기 ↗</a>` : ''}</p>` : ''}
         ${report.errorMessage ? `<p style="color:var(--danger);white-space:pre-wrap">${h(report.errorMessage)}</p>` : ''}
@@ -1020,10 +1037,10 @@ export async function reportDetailView(view, reportId) {
         <button class="btn btn--primary btn--sm" data-act="upload" type="button">
           ${report.status === 'UPLOADED' ? '🔁 구글 시트에 다시 업로드' : '📊 구글 시트로 업로드'}
         </button>
-        <button class="btn btn--ghost btn--sm" data-act="share" type="button">📤 공유</button>
-        <button class="btn btn--ghost btn--sm" data-act="copy" type="button">📋 텍스트 복사</button>
+        <button class="btn btn--ghost btn--sm" data-act="share" type="button">공유</button>
+        <button class="btn btn--ghost btn--sm" data-act="copy" type="button">텍스트 복사</button>
         <div class="spacer"></div>
-        <button class="btn btn--danger btn--sm" data-act="del" type="button">🗑 삭제</button>
+        <button class="btn btn--danger btn--sm" data-act="del" type="button">삭제</button>
       </div>
 
       <div class="panel">

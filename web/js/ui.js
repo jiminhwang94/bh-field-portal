@@ -171,3 +171,20 @@ export const FIELD_TYPE_LABEL = {
   DROPDOWN: '드롭다운 선택',
   MEDIA: '사진 / 영상',
 };
+
+/**
+ * 사람이 읽을 시각. `2026-09-02T14:03:50` 같은 기계용 문자열을
+ * 디자인이 쓰는 `09-02 14:03` 으로 줄인다.
+ *
+ * 화면에 ISO 시각이 그대로 나오면 눈에 거슬리고 줄을 밀어낸다.
+ * 올해가 아니면 연도를 남긴다 — 지난해 기록을 이번 주로 착각하면 곤란하다.
+ */
+export function when(value, { time = true } = {}) {
+  const text = String(value || '');
+  const m = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+  if (!m) return text;
+  const [, year, month, day, hh, mm] = m;
+  const date = String(new Date().getFullYear()) === year
+    ? `${month}-${day}` : `${year.slice(2)}-${month}-${day}`;
+  return (time && hh) ? `${date} ${hh}:${mm}` : date;
+}

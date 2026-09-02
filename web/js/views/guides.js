@@ -1,7 +1,7 @@
 // 가이드 목록 / 상세 / 편집 (오류코드 · HW SOP · SW 명령어)
 import { api } from '../api.js';
 import {
-  $, $$, h, CATEGORY, confirmDialog, copyText, loading, toast,
+  $, $$, h, CATEGORY, confirmDialog, copyText, loading, toast, when,
 } from '../ui.js';
 
 const DONE_KEY = (id) => `bh_steps_done_${id}`;
@@ -15,15 +15,19 @@ export async function guideListView(view, categoryType) {
 
   view.innerHTML = `
     <div class="page-head">
-      <h1>${meta.emoji} ${h(meta.label)}</h1>
-      <p>${h(meta.desc)} · 총 ${items.length}건</p>
+      <div>
+        <a class="back" href="#/">← 홈</a>
+        <h1 class="page-head__title">${h(meta.label)}</h1>
+      </div>
+      <span class="page-head__meta">${h(meta.desc)} · 총 <span class="tnum">${items.length}</span>건</span>
+      <span class="page-head__spacer"></span>
+      <a class="btn btn-primary" href="#/guides/new/${categoryType}">＋ 가이드 작성</a>
     </div>
     <div class="toolbar">
       <input class="input" id="filterInput" type="search"
-             placeholder="이 카테고리 안에서 찾기" autocomplete="off" />
-      <a class="btn btn-primary" href="#/guides/new/${categoryType}">＋ 새 가이드</a>
+             placeholder="코드 · 증상 검색" autocomplete="off" />
     </div>
-    <div class="list" id="guideList">
+    <div class="rows" id="guideList">
       ${items.length ? items.map((g) => row(g, categoryType)).join('')
         : '<div class="empty">등록된 가이드가 없습니다. [＋ 새 가이드]로 추가하세요.</div>'}
     </div>`;
@@ -38,20 +42,38 @@ export async function guideListView(view, categoryType) {
   });
 }
 
+/**
+ * 가이드 한 줄. 디자인의 `.row` 구조 — 코드 · (제목+요약) · 열기.
+ * 배지를 여러 개 늘어놓는 대신 요약 줄에 숫자를 모아 적는다.
+ */
 function row(guide, categoryType) {
   const tools = (guide.requiredTools || '').split(',').map((t) => t.trim()).filter(Boolean);
+  const bits = [
+    `${guide.stepCount || 0}단계`,
+    tools.length ? `공구 ${tools.length}` : '',
+    (guide.commands && guide.commands.length) ? `명령어 ${guide.commands.length}` : '',
+    guide.updatedAt ? when(guide.updatedAt, { time: false }) : '',
+  ].filter(Boolean);
+  // 오류 코드는 코드를 왼쪽 칸에, 나머지는 종류 약칭을 둔다.
+  const code = categoryType === 'ERROR_CODE'
+    ? guide.codeOrTitle.split(' ')[0]
+    : (SHORT[categoryType] || '');
+  const title = categoryType === 'ERROR_CODE'
+    ? guide.codeOrTitle.split(' ').slice(1).join(' ') || guide.codeOrTitle
+    : guide.codeOrTitle;
   return `
-    <a class="item cat-${categoryType}" href="#/guides/${guide.id}">
-      <div class="item__body">
-        <div class="item__title">${h(guide.codeOrTitle)}</div>
-        <div class="item__sub">${h(guide.summary || '요약 없음')}</div>
-      </div>
-      ${tools.length ? `<span class="badge">🧰 ${tools.length}</span>` : ''}
-      ${guide.commands && guide.commands.length ? `<span class="badge">⌘ ${guide.commands.length}</span>` : ''}
-      <span class="badge">${guide.stepCount || 0}단계</span>
-      <span class="item__chevron">›</span>
+    <a class="row" href="#/guides/${guide.id}">
+      <span class="row__code tnum">${h(code)}</span>
+      <span class="row__main">
+        <span class="row__title">${h(title)}</span>
+        <span class="row__meta">${h(guide.summary || '요약 없음')}</span>
+        <span class="row__meta">${h(bits.join(' · '))}</span>
+      </span>
+      <span class="row__meta">열기 →</span>
     </a>`;
 }
+
+const SHORT = { ERROR_CODE: '', HARDWARE_SOP: 'SOP', SOFTWARE_CMD: 'CMD' };
 
 // ---------------------------------------------------------------- 상세
 export async function guideDetailView(view, guideId) {
@@ -68,30 +90,33 @@ export async function guideDetailView(view, guideId) {
   view.innerHTML = `
     <div id="pageRoot">
     <div class="page-head">
-      <div class="row" style="gap:8px">
-        <span class="badge">${meta.emoji} ${h(meta.label)}</span>
-        <span class="badge">${h(guide.updatedAt || '')} 수정</span>
+      <div>
+        <a class="back" href="#/guides/${guide.categoryType}">← ${h(meta.label)}</a>
+        <h1 class="page-head__title">${h(guide.codeOrTitle)}</h1>
       </div>
-      <h1 style="margin-top:10px">${h(guide.codeOrTitle)}</h1>
-      <p>${h(guide.summary || '')}</p>
+      <span class="page-head__spacer"></span>
+      <a class="btn btn-secondary" href="#/guides/edit/${guide.id}">수정</a>
+      <button class="btn btn-secondary" data-act="delete" type="button">삭제</button>
+      <a class="btn btn-primary" href="#/report/new">리포트 작성</a>
     </div>
 
-    <div class="row" style="margin-bottom:16px">
-      <a class="btn btn--ghost btn--sm" href="#/guides/edit/${guide.id}">✏️ 수정</a>
-      <button class="btn btn--danger btn--sm" data-act="delete" type="button">🗑 삭제</button>
-      <div class="spacer"></div>
-      ${guide.steps.length ? '<button class="btn btn--ghost btn--sm" data-act="reset-check" type="button">체크 초기화</button>' : ''}
+    ${guide.summary ? `<span class="page-head__meta">${h(guide.summary)}</span>` : ''}
+
+    <div class="page-head">
+      <span class="page-head__meta">${h(when(guide.updatedAt))} 수정</span>
+      <span class="page-head__spacer"></span>
+      ${guide.steps.length ? '<button class="btn btn-secondary" data-act="reset-check" type="button">체크 초기화</button>' : ''}
     </div>
 
     ${tools.length ? `
       <div class="panel">
-        <h2 class="panel__title">🧰 준비 공구 · 부품</h2>
+        <h2 class="panel__title">준비 공구 · 부품</h2>
         <div class="tag-list">${tools.map((t) => `<span class="badge">${h(t)}</span>`).join('')}</div>
       </div>` : ''}
 
     ${guide.commands.length ? `
       <div class="panel">
-        <h2 class="panel__title">⌨️ 명령어 (탭하여 복사)</h2>
+        <h2 class="panel__title">명령어 — 탭하면 복사</h2>
         ${guide.commands.map((c, i) => `
           <div class="cmd">
             ${c.label ? `<div class="cmd__label">${h(c.label)}</div>` : ''}
@@ -105,7 +130,7 @@ export async function guideDetailView(view, guideId) {
       </div>` : ''}
 
     <div class="panel">
-      <h2 class="panel__title">📋 단계별 절차 ${guide.steps.length ? `(${guide.steps.length})` : ''}</h2>
+      <h2 class="panel__title">단계 — 탭하면 완료 체크 (기기에 저장)</h2>
       ${guide.steps.length ? `<div class="steps">${guide.steps.map((s, i) => stepHtml(s, i, done)).join('')}</div>`
         : '<div class="empty">등록된 단계가 없습니다. [수정]에서 단계를 추가하세요.</div>'}
     </div>
@@ -230,8 +255,11 @@ export async function guideEditView(view, guideId, categoryType) {
   function render() {
     view.innerHTML = `
       <div class="page-head">
-        <h1>${guideId ? '가이드 수정' : '새 가이드 작성'}</h1>
-        <p>현장에서 확인한 내용을 바로 반영하세요. 저장 즉시 모든 기기에 공유됩니다.</p>
+        <div>
+          <a class="back" href="#/guides/${state.categoryType}">← 목록</a>
+          <h1 class="page-head__title">${guideId ? '가이드 수정' : '새 가이드 작성'}</h1>
+        </div>
+        <span class="page-head__meta">저장 즉시 모든 기기에 공유됩니다</span>
       </div>
       <form id="guideForm" autocomplete="off">
         <div class="panel">
@@ -264,7 +292,7 @@ export async function guideEditView(view, guideId, categoryType) {
 
         <div class="panel">
           <div class="row row--between" style="margin-bottom:12px">
-            <h2 class="panel__title" style="margin:0">⌨️ 명령어 (${state.commands.length})</h2>
+            <h2 class="panel__title" style="margin:0">명령어 (${state.commands.length})</h2>
             <button class="btn btn--ghost btn--sm" data-act="add-cmd" type="button">＋ 명령어 추가</button>
           </div>
           <div class="stack">
@@ -286,7 +314,7 @@ export async function guideEditView(view, guideId, categoryType) {
 
         <div class="panel">
           <div class="row row--between" style="margin-bottom:12px">
-            <h2 class="panel__title" style="margin:0">📋 단계별 절차 (${state.steps.length})</h2>
+            <h2 class="panel__title" style="margin:0">단계 (${state.steps.length})</h2>
             <button class="btn btn--ghost btn--sm" data-act="add-step" type="button">＋ 단계 추가</button>
           </div>
           <div class="stack">
@@ -295,8 +323,8 @@ export async function guideEditView(view, guideId, categoryType) {
                 <div class="row row--between" style="margin-bottom:8px">
                   <strong>STEP ${i + 1}</strong>
                   <div class="row" style="gap:6px">
-                    <button class="btn btn--ghost btn--sm" data-act="up" data-idx="${i}" type="button" ${i === 0 ? 'disabled' : ''}>▲</button>
-                    <button class="btn btn--ghost btn--sm" data-act="down" data-idx="${i}" type="button" ${i === state.steps.length - 1 ? 'disabled' : ''}>▼</button>
+                    <button class="btn btn--ghost btn--sm" data-act="up" data-idx="${i}" type="button" ${i === 0 ? 'disabled' : ''} aria-label="위로">↑</button>
+                    <button class="btn btn--ghost btn--sm" data-act="down" data-idx="${i}" type="button" ${i === state.steps.length - 1 ? 'disabled' : ''} aria-label="아래로">↓</button>
                     <button class="btn btn--danger btn--sm" data-act="del-step" data-idx="${i}" type="button">삭제</button>
                   </div>
                 </div>
@@ -309,7 +337,7 @@ export async function guideEditView(view, guideId, categoryType) {
                   <input type="hidden" name="stepImage" value="${h(s.imageUrl)}" />
                   ${s.imageUrl ? `<img class="step__img" src="${h(s.imageUrl)}" alt="참고 사진" style="max-height:200px" />` : ''}
                   <div class="row" style="margin-top:8px">
-                    <button class="btn btn--ghost btn--sm" data-act="pick-image" data-idx="${i}" type="button">📷 사진 첨부</button>
+                    <button class="btn btn--ghost btn--sm" data-act="pick-image" data-idx="${i}" type="button">사진 첨부</button>
                     ${s.imageUrl ? `<button class="btn btn--danger btn--sm" data-act="clear-image" data-idx="${i}" type="button">사진 제거</button>` : ''}
                   </div>
                 </div>
@@ -319,7 +347,7 @@ export async function guideEditView(view, guideId, categoryType) {
 
         <div class="form-actions">
           <button class="btn btn--ghost" data-act="cancel" type="button">취소</button>
-          <button class="btn btn--primary" type="submit">💾 저장</button>
+          <button class="btn btn--primary" type="submit">저장</button>
         </div>
       </form>
       <input type="file" id="stepImageInput" accept="image/*" style="display:none" />`;
@@ -373,7 +401,7 @@ export async function guideEditView(view, guideId, categoryType) {
         } catch (err) {
           toast(err.message, 'err');
           btn.disabled = false;
-          btn.textContent = '📷 사진 첨부';
+          btn.textContent = '사진 첨부';
         }
       };
       input.click();
@@ -408,7 +436,7 @@ export async function guideEditView(view, guideId, categoryType) {
     } catch (err) {
       toast(err.message, 'err');
       submitBtn.disabled = false;
-      submitBtn.textContent = '💾 저장';
+      submitBtn.textContent = '저장';
     }
   }
 

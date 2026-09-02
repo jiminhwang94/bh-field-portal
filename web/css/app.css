@@ -541,7 +541,8 @@ img { display: block; max-width: 100%; }
 }
 .form-actions .btn { min-height: 56px; min-width: 150px; font-size: 16px; }
 .order-btns { display: inline-flex; gap: 6px; }
-.order-btns .btn { min-width: 46px; min-height: 46px; padding: 0; }
+/* ↑ ↓ 는 정사각형에 가깝게, 「수정」「삭제」 같은 글자는 숨 쉴 자리를 준다 */
+.order-btns .btn { min-width: 46px; min-height: 46px; padding: 0 var(--space-3); }
 
 /* ══════════════════════════════════════════════════════════════════════════
    11. 리포트 이력
@@ -835,17 +836,16 @@ img { display: block; max-width: 100%; }
 .row__main:hover .row__title { color: var(--color-accent); }
 .toolbar .btn { flex: none; white-space: nowrap; }
 
-/* 기존 화면은 .page-head 안에 <h1> + <p> 를 쓴다.
-   디자인의 한 줄 배치(.page-head__title 옆에 메타)와 섞이지 않도록 줄바꿈시킨다. */
+/* 화면 머리는 디자인대로 **한 줄**이다 — 제목 · 설명 · (오른쪽 끝) 버튼.
+   예전에는 여기서 h1 과 p 에 `flex: 1 1 100%` 를 걸어 각자 한 줄을 차지하게
+   했다. 옛 마크업을 살려 두려던 것인데, 그 한 줄이 디자인의 머리를 통째로
+   무너뜨려 **앱 전체가 예전 디자인처럼 보이는 원인**이었다.
+   좁은 화면에서만 제목이 한 줄을 차지하도록 접어 준다. */
 .page-head { flex-wrap: wrap; }
-.page-head h1 {
-  flex: 1 1 100%; margin: 0;
-  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
-  font-size: 30px; letter-spacing: -0.03em; line-height: 1.2;
-}
-.page-head > p {
-  flex: 1 1 100%; margin: 6px 0 0;
-  font-size: 14px; color: var(--color-muted); line-height: 1.6;
+.page-head__meta { flex: 0 1 auto; min-width: 0; }
+.page-head > div { display: flex; flex-direction: column; gap: 2px; }
+@media (max-width: 720px) {
+  .page-head__title { flex: 1 1 100%; }
 }
 
 /* ── 첨부 전체 화면 뷰어 ─────────────────────────────────────────────── */

@@ -45,6 +45,9 @@ jobs:
       - name: 새 리포트/수정 분리 + 요청 폭주 방지 검사
         run: python tests/test_report_draft.py
 
+      - name: 화면이 디자인 구조를 따르는지 검사
+        run: python tests/test_design_contract.py
+
       - name: Apps Script 실제 실행 검사
         run: node tests/test_apps_script.mjs
 

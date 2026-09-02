@@ -22,29 +22,34 @@ export async function inventoryView(view) {
   let items = current ? (await api.listInventory(current)).items : [];
   let lowOnly = false;
 
+  /** 표의 한 줄. 디자인의 `.table--touch` 구조를 그대로 쓴다. */
   function itemRow(item) {
     const low = item.minQuantity > 0 && item.quantity <= item.minQuantity;
+    const name = h(item.partName);
     return `
-      <div class="item" data-id="${item.id}" style="cursor:default">
-        <div class="item__body">
-          <div class="item__title">${h(item.partName)}</div>
-          <div class="item__sub">
-            최소 보유 ${item.minQuantity} · ${h(item.updatedAt)} 수정
-            ${low ? ' · <span style="color:var(--danger);font-weight:700">보충 필요</span>' : ''}
-            ${item.pending ? ' · <span style="color:var(--pending);font-weight:700">⏳ 반영 대기</span>'
-              : ''}
-          </div>
-        </div>
-        <div class="qty">
-          <button class="qty__btn" data-act="dec" data-id="${item.id}" type="button" aria-label="수량 감소">−</button>
-          <div class="qty__val ${low ? 'is-low' : ''}" data-qty="${item.id}">${item.quantity}</div>
-          <button class="qty__btn" data-act="inc" data-id="${item.id}" type="button" aria-label="수량 증가">＋</button>
-        </div>
-        <div class="item__actions">
-          <button class="btn btn--icon btn--ghost" data-act="edit" data-id="${item.id}" type="button" aria-label="항목 수정">✏️</button>
-          <button class="btn btn--icon btn--danger" data-act="del" data-id="${item.id}" type="button" aria-label="항목 삭제">🗑</button>
-        </div>
-      </div>`;
+      <tr data-id="${item.id}">
+        <td>
+          ${name}
+          ${item.pending ? '<span class="tag tag-neutral">반영 대기</span>' : ''}
+        </td>
+        <td class="tnum ${low ? 'is-low' : ''}" style="text-align:right">${item.quantity}</td>
+        <td class="tnum" style="text-align:right">${item.minQuantity}</td>
+        <td style="text-align:right">
+          <span class="qty">
+            <button class="btn btn-secondary qty__btn" data-act="dec" data-id="${item.id}"
+                    type="button" aria-label="${name} 하나 사용">−</button>
+            <span class="qty__val tnum ${low ? 'is-low' : ''}">${item.quantity}</span>
+            <button class="btn btn-secondary qty__btn" data-act="inc" data-id="${item.id}"
+                    type="button" aria-label="${name} 하나 보충">＋</button>
+          </span>
+        </td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-secondary" data-act="edit" data-id="${item.id}"
+                  type="button" aria-label="${name} 항목 수정">수정</button>
+          <button class="btn btn-secondary" data-act="del" data-id="${item.id}"
+                  type="button" aria-label="${name} 항목 삭제">삭제</button>
+        </td>
+      </tr>`;
   }
 
   function render() {
@@ -52,59 +57,59 @@ export async function inventoryView(view) {
       ? items.filter((i) => i.minQuantity > 0 && i.quantity <= i.minQuantity)
       : items;
     const lowCount = items.filter((i) => i.minQuantity > 0 && i.quantity <= i.minQuantity).length;
-    const total = items.reduce((sum, i) => sum + i.quantity, 0);
 
     view.innerHTML = `
-      <div id="pageRoot">
+      <div id="pageRoot" class="screen">
         <div class="page-head">
-          <h1>🚐 스타리아 차량 재고</h1>
-          ${sheetMode ? `
-            <p>부품 사용 즉시 [−]를 눌러 반영하세요.
-              <strong>차량·품목·수량이 구글 시트(차량재고 탭)와 동기화됩니다.</strong>
-              시트에서 직접 고친 내용도 이 화면을 열 때 반영됩니다.</p>`
-          : `
-            <p>부품 사용 즉시 [−]를 눌러 반영하세요.
-              <strong>수량은 모든 사용자에게 바로 공유됩니다.</strong>
-              품목·차량 추가/삭제는 상단 <strong>[⬆️ 업데이트]</strong> 후 공유됩니다.</p>`}
+          <h1 class="page-head__title">차량 재고</h1>
+          <span class="page-head__meta">수량은 [⬆ 업데이트] 없이 즉시 공유됩니다</span>
+          <span class="page-head__spacer"></span>
+          ${current ? `
+            ${sheetMode ? `
+              <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
+            <button class="btn btn-secondary ${lowOnly ? 'is-active' : ''}" data-act="toggle-low"
+                    type="button" aria-pressed="${lowOnly}">부족 항목만</button>
+            <button class="btn btn-primary" data-act="add-item" type="button">＋ 품목 추가</button>` : ''}
         </div>
 
         <div class="veh-tabs">
           ${vehicles.map((v) => `
             <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
                     data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
-          <button class="veh-tab veh-tab--manage" data-act="manage-vehicles"
-                  type="button">🚐 차량 관리</button>
+          <button class="veh-tab" data-act="manage-vehicles" type="button"
+                  style="color:var(--color-accent-700)">＋ 차량</button>
         </div>
 
         ${current ? `
-          <div class="row row--between" style="margin-bottom:14px">
-            <div class="row" style="gap:8px">
-              <span class="badge">품목 ${items.length}종</span>
-              <span class="badge">총 ${total}개</span>
-              ${lowCount ? `<span class="badge badge--danger">보충 필요 ${lowCount}</span>`
-                : '<span class="badge badge--ok">재고 정상</span>'}
-              ${sheetMode ? '<span class="badge">📊 시트 연동</span>' : ''}
-            </div>
-            <div class="row" style="gap:8px">
-              ${sheetMode ? `
-                <button class="btn btn--ghost btn--sm" data-act="sheet-refresh"
-                        type="button">🔄 시트에서 받기</button>` : ''}
-              <button class="btn btn--sm filter-toggle ${lowOnly ? 'is-on' : ''}"
-                      data-act="toggle-low" type="button"
-                      aria-pressed="${lowOnly}">부족 항목만</button>
-              <button class="btn btn--primary btn--sm" data-act="add-item" type="button">＋ 품목 추가</button>
-            </div>
-          </div>
-
-          <div class="list">
-            ${visible.length ? visible.map(itemRow).join('')
+          <div class="scroll">
+            ${visible.length ? `
+              <table class="table table--touch">
+                <thead>
+                  <tr>
+                    <th>부품</th>
+                    <th style="text-align:right">보유</th>
+                    <th style="text-align:right">최소보유</th>
+                    <th style="text-align:right">수량 조절</th>
+                    <th style="text-align:right">항목</th>
+                  </tr>
+                </thead>
+                <tbody>${visible.map(itemRow).join('')}</tbody>
+              </table>`
               : `<div class="empty">${lowOnly ? '보충이 필요한 품목이 없습니다.'
                 : '등록된 품목이 없습니다. [＋ 품목 추가]로 등록하세요.'}</div>`}
+          </div>
+
+          <div class="page-head">
+            <span class="page-head__meta">
+              ${lowCount ? `보충 필요 <span class="tnum is-low">${lowCount}</span>건 · ` : ''}최소보유 이하는 강조 표시됩니다
+            </span>
+            <span class="page-head__spacer"></span>
+            <span class="tag tag-neutral">${sheetMode ? '시트 연결됨' : '기기에만 저장'} · 품목 ${items.length}종</span>
           </div>`
         : `<div class="empty">
              등록된 차량이 없습니다.<br />
-             <button class="btn btn--primary" data-act="manage-vehicles" type="button"
-                     style="margin-top:14px">🚐 차량 추가하기</button>
+             <button class="btn btn-primary" data-act="manage-vehicles" type="button"
+                     style="margin-top:14px">＋ 차량 추가하기</button>
            </div>`}
       </div>`;
 
@@ -243,7 +248,7 @@ export async function inventoryView(view) {
               <div class="item__sub">품목 ${v.itemCount}종${v.name === current ? ' · 현재 선택됨' : ''}</div>
             </div>
             <button class="btn btn--danger btn--sm" data-vact="del-vehicle"
-                    data-name="${h(v.name)}" type="button">🗑 삭제</button>
+                    data-name="${h(v.name)}" type="button">삭제</button>
           </div>`).join('')
           : '<div class="empty">등록된 차량이 없습니다.</div>'}
       </div>

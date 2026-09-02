@@ -225,8 +225,11 @@ async function searchView(_match, query) {
   const items = (await api.listGuides(null, q)).items;
   view.innerHTML = `
     <div class="page-head">
-      <h1>검색 결과</h1>
-      <p>"${h(q)}" · ${items.length}건 (코드 · 요약 · 공구 · 단계 · 명령어 전체 검색)</p>
+      <div>
+        <a class="back" href="#/">← 홈</a>
+        <h1 class="page-head__title">검색 결과</h1>
+      </div>
+      <span class="page-head__meta">"${h(q)}" · <span class="tnum">${items.length}</span>건 — 코드 · 요약 · 공구 · 단계 · 명령어를 전부 훑습니다</span>
     </div>
     <form class="search-row" id="searchForm" role="search">
       <input class="input" id="searchInput" type="search" value="${h(q)}"

@@ -118,7 +118,7 @@ async function shareFallback(report, text, media) {
     </div>
     <div class="form-actions">
       <button class="btn btn--ghost" type="button" data-act="close">닫기</button>
-      <button class="btn btn--primary" type="button" data-share="copy">📋 다시 복사</button>
+      <button class="btn btn--primary" type="button" data-share="copy">다시 복사</button>
     </div>`);
 
   body.addEventListener('click', async (ev) => {
