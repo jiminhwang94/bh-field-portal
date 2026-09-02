@@ -30,6 +30,18 @@ const RESULT_TO_STATUS = {
   '모니터링': '모니터링',
 };
 
+/** 리포트에서 매장(식당) 이름을 찾는다 — 드라이브 폴더 이름으로 쓴다. */
+function findStoreName(reportPayload) {
+  for (const item of reportPayload || []) {
+    const label = String(item.label || '');
+    if (label.includes('식당') || label.includes('매장')) {
+      const value = String(item.value || '').trim();
+      if (value) return value;
+    }
+  }
+  return '';
+}
+
 /** 작성 시 고른 [처리 결과]로 첫 상태를 정한다. 못 찾으면 '조치 진행 중'. */
 export function seedStatus(reportPayload) {
   for (const item of reportPayload || []) {
@@ -95,6 +107,9 @@ export async function buildPayload(report, fields, deviceName) {
   const media = [];
   const skipped = [];
   let budget = MEDIA_TOTAL_LIMIT;
+  // 첨부는 공유 드라이브의 사진/동영상 → 매장 → 날짜 폴더로 들어간다.
+  const storeName = findStoreName(report.payload);
+  const dateText = (report.createdAt || '').slice(0, 10);
 
   for (let index = 0; index < labels.length; index += 1) {
     const column = META_HEADERS.length + index + 1;      // 1-based 열 번호
@@ -120,6 +135,8 @@ export async function buildPayload(report, fields, deviceName) {
         column,
         filename: attachment.originalName || filename,
         mimeType: attachment.mime || blob.type || 'application/octet-stream',
+        storeName,
+        dateText,
         data: await blobToBase64(blob),
       });
     }
@@ -250,6 +267,8 @@ export async function uploadReport(report) {
     created: Boolean(result.created),
     media: Number(result.media || 0),
     mediaSkipped: [...payload.mediaSkipped, ...(result.mediaSkipped || [])],
+    // 공유 드라이브에 못 닿으면 개인 드라이브로 간다 — 그대로 두면 안 되므로 알린다.
+    mediaShared: result.mediaShared !== false,
     spreadsheetUrl: spreadsheetUrl(await store.getSettings()),
   };
 }

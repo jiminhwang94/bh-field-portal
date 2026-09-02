@@ -1006,3 +1006,34 @@ img { display: block; max-width: 100%; }
 .step__no { display: block; text-align: center; }
 .step.is-done .step__text { color: var(--color-accent); }
 .step:active { transform: scale(.995); }
+
+/* 이력 상세: 수정·이어서 작성·삭제를 한 줄에 나란히 둔다.
+   좁은 화면에서도 줄이 갈라지지 않게 세 칸으로 나눈다. */
+.hist-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+.hist-actions .btn { width: 100%; padding-inline: var(--space-2); font-size: 14px; }
+
+/* 영상 첨부에 붙는 재생 표시 */
+.media-tile__play {
+  position: absolute; z-index: 3; inset: 0;
+  display: grid; place-items: center;
+  font-size: 26px; color: #fff;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .7);
+  pointer-events: none;
+}
+.media-tile__play::before {
+  content: ""; position: absolute;
+  width: 46px; height: 46px; border-radius: 50%;
+  background: rgba(11, 13, 18, .55);
+}
+.media-tile__play { padding-bottom: 28px; }
+
+/* 뷰어 안의 드라이브 재생기 */
+.viewer__frame {
+  width: min(100%, 1100px); height: 100%;
+  border: 0; border-radius: var(--radius-md);
+  background: #000;
+}

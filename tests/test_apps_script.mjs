@@ -123,6 +123,79 @@ class FakeSpreadsheet {
   moveActiveSheet() { return this; }
 }
 
+
+// ─────────────────────────────────────────────── 가짜 드라이브
+//
+// 공유 드라이브에 사진/동영상 → 매장 → 날짜 폴더가 실제로 만들어지는지 본다.
+
+const SHARED_DRIVE_ROOT = '0AKL9kurLTHqNUk9PVA';
+let driveTree = null;
+
+function makeFolder(name, path) {
+  const folder = {
+    name, path, folders: new Map(), files: [],
+    getName: () => name,
+    getFoldersByName(child) {
+      const found = folder.folders.get(child);
+      let handed = false;
+      return { hasNext: () => !!found && !handed,
+               next: () => { handed = true; return found; } };
+    },
+    createFolder(child) {
+      const made = makeFolder(child, `${path}/${child}`);
+      folder.folders.set(child, made);
+      return made;
+    },
+    createFile(blob) {
+      const file = {
+        id: `f${folder.files.length}-${path}`,
+        name: blob.name, mime: blob.mime, path,
+        getUrl() { return `https://drive.google.com/file/d/${file.id}/view`; },
+        getName: () => blob.name,
+        getMimeType: () => blob.mime,
+        setSharing() { return file; },
+        getParents: () => ({ hasNext: () => false }),
+      };
+      folder.files.push(file);
+      allFiles.set(file.id, file);
+      return file;
+    },
+  };
+  return folder;
+}
+
+const allFiles = new Map();
+
+function makeDrive() {
+  driveTree = makeFolder('공유 드라이브', '');
+  return {
+    getStorageLimit: () => 15 * 1024 ** 3,
+    getStorageUsed: () => 1 * 1024 ** 3,
+    getRootFolder: () => makeFolder('내 드라이브', '내드라이브'),
+    getFolderById: (id) => {
+      if (id === SHARED_DRIVE_ROOT) return driveTree;
+      throw new Error('없는 폴더입니다: ' + id);
+    },
+    getFileById: (id) => {
+      if (allFiles.has(id)) return allFiles.get(id);
+      throw new Error('없는 파일입니다: ' + id);
+    },
+    Access: { ANYONE_WITH_LINK: 'anyone' },
+    Permission: { VIEW: 'view' },
+  };
+}
+
+/** 폴더 트리에서 경로로 찾는다 (없으면 null) */
+function findPath(...names) {
+  let node = driveTree;
+  for (const name of names) {
+    const next = node.folders.get(name);
+    if (!next) return null;
+    node = next;
+  }
+  return node;
+}
+
 // ─────────────────────────────────────────────── 실제 .gs 를 불러온다
 
 const source = readFileSync(join(ROOT, 'google-apps-script.gs'), 'utf8');
@@ -141,16 +214,10 @@ const sandbox = {
     createTextOutput: (text) => ({ _text: text, setMimeType() { return this; } }),
     MimeType: { JSON: 'application/json' },
   },
-  DriveApp: {
-    getStorageLimit: () => 15 * 1024 ** 3,
-    getStorageUsed: () => 1 * 1024 ** 3,
-    getRootFolder: () => ({ getFoldersByName: () => ({ hasNext: () => false }),
-                            createFolder: () => ({}) }),
-    getFileById: () => ({ getParents: () => ({ hasNext: () => false }) }),
-  },
+  DriveApp: makeDrive(),
   Utilities: {
-    base64Decode: () => [],
-    newBlob: () => ({}),
+    base64Decode: (text) => ({ _b64: text }),
+    newBlob: (bytes, mime, name) => ({ _bytes: bytes, mime, name }),
   },
 };
 
@@ -303,6 +370,75 @@ check('지운 뒤 줄 번호가 다시 매겨진다', result.rows[0].row === 3,
 // 없는 줄을 지우려 하면 거절한다
 result = call({ reports: 'delete', sheetName: '2026-09', row: 999 });
 check('없는 줄 삭제는 거절한다', result.ok === false, result.error || '');
+
+// ─────────────────────────────────────────────── 첨부 저장 위치
+
+result = call({
+  sheetName: '2026-09', headers: HEADERS,
+  row: ['2026-09-05 09:00', '황지민', '옥동식 서초점', 'E-101', '', '조치 진행 중'],
+  media: [
+    { column: 5, filename: '현장.jpg', mimeType: 'image/jpeg',
+      storeName: '옥동식 서초점', dateText: '2026-09-05', data: 'AAA' },
+    { column: 5, filename: '증상.mp4', mimeType: 'video/mp4',
+      storeName: '옥동식 서초점', dateText: '2026-09-05', data: 'BBB' },
+  ],
+});
+check('첨부와 함께 리포트를 올릴 수 있다', result.ok === true, result.error || '');
+check('공유 드라이브에 저장했다 (개인 드라이브가 아니다)', result.mediaShared === true,
+      `mediaShared=${result.mediaShared}`);
+check('첨부 2개가 저장됐다', result.media === 2, String(result.media));
+
+const MEDIA_ROOT = '필드팀 유지보수(이미지,동영상)';
+check('공유 드라이브에 첨부 폴더를 만든다', !!findPath(MEDIA_ROOT));
+const photoDir = findPath(MEDIA_ROOT, '사진', '옥동식 서초점', '2026-09-05');
+const videoDir = findPath(MEDIA_ROOT, '동영상', '옥동식 서초점', '2026-09-05');
+check('사진 → 매장 → 날짜 폴더가 만들어진다', !!photoDir,
+      photoDir ? photoDir.path : '없음');
+check('동영상 → 매장 → 날짜 폴더가 만들어진다', !!videoDir,
+      videoDir ? videoDir.path : '없음');
+check('사진이 사진 폴더로 들어간다',
+      !!photoDir && photoDir.files.length === 1
+      && photoDir.files[0].name === '현장.jpg',
+      photoDir ? photoDir.files.map((f) => f.name).join(',') : '');
+check('영상이 동영상 폴더로 들어간다',
+      !!videoDir && videoDir.files.length === 1
+      && videoDir.files[0].name === '증상.mp4',
+      videoDir ? videoDir.files.map((f) => f.name).join(',') : '');
+check('사진과 영상이 섞이지 않는다',
+      photoDir.files.every((f) => !f.mime.startsWith('video/'))
+      && videoDir.files.every((f) => f.mime.startsWith('video/')));
+
+// 같은 매장·같은 날 다시 올리면 폴더를 새로 만들지 않는다
+call({
+  sheetName: '2026-09', headers: HEADERS,
+  row: ['2026-09-05 15:00', '황지민', '옥동식 서초점', 'E-204', '', '조치 완료'],
+  media: [{ column: 5, filename: '추가.jpg', mimeType: 'image/jpeg',
+            storeName: '옥동식 서초점', dateText: '2026-09-05', data: 'CCC' }],
+});
+check('같은 매장·같은 날은 폴더를 다시 만들지 않는다',
+      findPath(MEDIA_ROOT, '사진', '옥동식 서초점').folders.size === 1
+      && findPath(MEDIA_ROOT, '사진', '옥동식 서초점', '2026-09-05').files.length === 2);
+
+// 폴더 이름에 못 쓰는 글자를 걸러낸다
+call({
+  sheetName: '2026-09', headers: HEADERS,
+  row: ['2026-09-06 09:00', '황지민', 'A/B*점', '', '', '조치 완료'],
+  media: [{ column: 5, filename: 'x.jpg', mimeType: 'image/jpeg',
+            storeName: 'A/B*점', dateText: '2026-09-06', data: 'DDD' }],
+});
+check('폴더 이름에 못 쓰는 글자를 걸러낸다',
+      [...findPath(MEDIA_ROOT, '사진').folders.keys()].some((n) => n === 'A B 점'),
+      [...findPath(MEDIA_ROOT, '사진').folders.keys()].join(' | '));
+
+// 첨부 종류 조회 — 영상인지 알 수 있어야 재생할 수 있다
+const videoId = videoDir.files[0].id;
+const photoId = photoDir.files[0].id;
+result = call({ drive: 'info', ids: [videoId, photoId] });
+check('첨부 종류를 알려 준다', result.ok === true);
+check('영상을 영상으로 알려 준다',
+      (result.files.find((f) => f.id === videoId) || {}).isVideo === true);
+check('사진을 영상으로 잘못 보지 않는다',
+      (result.files.find((f) => f.id === photoId) || {}).isVideo === false);
 
 console.log('='.repeat(62));
 if (failures.length) {

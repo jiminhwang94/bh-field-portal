@@ -66,6 +66,11 @@ function doPost(e) {
       return handleReports(ss, body);
     }
 
+    // 첨부 파일 종류 확인 (사진 / 영상)
+    if (body.drive === 'info') {
+      return handleDriveInfo(body);
+    }
+
     var sheetName = String(body.sheetName || '').trim();
     var headers = body.headers || [];
     var row = body.row || [];
@@ -120,6 +125,8 @@ function doPost(e) {
         images: inserted,
         media: saved.count,
         mediaSkipped: saved.skipped,
+        // false 면 공유 드라이브에 못 닿아 개인 드라이브로 갔다는 뜻이다.
+        mediaShared: saved.shared !== false,
         spreadsheetUrl: ss.getUrl()
       });
     } finally {
@@ -552,20 +559,66 @@ function writeGuideSheet(ss, name, list) {
  *
  * 링크는 '링크가 있는 사람은 보기' 로 열어 둔다. 앱이 썸네일을 표시하려면 필요하다.
  */
-var MEDIA_FOLDER_NAME = '현장 리포트 첨부';
+/* ── 첨부 저장 위치 ────────────────────────────────────────────────────
+ *
+ * 팀 공유 드라이브에 넣는다. 개인 드라이브에 두면 그 사람 계정 용량을 쓰고,
+ * 퇴사하거나 계정이 바뀌면 사진이 통째로 사라진다.
+ *
+ * 저장 구조
+ *   필드팀 유지보수(이미지,동영상)/
+ *     사진/   <매장이름>/ <날짜>/ 파일
+ *     동영상/ <매장이름>/ <날짜>/ 파일
+ *
+ * ▣ 공유 드라이브를 옮기면 아래 SHARED_DRIVE_ID 만 바꾸면 된다.
+ *   주소창의 .../drive/folders/여기 부분이 그 값이다.
+ */
+var SHARED_DRIVE_ID = '0AKL9kurLTHqNUk9PVA';
+var MEDIA_FOLDER_NAME = '필드팀 유지보수(이미지,동영상)';
+var PHOTO_FOLDER_NAME = '사진';
+var VIDEO_FOLDER_NAME = '동영상';
 
-/** 스프레드시트가 있는 폴더 안에 첨부 폴더를 만들어 둔다(없으면 생성). */
-function mediaFolder(ss) {
-  var parent;
-  try {
-    var parents = DriveApp.getFileById(ss.getId()).getParents();
-    parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
-  } catch (err) {
-    parent = DriveApp.getRootFolder();
-  }
-  var found = parent.getFoldersByName(MEDIA_FOLDER_NAME);
+/** 이름이 같은 하위 폴더를 찾고, 없으면 만든다. */
+function folderByName(parent, name) {
+  var found = parent.getFoldersByName(name);
   if (found.hasNext()) return found.next();
-  return parent.createFolder(MEDIA_FOLDER_NAME);
+  return parent.createFolder(name);
+}
+
+/**
+ * 첨부가 들어갈 뿌리 폴더.
+ *
+ * 공유 드라이브에 닿지 못하면(권한 없음·ID 변경) 스프레드시트 옆에 만들어
+ * **업로드가 실패하지는 않게** 한다. 어디에 저장됐는지는 응답으로 알려 준다.
+ */
+function mediaRoot(ss) {
+  try {
+    var drive = DriveApp.getFolderById(SHARED_DRIVE_ID);
+    return { folder: folderByName(drive, MEDIA_FOLDER_NAME), shared: true };
+  } catch (err) {
+    var parent;
+    try {
+      var parents = DriveApp.getFileById(ss.getId()).getParents();
+      parent = parents.hasNext() ? parents.next() : DriveApp.getRootFolder();
+    } catch (err2) {
+      parent = DriveApp.getRootFolder();
+    }
+    return { folder: folderByName(parent, MEDIA_FOLDER_NAME), shared: false };
+  }
+}
+
+/** 폴더 이름으로 쓸 수 없는 글자를 바꾼다. */
+function safeFolderName(value, fallback) {
+  var text = String(value || '').trim().replace(/[\\/:*?"<>|]/g, ' ');
+  text = text.replace(/\s+/g, ' ').slice(0, 80).trim();
+  return text || fallback;
+}
+
+/** 사진/동영상 → 매장 → 날짜 순으로 내려가며 폴더를 만든다. */
+function mediaTargetFolder(root, mimeType, storeName, dateText) {
+  var isVideo = String(mimeType || '').indexOf('video/') === 0;
+  var kind = folderByName(root, isVideo ? VIDEO_FOLDER_NAME : PHOTO_FOLDER_NAME);
+  var store = folderByName(kind, safeFolderName(storeName, '매장 미지정'));
+  return folderByName(store, safeFolderName(dateText, '날짜 미지정'));
 }
 
 /**
@@ -595,7 +648,8 @@ function saveMediaToDrive(ss, media) {
     return out;
   }
 
-  var folder = mediaFolder(ss);
+  var root = mediaRoot(ss);
+  out.shared = root.shared;
   for (var i = 0; i < media.length; i++) {
     var item = media[i] || {};
     try {
@@ -603,8 +657,14 @@ function saveMediaToDrive(ss, media) {
       var blob = Utilities.newBlob(bytes,
                                    item.mimeType || 'application/octet-stream',
                                    item.filename || ('첨부' + (i + 1)));
+      var folder = mediaTargetFolder(root.folder, item.mimeType,
+                                     item.storeName, item.dateText);
       var file = folder.createFile(blob);
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      // 공유 드라이브는 조직 정책상 링크 공개가 막혀 있을 수 있다.
+      // 실패해도 팀원은 공유 드라이브 권한으로 볼 수 있으므로 그냥 넘어간다.
+      try {
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (shareErr) { /* 공유 드라이브 정책 — 무시 */ }
 
       var column = String(item.column || 1);
       if (!out.byColumn[column]) out.byColumn[column] = [];
@@ -749,6 +809,36 @@ function handleReports(ss, body) {
   }
 
   return json({ ok: false, error: '알 수 없는 요청입니다.' });
+}
+
+/**
+ * 첨부 파일의 종류를 알려 준다.
+ *
+ * 시트 칸에는 주소만 들어 있어서 사진인지 영상인지 알 수 없다.
+ * 그걸 모르면 영상도 사진처럼 한 장면만 보여 주게 된다.
+ *   { drive: 'info', ids: ['...', ...] }
+ *   → { files: [{ id, name, mimeType, isVideo }] }
+ */
+function handleDriveInfo(body) {
+  var ids = body.ids || [];
+  var files = [];
+  for (var i = 0; i < ids.length && i < 50; i++) {
+    var id = String(ids[i] || '').trim();
+    if (!id) continue;
+    try {
+      var file = DriveApp.getFileById(id);
+      var mime = file.getMimeType();
+      files.push({
+        id: id,
+        name: file.getName(),
+        mimeType: mime,
+        isVideo: String(mime).indexOf('video/') === 0
+      });
+    } catch (err) {
+      files.push({ id: id, name: '', mimeType: '', isVideo: false });
+    }
+  }
+  return json({ ok: true, files: files });
 }
 
 /** '상태' 열 번호를 찾는다. 없으면 create=true 일 때 헤더 맨 뒤에 만든다. */

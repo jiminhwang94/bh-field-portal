@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.3.2';
+export const APP_VERSION = '3.4.0';
 
 export const deviceId = sync.deviceId;
 
