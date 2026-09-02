@@ -139,6 +139,43 @@ export function thumbUrl(id, size = 220) {
   return id ? `https://drive.google.com/thumbnail?id=${id}&sz=w${size}` : '';
 }
 
+/**
+ * 드라이브가 직접 그려 주는 미리보기 주소.
+ * 영상은 여기서 **재생**되고, 사진은 원본 크기로 보인다.
+ */
+export function previewUrl(id) {
+  return id ? `https://drive.google.com/file/d/${id}/preview` : '';
+}
+
+/**
+ * 첨부가 사진인지 영상인지 알아 온다.
+ *
+ * 시트 칸에는 주소만 있어서 종류를 알 수 없다. 그대로 두면 영상도 사진처럼
+ * 한 장면만 보이고 재생이 안 된다(실제로 그랬다).
+ * 한 번 알아낸 것은 기기에 담아 두고 다시 묻지 않는다.
+ */
+const TYPE_KEY = 'driveFileTypes';
+
+export async function describeFiles(ids) {
+  const known = (await store.getMeta(TYPE_KEY, {})) || {};
+  const missing = [...new Set(ids.filter((id) => id && !known[id]))];
+
+  if (missing.length) {
+    try {
+      const result = await callAppsScript({ drive: 'info', ids: missing }, 30000);
+      for (const file of result.files || []) {
+        known[file.id] = { name: file.name || '', mimeType: file.mimeType || '',
+                           isVideo: Boolean(file.isVideo) };
+      }
+      await store.setMeta(TYPE_KEY, known);
+    } catch {
+      // 예전 Apps Script 이거나 오프라인 — 사진으로 보고 넘어간다.
+      for (const id of missing) known[id] = { name: '', mimeType: '', isVideo: false };
+    }
+  }
+  return known;
+}
+
 // ------------------------------------------------------------- 월 목록
 
 export async function listMonths({ refresh = false } = {}) {

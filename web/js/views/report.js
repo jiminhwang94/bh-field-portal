@@ -4,7 +4,9 @@ import {
   $, closeModal, confirmDialog, copyText, h, loading, openSheet, toast,
 } from '../ui.js';
 import { reportToText, shareReport } from '../share.js';
-import { explain as explainError, findVisits, thumbUrl } from '../reportsheet.js';
+import {
+  describeFiles, explain as explainError, findVisits, previewUrl, thumbUrl,
+} from '../reportsheet.js';
 
 const DRAFT_KEY = 'bh_report_draft';
 const SEED_KEY = 'bh_report_seed';   // 이력에서 [이어서 작성] 로 넘겨받는 값
@@ -390,7 +392,11 @@ export async function reportFormView(view) {
         toast('⏳ 기기에 저장했습니다. 인터넷에 연결되면 자동으로 시트에 올립니다.', 'ok');
       } else {
         toast(`구글 시트 [${result.sheetName}] ${result.row}행에 기록했습니다.`
-          + (result.media ? ` (첨부 ${result.media}개 드라이브 저장)` : ''), 'ok');
+          + (result.media ? ` (첨부 ${result.media}개 공유 드라이브 저장)` : ''), 'ok');
+        if (result.media && result.mediaShared === false) {
+          toast('⚠️ 공유 드라이브에 닿지 못해 개인 드라이브에 저장했습니다. '
+                + '설정에서 공유 드라이브 권한을 확인해 주세요.', 'err');
+        }
         (result.mediaSkipped || []).forEach((s) =>
           toast(`첨부 제외: ${s.filename} (${s.reason})`, 'err'));
       }
@@ -432,23 +438,18 @@ export function showSheetEntry(entry) {
   const t = trackOf(entry.status);
   const body = `
     <div class="hist-detail">
-      <div class="row" style="gap:8px;margin-bottom:12px">
+      <div class="row" style="gap:8px">
         <span class="pill pill--${t.cls}">${h(entry.status)}</span>
         <span class="badge">${h(entry.createdAt || entry.date)}</span>
         ${entry.author ? `<span class="badge">${h(entry.author)}</span>` : ''}
-        <span class="spacer"></span>
-        <button class="btn btn--ghost btn--sm" data-act="edit" type="button">
-          ✏️ 수정
-        </button>
-        <button class="btn btn--ghost btn--sm" data-act="reuse" type="button">
-          📝 이어서 작성
-        </button>
-        <button class="btn btn--danger btn--sm" data-act="delete" type="button">
-          🗑 삭제
-        </button>
+      </div>
+      <div class="hist-actions">
+        <button class="btn btn--ghost btn--sm" data-act="edit" type="button">✏️ 수정</button>
+        <button class="btn btn--ghost btn--sm" data-act="reuse" type="button">📝 이어서 작성</button>
+        <button class="btn btn--danger btn--sm" data-act="delete" type="button">🗑 삭제</button>
       </div>
       ${entry.links.length ? `
-        <div class="media-grid">
+        <div class="media-grid" id="entryMedia">
           ${entry.links.map((l, i) => `
             <button class="media-tile" data-act="view" data-idx="${i}" type="button"
                     style="padding:0;cursor:zoom-in">
@@ -468,6 +469,9 @@ export function showSheetEntry(entry) {
     </div>`;
 
   const box = openSheet(entry.store || '리포트', body);
+
+  // 어느 것이 영상인지 알아 와서 ▶ 를 붙인다. 모르면 사진으로 둔다.
+  markVideos(entry.links, box);
   box.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
@@ -517,6 +521,29 @@ export function showSheetEntry(entry) {
   });
 }
 
+
+/** 첨부 중 영상인 것에 ▶ 표시를 붙인다 (알아 온 뒤 조용히 갱신). */
+async function markVideos(links, root) {
+  const ids = links.map((l) => l.id).filter(Boolean);
+  if (!ids.length) return;
+  let known;
+  try { known = await describeFiles(ids); } catch { return; }
+  links.forEach((l, i) => {
+    const info = known[l.id];
+    if (!info) return;
+    l.isVideo = info.isVideo;
+    if (info.name) l.name = info.name;
+    if (!info.isVideo) return;
+    const tile = root.querySelector(`[data-act="view"][data-idx="${i}"]`);
+    if (tile && !tile.querySelector('.media-tile__play')) {
+      const badge = document.createElement('span');
+      badge.className = 'media-tile__play';
+      badge.textContent = '▶';
+      tile.appendChild(badge);
+    }
+  });
+}
+
 /**
  * 첨부 전체 화면 뷰어 — 좌우로 넘겨 본다.
  *
@@ -551,7 +578,7 @@ export function openViewer(links, start = 0) {
     const l = links[at];
     root.innerHTML = `
       <div class="viewer__bar">
-        <span class="viewer__label">${h(l.label)}</span>
+        <span class="viewer__label">${l.isVideo ? '🎬 ' : ''}${h(l.name || l.label)}</span>
         <span class="viewer__count tnum">${at + 1} / ${links.length}</span>
         <span class="spacer"></span>
         <a class="btn btn--ghost btn--sm" href="${h(l.url)}" target="_blank"
@@ -561,12 +588,18 @@ export function openViewer(links, start = 0) {
       </div>
       <div class="viewer__stage">
         ${links.length > 1 ? '<button class="viewer__nav viewer__nav--prev" data-act="prev" type="button" aria-label="이전">‹</button>' : ''}
-        ${l.id
-          ? `<img class="viewer__img" src="${h(thumbUrl(l.id, 1600))}" alt="${h(l.label)}"
-                  onerror="this.classList.add('is-broken')" />
-             <div class="viewer__fallback">미리보기를 불러오지 못했습니다.<br />
-               위의 [드라이브에서 열기] 로 원본을 볼 수 있습니다.</div>`
-          : '<div class="viewer__fallback">미리보기를 만들 수 없는 형식입니다.</div>'}
+        ${!l.id
+          ? '<div class="viewer__fallback">미리보기를 만들 수 없는 형식입니다.</div>'
+          : l.isVideo
+            // 영상은 드라이브 재생기를 그대로 띄운다. 사진처럼 한 장면만
+            // 보여 주면 현장에서 확인할 수가 없다.
+            ? `<iframe class="viewer__frame" src="${h(previewUrl(l.id))}"
+                       allow="autoplay; fullscreen" allowfullscreen
+                       title="${h(l.label)}"></iframe>`
+            : `<img class="viewer__img" src="${h(thumbUrl(l.id, 1600))}" alt="${h(l.label)}"
+                    onerror="this.classList.add('is-broken')" />
+               <div class="viewer__fallback">미리보기를 불러오지 못했습니다.<br />
+                 위의 [드라이브에서 열기] 로 원본을 볼 수 있습니다.</div>`}
         ${links.length > 1 ? '<button class="viewer__nav viewer__nav--next" data-act="next" type="button" aria-label="다음">›</button>' : ''}
       </div>`;
   }
