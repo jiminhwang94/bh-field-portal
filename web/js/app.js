@@ -23,7 +23,8 @@ const routes = [
   [new RegExp(`^/guides/(${HEX})$`), (m) => guideDetailView(view, m[1])],
   [/^\/inventory$/, () => inventoryView(view)],
   [/^\/fields$/, () => fieldsView(view)],
-  [/^\/report\/new$/, () => reportFormView(view)],
+  // 같은 화면이지만 하는 일이 다르다 — 주소가 새 리포트인지 수정인지를 정한다.
+  [/^\/report\/(new|edit)$/, () => reportFormView(view)],
   [/^\/reports$/, () => reportListView(view)],
   [new RegExp(`^/reports/(${HEX})$`), (m) => reportDetailView(view, m[1])],
   [/^\/settings$/, () => settingsView(view)],

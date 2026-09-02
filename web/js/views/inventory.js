@@ -10,12 +10,10 @@ const VEHICLE_KEY = 'bh_last_vehicle';
 
 export async function inventoryView(view) {
   loading(view);
-  // 시트 재고 관리 중이면 화면을 열 때 시트 내용을 먼저 받아온다.
-  // (시트에서 직접 고친 차량 이름·품목·수량이 이때 반영된다)
+  // 시트에서 받아오는 데 몇 초가 걸린다. 그 동안 빈 화면을 보고 기다리지 않도록
+  // **기기에 있는 내용을 먼저 그려 두고**, 시트는 뒤에서 받아 조용히 다시 그린다.
+  // (시트에서 직접 고친 차량 이름·품목·수량은 받아온 뒤에 반영된다)
   const sheetMode = await sheetInvEnabled();
-  if (sheetMode && isOnline()) {
-    try { await pullInventory(); } catch { /* 시트에 못 닿아도 기기 내용으로 표시 */ }
-  }
   let vehicles = (await api.listVehicles()).items;   // [{name, itemCount}]
   let current = localStorage.getItem(VEHICLE_KEY);
   if (!vehicles.some((v) => v.name === current)) {
@@ -309,4 +307,24 @@ export async function inventoryView(view) {
   }
 
   render();
+
+  // 화면이 이미 보이는 상태에서 시트를 받아온다. 받고 나서 달라진 게 있으면
+  // 그때 다시 그린다. 사용자는 기다리지 않는다.
+  if (sheetMode && isOnline()) {
+    (async () => {
+      try { await pullInventory(); } catch { return; }   // 못 닿으면 기기 내용 그대로
+      const fresh = (await api.listVehicles()).items;
+      if (!fresh.some((v) => v.name === current)) {
+        current = fresh.length ? fresh[0].name : null;
+      }
+      const freshItems = current ? (await api.listInventory(current)).items : [];
+      // 그 사이 다른 화면으로 넘어갔거나, 사용자가 창을 열어 놓고 무언가
+      // 적는 중이면 손대지 않는다. 다시 그리면 적던 내용이 날아간다.
+      if (!view.querySelector('#pageRoot')) return;
+      if (document.getElementById('modalRoot').innerHTML) return;
+      vehicles = fresh;
+      items = freshItems;
+      render();
+    })();
+  }
 }

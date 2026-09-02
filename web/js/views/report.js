@@ -8,7 +8,13 @@ import {
   describeFiles, explain as explainError, findVisits, previewUrl, thumbUrl,
 } from '../reportsheet.js';
 
-const DRAFT_KEY = 'bh_report_draft';
+// 임시보관 칸은 **둘로 나뉘어 있다.**
+//   새 리포트 → NEW_DRAFT_KEY  (시트 줄 번호를 절대 갖지 않는다)
+//   리포트 수정 → EDIT_DRAFT_KEY (어느 줄을 고치는 중인지 함께 담는다)
+// 한 칸을 같이 쓰면, 한 번 수정한 뒤로는 [새 리포트] 를 눌러도 그 수정 내용이
+// 되살아나 수정 화면이 열린다. 실제로 그런 일이 있었다.
+const NEW_DRAFT_KEY = 'bh_report_draft';
+const EDIT_DRAFT_KEY = 'bh_report_edit_draft';
 const SEED_KEY = 'bh_report_seed';   // 이력에서 [이어서 작성] 로 넘겨받는 값
 
 /** 이력의 한 건을 새 리포트의 출발점으로 넘긴다. */
@@ -27,19 +33,29 @@ export function seedFromEntry(entry, { edit = false } = {}) {
   }));
 }
 
+/** 저장된 임시보관을 읽는다. 깨져 있으면 없는 것으로 친다. */
+function readDraft(key) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null') || null; }
+  catch { return null; }
+}
+
 // ------------------------------------------------------------ 작성 화면
+//
+// 같은 화면이 두 가지 일을 한다. 무엇을 하는지는 **주소가 정한다.**
+//   #/report/new  → 언제나 빈 새 리포트 (수정 내용이 새어 들어오지 않는다)
+//   #/report/edit → 이력에서 [수정] 으로 들어온 경우에만
 export async function reportFormView(view) {
   loading(view);
+  const editMode = location.hash.replace(/^#/, '').split('?')[0] === '/report/edit';
+  const draftKey = editMode ? EDIT_DRAFT_KEY : NEW_DRAFT_KEY;
   const [{ items: fields }, settings] = await Promise.all([
     api.listFields(), api.getSettings(),
   ]);
 
   // { fieldId: { value: string, media: [{id,filename,url,mime,originalName}] } }
   let values = {};
-  try {
-    const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
-    if (saved && saved.values) values = saved.values;
-  } catch { /* 무시 */ }
+  const savedDraft = readDraft(draftKey);
+  if (savedDraft && savedDraft.values) values = savedDraft.values;
   fields.forEach((f) => {
     if (!values[f.id]) values[f.id] = { value: '', media: [] };
     if (!Array.isArray(values[f.id].media)) values[f.id].media = [];
@@ -52,13 +68,26 @@ export async function reportFormView(view) {
   try {
     seeded = JSON.parse(sessionStorage.getItem(SEED_KEY) || 'null');
   } catch { /* 무시 */ }
-  // 고치기로 왔으면 이 줄을 다시 쓴다. 새로 올리면 같은 방문이 두 줄이 된다.
-  // 임시보관에 남아 있던 것도 되살린다 (폼을 벗어났다 돌아온 경우).
-  let savedLink = null;
-  try {
-    savedLink = (JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null') || {}).sheetLink;
-  } catch { /* 무시 */ }
-  const editingLink = (seeded && seeded.sheetLink) || savedLink || null;
+  // 고치는 중인 줄. **수정 화면일 때만** 존재한다.
+  // 넘겨받은 값이 우선이고, 없으면 폼을 벗어났다 돌아온 경우라 임시보관에서 되살린다.
+  const editingLink = editMode
+    ? ((seeded && seeded.sheetLink) || (savedDraft && savedDraft.sheetLink) || null)
+    : null;
+
+  // 다른 줄을 고치러 들어왔는데 예전 수정 내용이 남아 있으면 버린다.
+  if (editMode && seeded && seeded.sheetLink && savedDraft && savedDraft.sheetLink
+      && (savedDraft.sheetLink.row !== seeded.sheetLink.row
+          || savedDraft.sheetLink.sheetName !== seeded.sheetLink.sheetName)) {
+    values = {};
+    fields.forEach((f) => { values[f.id] = { value: '', media: [], kept: [] }; });
+  }
+
+  // 주소로는 수정인데 고칠 줄을 모른다 — 이력을 거치지 않고 직접 들어온 경우.
+  if (editMode && !editingLink) {
+    localStorage.removeItem(EDIT_DRAFT_KEY);
+    location.replace('#/reports');
+    return;
+  }
 
   if (seeded) {
     sessionStorage.removeItem(SEED_KEY);
@@ -103,7 +132,7 @@ export async function reportFormView(view) {
   function saveDraft() {
     // 수정 대상(어느 줄을 고쳐 쓰는지)도 함께 담는다. 이게 빠지면 폼을 벗어났다
     // 돌아왔을 때 새 줄로 저장돼 같은 방문이 두 개가 된다.
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({
+    localStorage.setItem(draftKey, JSON.stringify({
       values, sheetLink: editingLink, savedAt: new Date().toISOString(),
     }));
   }
@@ -383,7 +412,7 @@ export async function reportFormView(view) {
     if (act === 'clear-draft') {
       const ok = await confirmDialog('작성 내용 초기화', '입력한 모든 내용과 첨부를 비웁니다.', '초기화', true);
       if (!ok) return;
-      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(draftKey);
       location.reload();
       return;
     }
@@ -438,7 +467,7 @@ export async function reportFormView(view) {
     submitBtn.textContent = '구글 시트에 올리는 중…';
     try {
       const result = await api.uploadReportToSheet(saved.id);
-      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(draftKey);
       if (result.queued) {
         // 오프라인 — 기기에 저장해 두었다가 연결되면 자동으로 올린다.
         toast('⏳ 기기에 저장했습니다. 인터넷에 연결되면 자동으로 시트에 올립니다.', 'ok');
@@ -529,6 +558,7 @@ export function showSheetEntry(entry) {
     if (!btn) return;
     if (btn.dataset.act === 'reuse') {
       // 새 방문 — 아는 값만 채우고 시트에는 새 줄로 들어간다.
+      localStorage.removeItem(NEW_DRAFT_KEY);
       seedFromEntry(entry);
       closeModal();
       location.hash = '#/report/new';
@@ -538,7 +568,7 @@ export function showSheetEntry(entry) {
       // 같은 방문을 고침 — 시트의 그 줄을 다시 쓴다.
       seedFromEntry(entry, { edit: true });
       closeModal();
-      location.hash = '#/report/new';
+      location.hash = '#/report/edit';
       toast('이 리포트를 고칩니다. 저장하면 같은 줄이 바뀝니다.', 'ok');
     }
     if (btn.dataset.act === 'delete') {
@@ -947,9 +977,21 @@ export async function reportListView(view) {
 
   renderShell();
   paint();
-  await load({ refresh: true });
+  // 받아 둔 것이 있으면 그것으로 **먼저 보여 준다.** 시트에 다시 물어보는 데는
+  // 몇 초가 걸리는데, 그 동안 빈 화면을 보고 기다릴 이유가 없다.
+  await load({ refresh: false });
   paintMonths();
   paint();
+
+  // 그런 다음 조용히 최신본을 받아 온다. 화면 전환을 여기서 붙잡지 않는다.
+  const openedAt = month;
+  (async () => {
+    try { await load({ refresh: true }); } catch { return; }
+    // 그 사이 다른 화면으로 넘어갔거나 다른 달을 골랐으면 손대지 않는다.
+    if (!view.querySelector('#histQ') || month !== openedAt) return;
+    paintMonths();
+    paint();
+  })();
 }
 
 // ------------------------------------------------------------ 상세 화면

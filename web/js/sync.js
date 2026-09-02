@@ -32,10 +32,26 @@ export function onNetChange(fn) {
   return () => listeners.delete(fn);
 }
 
-function emit() {
+function emit(extra) {
   listeners.forEach((fn) => {
-    try { fn({ online, serverReachable }); } catch { /* 화면 갱신 실패는 무시 */ }
+    try { fn({ online, serverReachable, ...extra }); }
+    catch { /* 화면 갱신 실패는 무시 */ }
   });
+}
+
+/**
+ * 서버에 닿는지 여부를 기록한다. **값이 실제로 바뀔 때만** 알린다.
+ *
+ * 예전에는 요청이 끝날 때마다 무조건 알렸다. 그런데 이 알림을 받으면
+ * 화면이 상태를 다시 물어보고, 그 물어보는 것도 요청이라 또 알림이 가서,
+ * 초당 수십 건이 서로를 부르며 끝없이 돈다. 브라우저가 한 서버에 동시에
+ * 열 수 있는 연결은 6개뿐이라, 그 뒤에 선 진짜 요청들이 전부 밀렸다.
+ * "무엇을 눌러도 느리다" 는 느낌의 정체가 이것이었다.
+ */
+function setReachable(value) {
+  if (serverReachable === value) return;
+  serverReachable = value;
+  emit();
 }
 
 window.addEventListener('online', () => {
@@ -95,12 +111,12 @@ async function request(method, path, body, { timeout = 15000 } = {}) {
   try {
     res = await fetch(base + path, opts);
   } catch {
-    serverReachable = false; emit();
+    setReachable(false);
     throw new OfflineError('사무실 서버에 연결할 수 없습니다. (사무실 Wi-Fi 여부를 확인하세요)');
   } finally {
     clearTimeout(timer);
   }
-  serverReachable = true; emit();
+  setReachable(true);
 
   const text = await res.text();
   let data = null;
@@ -358,14 +374,15 @@ export async function runPendingWork() {
 
 /** 상단 [업데이트] 버튼용 상태. 오프라인이면 기기에 있는 정보만으로 답한다. */
 export async function state() {
-  const local = await store.syncState();
+  // 한 줄씩 기다리면 여섯 번을 차례로 기다린다. 한꺼번에 시작해 한 번만 기다린다.
+  const [local, guides, vehicles, inventoryItems, fields] = await Promise.all([
+    store.syncState(), idb.getAll('guides'),
+    idb.count('vehicles'), idb.count('inventory'), idb.count('fields'),
+  ]);
   const summary = {
-    guides: await idb.count('guides'),
-    steps: (await idb.getAll('guides'))
-      .reduce((n, g) => n + (g.steps || []).length, 0),
-    vehicles: await idb.count('vehicles'),
-    inventoryItems: await idb.count('inventory'),
-    fields: await idb.count('fields'),
+    guides: guides.length,
+    steps: guides.reduce((n, g) => n + (g.steps || []).length, 0),
+    vehicles, inventoryItems, fields,
   };
   const base = {
     published: { revision: local.baseRevision, at: local.publishedAt,

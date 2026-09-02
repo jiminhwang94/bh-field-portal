@@ -56,7 +56,16 @@ export async function ensureDeviceName() {
 
 // ---------------------------------------------------------------- 상태 표시
 
-export async function refreshState() {
+// 여러 곳(주기 확인·화면 복귀·네트워크 변화·설정 화면)에서 동시에 부른다.
+// 이미 물어보는 중이면 그 답을 같이 쓴다 — 같은 질문을 두 번 하지 않는다.
+let inFlight = null;
+
+export function refreshState() {
+  if (!inFlight) inFlight = doRefreshState().finally(() => { inFlight = null; });
+  return inFlight;
+}
+
+async function doRefreshState() {
   try {
     // 서버 상태는 있으면 얹고, 없으면(오프라인) 기기 정보로만 표시한다.
     try {
