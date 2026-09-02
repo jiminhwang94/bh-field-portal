@@ -140,7 +140,11 @@ export async function buildPayload(report, fields, deviceName) {
         data: await blobToBase64(blob),
       });
     }
-    row.push('');            // 링크는 Apps Script 가 드라이브에 올린 뒤 채운다
+    // 이미 올라가 있던 첨부는 그대로 다시 적는다. 비워서 보내면 시트의 링크가
+    // 지워져 드라이브에는 있는데 리포트에서는 사라진다.
+    // 새로 올린 것은 Apps Script 가 이 뒤에 이어 붙인다.
+    const kept = (item.kept || []).map((l) => l.url).filter(Boolean);
+    row.push(kept.join('\n'));
   }
 
   row.push(seedStatus(report.payload));

@@ -564,18 +564,26 @@ function writeGuideSheet(ss, name, list) {
  * 팀 공유 드라이브에 넣는다. 개인 드라이브에 두면 그 사람 계정 용량을 쓰고,
  * 퇴사하거나 계정이 바뀌면 사진이 통째로 사라진다.
  *
- * 저장 구조
- *   필드팀 유지보수(이미지,동영상)/
- *     사진/   <매장이름>/ <날짜>/ 파일
- *     동영상/ <매장이름>/ <날짜>/ 파일
+ * 저장 구조 — SHARED_DRIVE_ID 가 가리키는 폴더 **바로 아래**부터 시작한다.
+ *
+ *   <공유 드라이브 폴더>/
+ *     옥동식 서초점/
+ *       2026-09-02/
+ *         사진/   현장.jpg
+ *         동영상/ 증상.mp4
+ *
+ * 매장을 먼저 찾고 그 날 무엇이 있었는지 보는 순서라, 사람이 드라이브에서
+ * 직접 뒤질 때 이 순서가 가장 빠르다.
  *
  * ▣ 공유 드라이브를 옮기면 아래 SHARED_DRIVE_ID 만 바꾸면 된다.
  *   주소창의 .../drive/folders/여기 부분이 그 값이다.
  */
 var SHARED_DRIVE_ID = '0AKL9kurLTHqNUk9PVA';
-var MEDIA_FOLDER_NAME = '필드팀 유지보수(이미지,동영상)';
 var PHOTO_FOLDER_NAME = '사진';
 var VIDEO_FOLDER_NAME = '동영상';
+
+/** 공유 드라이브에 닿지 못했을 때만 쓰는 대비용 폴더 이름 */
+var FALLBACK_FOLDER_NAME = '현장 리포트 첨부';
 
 /** 이름이 같은 하위 폴더를 찾고, 없으면 만든다. */
 function folderByName(parent, name) {
@@ -592,8 +600,9 @@ function folderByName(parent, name) {
  */
 function mediaRoot(ss) {
   try {
-    var drive = DriveApp.getFolderById(SHARED_DRIVE_ID);
-    return { folder: folderByName(drive, MEDIA_FOLDER_NAME), shared: true };
+    // 받은 주소가 가리키는 폴더를 **그대로** 뿌리로 쓴다.
+    // 여기에 같은 이름의 폴더를 또 만들면 경로가 한 겹 깊어진다.
+    return { folder: DriveApp.getFolderById(SHARED_DRIVE_ID), shared: true };
   } catch (err) {
     var parent;
     try {
@@ -602,7 +611,7 @@ function mediaRoot(ss) {
     } catch (err2) {
       parent = DriveApp.getRootFolder();
     }
-    return { folder: folderByName(parent, MEDIA_FOLDER_NAME), shared: false };
+    return { folder: folderByName(parent, FALLBACK_FOLDER_NAME), shared: false };
   }
 }
 
@@ -613,12 +622,12 @@ function safeFolderName(value, fallback) {
   return text || fallback;
 }
 
-/** 사진/동영상 → 매장 → 날짜 순으로 내려가며 폴더를 만든다. */
+/** 매장 → 날짜 → 사진/동영상 순으로 내려가며 폴더를 만든다. */
 function mediaTargetFolder(root, mimeType, storeName, dateText) {
+  var store = folderByName(root, safeFolderName(storeName, '매장 미지정'));
+  var day = folderByName(store, safeFolderName(dateText, '날짜 미지정'));
   var isVideo = String(mimeType || '').indexOf('video/') === 0;
-  var kind = folderByName(root, isVideo ? VIDEO_FOLDER_NAME : PHOTO_FOLDER_NAME);
-  var store = folderByName(kind, safeFolderName(storeName, '매장 미지정'));
-  return folderByName(store, safeFolderName(dateText, '날짜 미지정'));
+  return folderByName(day, isVideo ? VIDEO_FOLDER_NAME : PHOTO_FOLDER_NAME);
 }
 
 /**
