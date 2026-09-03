@@ -1,7 +1,12 @@
-// 서버 동기화 — 기기(로컬)와 사무실 서버의 공개본을 주고받는다.
+// 네트워크 상태와 대기열 처리.
 //
-// 오프라인에서는 아무것도 하지 않고, 모든 작업은 기기 안에서 끝난다.
-// 온라인이 되면 대기열(outbox)을 자동으로 처리한다.
+// 팀이 함께 보는 원본은 **구글 시트 하나**다. 이 파일은 사무실 서버로
+// 무언가를 보내지 않는다 — 예전에는 서버에도 따로 올렸는데, 시트로 이미
+// 다 올라가고 있어 하는 일이 없으면서 주소를 안 넣은 기기에서는
+// "서버 주소가 설정되지 않았습니다" 라는 엉뚱한 알림만 띄웠다.
+//
+// 오프라인에서는 모든 작업이 기기 안에서 끝나고, 온라인이 되면
+// 대기열(outbox)을 구글 시트로 자동 처리한다.
 import * as store from './local/store.js';
 import * as idb from './local/idb.js';
 
@@ -20,12 +25,9 @@ export function deviceId() {
 // ------------------------------------------------------------ 네트워크 상태
 
 let online = navigator.onLine;
-let serverReachable = null;      // null = 아직 확인 안 함
 const listeners = new Set();
 
 export const isOnline = () => online;
-/** 인터넷은 되는데 사무실 서버에만 못 닿는 상태 (현장 LTE 등) */
-export const serverUnreachable = () => online && serverReachable === false;
 
 export function onNetChange(fn) {
   listeners.add(fn);
@@ -34,24 +36,9 @@ export function onNetChange(fn) {
 
 function emit(extra) {
   listeners.forEach((fn) => {
-    try { fn({ online, serverReachable, ...extra }); }
+    try { fn({ online, ...extra }); }
     catch { /* 화면 갱신 실패는 무시 */ }
   });
-}
-
-/**
- * 서버에 닿는지 여부를 기록한다. **값이 실제로 바뀔 때만** 알린다.
- *
- * 예전에는 요청이 끝날 때마다 무조건 알렸다. 그런데 이 알림을 받으면
- * 화면이 상태를 다시 물어보고, 그 물어보는 것도 요청이라 또 알림이 가서,
- * 초당 수십 건이 서로를 부르며 끝없이 돈다. 브라우저가 한 서버에 동시에
- * 열 수 있는 연결은 6개뿐이라, 그 뒤에 선 진짜 요청들이 전부 밀렸다.
- * "무엇을 눌러도 느리다" 는 느낌의 정체가 이것이었다.
- */
-function setReachable(value) {
-  if (serverReachable === value) return;
-  serverReachable = value;
-  emit();
 }
 
 window.addEventListener('online', () => {
@@ -60,25 +47,24 @@ window.addEventListener('online', () => {
   runPendingWork();
 });
 window.addEventListener('offline', () => {
-  online = false; serverReachable = null; emit();
+  online = false; emit();
 });
 
-// ------------------------------------------------------------ 서버 주소·요청
+// ------------------------------------------------------------ 접속한 주소
 
 // APK 로 설치한 앱은 화면 파일이 기기 안에 있어 이 주소로 열린다.
-// 이 경우 "접속한 주소" 는 서버가 아니므로 설정에 적힌 사무실 주소를 써야 한다.
 const APP_ASSET_ORIGIN = 'https://appassets.androidplatform.net';
 
 export const isPackagedApp = () => location.origin === APP_ASSET_ORIGIN;
 
-/** APK 는 설정에 적힌 서버 주소를, 웹은 접속한 주소를 쓴다. */
+/**
+ * 화면을 내려준 주소. 웹으로 접속했을 때 그 주소에서 사진을 받아오는 데만 쓴다.
+ * APK 는 화면이 기기 안에 있으므로 빈 값이다 (그래도 앱은 그대로 동작한다).
+ */
 export async function serverBase() {
-  const settings = await store.getSettings();
-  const configured = (settings.serverUrl || '').trim().replace(/\/+$/, '');
-  if (configured) return configured;
-  if (isPackagedApp()) return '';                    // 아직 주소를 등록하지 않음
+  if (isPackagedApp()) return '';
   if (location.protocol.startsWith('http')) return location.origin;
-  return '';       // file:// 등 — 서버 주소 미설정
+  return '';
 }
 
 
@@ -90,151 +76,31 @@ class OfflineError extends Error {
 }
 export { OfflineError };
 
-async function request(method, path, body, { timeout = 15000 } = {}) {
-  const base = await serverBase();
-  if (!base) throw new OfflineError('서버 주소가 설정되지 않았습니다. 설정에서 등록해 주세요.');
-  if (!online) throw new OfflineError();
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-  const opts = {
-    method,
-    headers: { 'X-Device-Id': deviceId() },
-    credentials: 'include',
-    signal: controller.signal,
-  };
-  if (body !== undefined) {
-    opts.headers['Content-Type'] = 'application/json';
-    opts.body = JSON.stringify(body);
-  }
-  let res;
-  try {
-    res = await fetch(base + path, opts);
-  } catch {
-    setReachable(false);
-    throw new OfflineError('사무실 서버에 연결할 수 없습니다. (사무실 Wi-Fi 여부를 확인하세요)');
-  } finally {
-    clearTimeout(timer);
-  }
-  setReachable(true);
-
-  const text = await res.text();
-  let data = null;
-  if (text) { try { data = JSON.parse(text); } catch { data = null; } }
-  if (!res.ok) {
-    const error = new Error((data && data.error) || `요청 실패 (${res.status})`);
-    error.status = res.status;
-    throw error;
-  }
-  return data;
-}
-export { request as serverRequest };
-
-// ------------------------------------------------------------------- 받기
-
-/** 서버 공개본을 기기로 받아온다. */
-export async function pull() {
-  const snapshot = await request('GET', '/api/sync/pull');
-  const revision = await store.applySnapshot(snapshot);
-  downloadMissingMedia(snapshot.media || []);      // 사진은 뒤에서 천천히
-  return { revision, summary: snapshot.summary || {} };
-}
+// --------------------------------------------------------- 기기 안 사진 받기
 
 /**
- * v2 에서 서버에 있던 리포트를 기기로 옮긴다 (앱 첫 실행 때 1회).
- * 이미 기기에 있는 리포트는 건드리지 않는다.
+ * 다른 기기에서 올린 사진을 이 기기로 가져온다.
+ *
+ * 사진 파일 자체는 찍은 기기 안에만 있다. 웹으로 접속했을 때는 접속한 주소에서
+ * 받아올 수 있으므로 그때만 쓴다. 못 받아도 앱은 그대로 동작한다.
  */
-export async function importLegacy() {
-  if (await store.getMeta('legacyImported', false)) return 0;
-  let payload;
-  try {
-    payload = await request('GET', '/api/sync/legacy');
-  } catch {
-    return 0;        // 서버에 못 닿으면 다음 기회에 다시 시도
-  }
-  let added = 0;
-  for (const report of payload.reports || []) {
-    if (await idb.get('reports', report.id)) continue;
-    await idb.put('reports', report);
-    added += 1;
-  }
-  await downloadMissingMedia(payload.media || []);
-  await store.setMeta('legacyImported', true);
-  return added;
-}
-
-/** 내 변경이 없을 때만 조용히 최신본을 받는다. */
-export async function autoPullIfClean() {
-  const local = await store.syncState();
-  let head;
-  try {
-    head = await request('GET', '/api/sync/head');
-  } catch {
-    return false;
-  }
-  if (local.dirty) return false;
-  if ((head.revision || 0) <= local.baseRevision) return false;
-  await pull();
-  return true;
-}
-
-async function downloadMissingMedia(list) {
+export async function fetchMediaFromHost(filename) {
   const base = await serverBase();
-  for (const item of list) {
-    if (await idb.get('media', item.filename)) continue;
-    try {
-      const res = await fetch(`${base}/media/${item.filename}`, {
-        headers: { 'X-Device-Id': deviceId() }, credentials: 'include',
-      });
-      if (!res.ok) continue;
-      const blob = await res.blob();
-      await idb.put('media', {
-        filename: item.filename, blob, mime: item.mime || blob.type,
-        originalName: item.originalName || item.filename,
-        size: blob.size, createdAt: store.now(), localOnly: false,
-      });
-    } catch {
-      // 사진 하나 실패해도 나머지는 계속 받는다.
-    }
+  if (!base) return null;
+  try {
+    const res = await fetch(`${base}/media/${filename}`, {
+      headers: { 'X-Device-Id': deviceId() }, credentials: 'include',
+    });
+    if (!res.ok) return null;
+    return await res.blob();
+  } catch {
+    return null;
   }
-}
-
-// ------------------------------------------------------------------- 올리기
-
-/** [업데이트] — 기기 내용을 모든 사용자가 보는 공개본으로 만든다. */
-export async function push(deviceName, { force = false } = {}) {
-  // 1) 기기에만 있는 가이드 사진을 먼저 서버로 올린다.
-  const base = await serverBase();
-  for (const media of await store.localOnlyGuideMedia()) {
-    const res = await fetch(
-      `${base}/api/media?filename=${encodeURIComponent(media.filename)}`,
-      { method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': media.mime, 'X-Device-Id': deviceId() },
-        body: media.blob });
-    if (!res.ok) throw new Error('사진을 서버에 올리지 못했습니다.');
-    await store.markMediaSynced(media.filename);
-  }
-
-  // 2) 공유 데이터를 통째로 올린다.
-  const snapshot = await store.collectSnapshot();
-  const local = await store.syncState();
-  const result = await request('POST', '/api/sync/push', {
-    deviceName: deviceName || '',
-    baseRevision: local.baseRevision,
-    force,
-    ...snapshot,
-  }, { timeout: 30000 });
-
-  await store.setMeta('baseRevision', result.revision);
-  await store.setMeta('publishedAt', result.at || '');
-  await store.setMeta('publishedBy', result.by || '');
-  await store.setMeta('dirty', false);
-  return result;
 }
 
 // ------------------------------------------------------------ 대기열 처리
 
-/** 재고 수량 변경 등 쌓인 작업을 서버(또는 구글 시트)에 반영한다. */
+/** 쌓인 작업(리포트·재고·이력 상태·가이드)을 구글 시트에 반영한다. */
 export async function flushOutbox() {
   await store.compactOutbox();
   const rows = await store.outbox();
@@ -244,6 +110,7 @@ export async function flushOutbox() {
     (r) => r.type === 'quantity' || r.type === 'quantity-delete');
   const sheetPushOps = rows.filter((r) => r.type === 'invsheet-push');
   const guidePushOps = rows.filter((r) => r.type === 'guidesheet-push');
+  const fieldPushOps = rows.filter((r) => r.type === 'fieldsheet-push');
   const statusOps = rows.filter((r) => r.type === 'report-status');
   let sent = 0;
 
@@ -262,6 +129,20 @@ export async function flushOutbox() {
       const guidesheet = await import('./guidesheet.js');
       await guidesheet.pushGuides();
       for (const op of guidePushOps) {
+        await store.dequeue(op.id);
+        sent += 1;
+      }
+    });
+  }
+
+  // 리포트 항목 설정 (팀 공통) — 가장 먼저 올린다.
+  // 리포트보다 뒤에 올리면, 내가 바꾼 항목이 반영되기 전 옛 항목으로
+  // 리포트가 올라가 시트 탭이 쓸데없이 갈라진다.
+  if (fieldPushOps.length && onSheet) {
+    await step('리포트 항목', async () => {
+      const fieldsheet = await import('./fieldsheet.js');
+      await fieldsheet.pushFields();
+      for (const op of fieldPushOps) {
         await store.dequeue(op.id);
         sent += 1;
       }
@@ -305,30 +186,9 @@ export async function flushOutbox() {
         }
       });
     }
-  } else if (quantityOps.length) {
-    await step('재고 수량', async () => {
-      const result = await request('POST', '/api/sync/quantities', {
-        ops: quantityOps.map((r) => ({
-          type: r.type, vehicleName: r.vehicleName, partName: r.partName,
-          quantity: r.quantity, updatedAt: r.updatedAt,
-        })),
-      });
-      for (const op of quantityOps) {
-        await store.dequeue(op.id);
-        sent += 1;
-      }
-      // 서버가 돌려준 값이 최종 결과다.
-      // (같은 부품을 다른 사람이 더 나중에 만졌다면 그 값이 남는다)
-      const stillPending = await store.pendingQuantityKeys();
-      for (const row of result.quantities || []) {
-        // 키는 반드시 store.qtyKey 로 만든다. 예전에는 공백으로 이어 붙여서
-        // 서버가 돌려준 값이 통째로 버려지고 읽을 수 없는 줄만 쌓였다.
-        const key = store.qtyKey(row.vehicleName, row.partName);
-        if (stillPending.has(key)) continue;    // 그 사이 또 바뀐 것은 건드리지 않는다
-        await idb.put('quantities', { key, ...row });
-      }
-    });
   }
+  // 시트가 연결되지 않았으면 재고 변경은 대기열에 그대로 둔다.
+  // 시트를 연결하고 [⬆ 업데이트] 를 누르면 그때 한꺼번에 올라간다.
 
   // 시트 업로드 대기분 — 가장 중요하므로 위에서 무엇이 실패했든 반드시 시도한다.
   await step('리포트 업로드', async () => {
@@ -347,79 +207,21 @@ export async function flushOutbox() {
 
 let working = false;
 
-/** 온라인 복귀 시 자동 처리: 대기열 → 최신본 받기 */
+/** 온라인으로 돌아오면 대기열을 자동으로 처리한다. */
 export async function runPendingWork() {
   if (working || !online) return null;
   working = true;
-  const result = { flushed: 0, pulled: false, error: null };
+  const result = { flushed: 0, error: null };
   try {
     const flushed = await flushOutbox();
     result.flushed = flushed.sent;
   } catch (err) {
     result.error = err;
   }
-  try {
-    result.pulled = await autoPullIfClean();
-  } catch (err) {
-    result.error = result.error || err;
-  }
   working = false;
   listeners.forEach((fn) => {
-    try { fn({ online, serverReachable, work: result }); } catch { /* 무시 */ }
+    try { fn({ online, work: result }); } catch { /* 무시 */ }
   });
   return result;
 }
 
-// ----------------------------------------------------------------- 상태
-
-/** 상단 [업데이트] 버튼용 상태. 오프라인이면 기기에 있는 정보만으로 답한다. */
-export async function state() {
-  // 한 줄씩 기다리면 여섯 번을 차례로 기다린다. 한꺼번에 시작해 한 번만 기다린다.
-  const [local, guides, vehicles, inventoryItems, fields] = await Promise.all([
-    store.syncState(), idb.getAll('guides'),
-    idb.count('vehicles'), idb.count('inventory'), idb.count('fields'),
-  ]);
-  const summary = {
-    guides: guides.length,
-    steps: guides.reduce((n, g) => n + (g.steps || []).length, 0),
-    vehicles, inventoryItems, fields,
-  };
-  const base = {
-    published: { revision: local.baseRevision, at: local.publishedAt,
-                 by: local.publishedBy },
-    myRevision: local.baseRevision,
-    hasLocalChanges: local.dirty,
-    behind: false,
-    autoUpdated: false,
-    offline: true,
-    pendingCount: await store.outboxCount(),
-    summary,
-  };
-  if (!online) return base;
-
-  let head;
-  try {
-    head = await request('GET', '/api/sync/head', undefined, { timeout: 6000 });
-  } catch {
-    return base;        // 서버가 안 닿아도 앱은 그대로 동작한다
-  }
-  const auto = !local.dirty && (head.revision || 0) > local.baseRevision;
-  if (auto) {
-    try {
-      await pull();
-    } catch {
-      return { ...base, offline: false };
-    }
-  }
-  const after = await store.syncState();
-  return {
-    published: { revision: head.revision || 0, at: head.at || '', by: head.by || '' },
-    myRevision: after.baseRevision,
-    hasLocalChanges: after.dirty,
-    behind: (head.revision || 0) > after.baseRevision,
-    autoUpdated: auto,
-    offline: false,
-    pendingCount: await store.outboxCount(),
-    summary,
-  };
-}

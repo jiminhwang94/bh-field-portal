@@ -17,7 +17,9 @@
 가서 초당 수십 건이 돌았다. 브라우저가 한 서버에 동시에 여는 연결은
 6개뿐이라 진짜 요청들이 전부 그 뒤에 밀렸고, 무엇을 눌러도 느려졌다.
 
-  → 값이 **실제로 바뀔 때만** 알린다.
+  → 처음에는 "값이 바뀔 때만 알린다" 로 막았다.
+  → v3.8 에서 **사무실 서버 자체를 걷어냈다.** 요청이 없으니 폭주도 없다.
+     그래서 지금 검사는 "서버 요청이 되살아나지 않았는지" 를 본다.
 
 실행: python3 tests/test_report_draft.py
 """
@@ -109,10 +111,11 @@ print("요청 폭주 방지")
 sync = read("web/js/sync.js")
 
 check(
-    "서버 상태는 값이 바뀔 때만 알린다",
-    "function setReachable(" in sync
-    and re.search(r"function setReachable\(value\) \{\s*\n\s*if \(serverReachable === value\) return;",
-                  sync) is not None,
+    # v3.8: 사무실 서버를 아예 쓰지 않게 되면서 폭주의 원인 자체가 사라졌다.
+    # "값이 바뀔 때만 알린다" 보다 **요청 자체가 없다** 가 더 강한 보장이다.
+    "앱이 사무실 서버에 요청하지 않는다",
+    "function request(" not in sync and "serverRequest" not in sync,
+    "서버 요청이 되살아나면 그때 폭주도 함께 돌아온다",
 )
 
 check(
@@ -128,8 +131,9 @@ check(
 )
 
 check(
-    "상태를 읽을 때 저장소를 한꺼번에 훑는다 (한 줄씩 기다리지 않는다)",
-    "await Promise.all([\n    store.syncState(), idb.getAll('guides')," in sync,
+    "서버에 상태를 물어보는 함수가 없다",
+    "export async function state()" not in sync,
+    "이 함수가 화면을 열 때마다 서버를 불러 느렸다 — 이제 물어볼 서버가 없다",
 )
 
 print()

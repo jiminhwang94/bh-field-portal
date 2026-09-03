@@ -1,9 +1,9 @@
 // 구글 시트 업로드 — 기기에서 Apps Script 웹 앱으로 **직접** 보낸다.
 //
-// 사무실 서버를 거치지 않으므로 현장 LTE 에서도 업로드된다.
+// 기기에서 구글로 곧바로 보내므로 현장 LTE 에서도, 어느 와이파이에서도 된다.
 // (서버 app/sheets.py 의 전송 형식과 동일하게 맞춘다)
 import * as store from './local/store.js';
-import { serverRequest, isOnline, OfflineError } from './sync.js';
+import { isOnline, OfflineError } from './sync.js';
 
 const META_HEADERS = ['작성일시', '작성자'];
 
@@ -212,8 +212,12 @@ function checkEndpoint(endpoint) {
 }
 
 /**
- * Apps Script 웹 앱 호출 — 어떤 payload 든 보낸다 (리포트·재고 동기화 공용).
- * 1순위 = 기기에서 구글로 직접, 실패하면 2순위 = 사무실 서버 경유.
+ * Apps Script 웹 앱 호출 — 어떤 payload 든 보낸다 (리포트·재고·가이드·항목 공용).
+ *
+ * 기기에서 구글로 **곧바로** 보낸다. 예전에는 실패하면 사무실 서버로 우회했는데,
+ * 서버 주소를 넣지 않은 태블릿에서는 그 우회가
+ * "서버 주소가 설정되지 않았습니다" 라고 말해 **진짜 원인을 가렸다.**
+ * (연결 테스트가 계속 그 메시지를 띄운 것이 이것이다.)
  */
 export async function callAppsScript(payload, timeout = 60000) {
   if (!isOnline()) {
@@ -226,15 +230,18 @@ export async function callAppsScript(payload, timeout = 60000) {
   try {
     return await postDirect(endpoint, payload, timeout);
   } catch (err) {
-    if (err instanceof SheetsError) throw err;
-    // 브라우저가 구글로의 직접 요청을 막은 경우 → 사무실 서버를 통해 보낸다.
-    const result = await serverRequest('POST', '/api/sheets/relay',
-                                       { endpoint, payload }, { timeout });
-    if (!result || !result.ok) {
-      throw new SheetsError(
-        '구글 시트로 보내지 못했습니다. 인터넷 연결을 확인해 주세요.');
-    }
-    return result;
+    if (err instanceof SheetsError || err instanceof OfflineError) throw err;
+    // 무엇이 막았는지 그대로 알려 준다 — 감추면 고칠 수가 없다.
+    // 줄은 배열로 만들어 잇는다. 문자열 안에 줄바꿈 기호를 직접 쓰면
+    // 편집 도구를 거치며 **진짜 줄바꿈으로 바뀌어** 파일이 깨진다.
+    throw new SheetsError([
+      '구글 시트에 연결하지 못했습니다.',
+      `(${err && err.message ? err.message : '알 수 없는 오류'})`,
+      '',
+      '· 인터넷에 연결되어 있는지',
+      '· 웹 앱 URL 이 /exec 로 끝나는지',
+      "· Apps Script 배포의 [액세스 권한] 이 '모든 사용자' 인지 확인하세요.",
+    ].join(String.fromCharCode(10)));
   }
 }
 

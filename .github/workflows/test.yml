@@ -51,6 +51,9 @@ jobs:
       - name: Apps Script 실제 실행 검사
         run: node tests/test_apps_script.mjs
 
+      - name: 화면 코드가 브라우저에서 읽히는지 검사
+        run: node --experimental-vm-modules tests/test_js_parses.mjs
+
       - name: APK 앱 ↔ 서버 연결 규칙 테스트
         run: python tests/test_apk_cors.py
 

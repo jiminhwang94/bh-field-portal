@@ -11,7 +11,6 @@
 //
 // 그래서 현장에서 오프라인으로 일하다 인터넷이 되는 곳에서 한 번 누르면
 // 올릴 것은 올라가고 받을 것은 받아진다.
-import { api } from './api.js';
 import * as sync from './sync.js';
 import * as store from './local/store.js';
 import { confirmDialog, promptDialog, toast } from './ui.js';
@@ -132,7 +131,7 @@ export async function runSync(btn) {
   }
 
   if (btn) { btn.disabled = true; btn.textContent = '맞추는 중…'; }
-  const done = { uploaded: 0, sheet: false, guides: 0, guidesRemoved: 0 };
+  const done = { uploaded: 0, sheet: false, guides: 0, guidesRemoved: 0, fields: 0 };
   const problems = [];
 
   // 1. 밀린 것 올리기 (리포트·재고 수량·이력 상태·가이드 탭)
@@ -160,6 +159,17 @@ export async function runSync(btn) {
     problems.push(`시트 받기: ${err.message}`);
   }
 
+  // 리포트 항목은 팀 공통 — 다른 사람이 바꾼 것을 받아 온다.
+  try {
+    if (await store.sheetInventoryOn()) {
+      const fieldsheet = await import('./fieldsheet.js');
+      const got = await fieldsheet.pullFields();
+      done.fields = (got.changed || 0) + (got.added || 0) + (got.removed || 0);
+    }
+  } catch (err) {
+    problems.push(`항목 설정 받기: ${err.message}`);
+  }
+
   try {
     if (await store.sheetInventoryOn()) {
       const guidesheet = await import('./guidesheet.js');
@@ -182,6 +192,7 @@ export async function runSync(btn) {
   const parts = [];
   if (done.uploaded) parts.push(`${done.uploaded}건 올림`);
   if (done.sheet) parts.push('시트 받음');
+  if (done.fields) parts.push(`리포트 항목 ${done.fields}건 갱신`);
   if (done.guides) parts.push(`가이드 ${done.guides}건 갱신`);
   if (done.guidesRemoved) parts.push(`중복 가이드 ${done.guidesRemoved}건 정리`);
   if (problems.length) {
@@ -200,26 +211,6 @@ async function dropReportCache() {
     if (String(row.key || '').startsWith('sheetReports:')) {
       await idb.remove('meta', row.key);
     }
-  }
-}
-
-/** 내 변경을 버리고 서버의 최신 가이드를 받는다 (설정 화면에서 쓴다). */
-export async function runTakeLatest(quiet = false) {
-  if (!quiet || await store.isDirty()) {
-    const ok = await confirmDialog(
-      '최신 내용 받기',
-      '아직 올리지 않은 내 가이드·항목 변경을 버리고, 서버의 최신 내용을 받아옵니다.\n'
-      + '되돌릴 수 없습니다.',
-      '내 변경 버리고 받기', true);
-    if (!ok) return;
-  }
-  try {
-    await api.takeLatest();
-    toast('최신 내용을 받았습니다.', 'ok');
-    await refreshState();
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-  } catch (err) {
-    toast(err.message, 'err');
   }
 }
 

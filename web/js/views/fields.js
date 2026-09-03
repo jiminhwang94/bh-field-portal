@@ -46,6 +46,7 @@ export async function fieldsView(view) {
           <span class="page-head__meta">
             항목 <span class="tnum">${fields.length}</span>개 ·
             필수 <span class="tnum">${fields.filter((f) => f.isRequired).length}</span>개 ·
+            <strong>[⬆ 업데이트] 하면 팀 전체가 같은 항목을 씁니다</strong> ·
             구글 시트의 열 순서도 이 순서를 따릅니다
           </span>
           <span class="page-head__spacer"></span>

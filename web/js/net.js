@@ -43,9 +43,11 @@ export async function ensureFirstData() {
   if (!sync.isOnline()) return;
   try {
     if (!(await store.sheetInventoryOn())) return;
-    const [invsheet, guidesheet] = await Promise.all([
-      import('./invsheet.js'), import('./guidesheet.js'),
+    const [invsheet, guidesheet, fieldsheet] = await Promise.all([
+      import('./invsheet.js'), import('./guidesheet.js'), import('./fieldsheet.js'),
     ]);
+    // 항목을 가장 먼저 — 팀이 쓰는 항목이 이 기기의 붙박이 항목보다 우선한다.
+    await fieldsheet.pullFields().catch(() => {});
     await invsheet.pullInventory().catch(() => {});
     await guidesheet.pullGuides().catch(() => {});
     window.dispatchEvent(new HashChangeEvent('hashchange'));

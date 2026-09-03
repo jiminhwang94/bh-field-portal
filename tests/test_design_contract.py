@@ -199,6 +199,39 @@ print("사무실 서버 주소는 없앴다")
 
 settings = read("web/js/views/settings.js")
 check("설정에 서버 주소 칸이 없다", "sSiteUrl" not in settings)
+# v3.8 — 앱에서 사무실 서버를 통째로 걷어냈다.
+sync_js = read("web/js/sync.js")
+check("서버로 보내는 통로가 없다",
+      "function request(" not in sync_js and "serverRequest" not in sync_js)
+check("구글 시트로 곧바로 보낸다 (서버 우회 없음)",
+      "/api/sheets/relay" not in read("web/js/sheets.js"),
+      "우회가 실패하면 '서버 주소가 없다' 고 말해 진짜 원인을 가린다")
+api_js = read("web/js/api.js")
+check("앱이 서버에 버전을 묻지 않는다", "serverRequest" not in api_js)
+
+print()
+print("리포트 항목은 팀 공통이다")
+
+fieldsheet = read("web/js/fieldsheet.js")
+check("항목을 시트로 올리고 받는다",
+      "export async function pushFields" in fieldsheet
+      and "export async function pullFields" in fieldsheet)
+check("항목을 고치면 시트 반영이 예약된다",
+      "queueFieldSheetPushIfOn" in store_js
+      and "'fieldsheet-push'" in store_js)
+check("여러 번 고쳐도 한 건으로 합친다", "PUSH_TYPES" in store_js)
+check("업데이트가 항목을 올리고 받는다",
+      "fieldsheet.pushFields()" in sync_js
+      and "fieldsheet.pullFields()" in read("web/js/syncnow.js"))
+check("안 올린 항목 변경이 있으면 덮어쓰지 않는다",
+      "'fieldsheet-push'" in fieldsheet and "skipped: 'pending'" in fieldsheet,
+      "시트 내용으로 덮으면 방금 고친 것이 사라진다")
+check("시트가 비어 있으면 항목을 지우지 않는다",
+      "if (!rows.length) return { changed: 0, added: 0, removed: 0 };" in fieldsheet,
+      "아직 아무도 안 올린 것이지, 전부 지우라는 뜻이 아니다")
+gs2 = read("google-apps-script.gs")
+check("Apps Script 가 항목 탭을 다룬다",
+      "function handleFields" in gs2 and "var FIELD_SHEET" in gs2)
 syncnow = read("web/js/syncnow.js")
 check("업데이트가 서버에 올리지 않는다", "api.publish(" not in syncnow)
 check("대기 건수를 두 번 세지 않는다",

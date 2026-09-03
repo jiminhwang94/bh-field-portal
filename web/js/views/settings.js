@@ -109,6 +109,10 @@ export async function settingsView(view) {
         <h2 class="panel__title">리포트 항목 설정</h2>
         <p class="muted" style="margin:0 0 14px;line-height:1.65">
           리포트 입력 항목과 구글 시트 열 순서를 정합니다.
+          <strong>항목은 팀 공통</strong>입니다 — [⬆ 업데이트] 하면 시트의
+          [리포트 항목] 탭을 통해 <strong>모든 기기가 같은 항목</strong>을 씁니다.
+          항목이 바뀌면 그 달 리포트는 <strong>새 탭</strong>에 이어 쌓이고,
+          이미 쌓인 줄은 그대로 남습니다.
         </p>
         <a class="btn btn--ghost" href="#/fields">항목 설정 열기</a>
       </div>

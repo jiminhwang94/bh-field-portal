@@ -61,6 +61,11 @@ function doPost(e) {
       return handleGuides(ss, body);
     }
 
+    // 리포트 항목 설정 — 팀 전체가 같은 항목을 쓰도록 시트에 둔다.
+    if (body.fields) {
+      return handleFields(ss, body);
+    }
+
     // 리포트 이력 — 월별 탭을 앱으로 읽어 오고, 상태 칸을 고쳐 쓴다.
     if (body.reports) {
       return handleReports(ss, body);
@@ -452,6 +457,91 @@ var GUIDE_ID_HEADER = 'ID(고치지 마세요)';
 var GUIDE_HEADER = ['코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일',
                     GUIDE_ID_HEADER];
 var GUIDE_WIDTHS = [160, 260, 160, 300, 420, 130, 200];
+
+/* ── 리포트 항목 설정 탭 ──────────────────────────────────────────────
+ *
+ * 리포트 입력 항목은 **팀 전체가 같아야** 한다. 사람마다 다르면 같은 달
+ * 시트가 사람 수만큼 갈라진다. 그래서 가이드처럼 시트에 두고 주고받는다.
+ *
+ *  - 1행 : 비워 둠 / 2행 : 헤더 / 3행부터 : 항목 한 줄씩
+ *  - 맨 뒤 ID 열로 같은 항목을 알아본다 (고치지 말 것)
+ */
+var FIELD_SHEET = '리포트 항목';
+var FIELD_ID_HEADER = 'ID(고치지 마세요)';
+var FIELD_HEADER = ['항목명', '종류', '선택지', '필수', FIELD_ID_HEADER];
+var FIELD_WIDTHS = [200, 140, 280, 70, 200];
+
+function handleFields(ss, body) {
+  if (body.fields === 'pull') {
+    var sh = ss.getSheetByName(FIELD_SHEET);
+    if (!sh) return json({ ok: true, items: [] });
+    return json({ ok: true, items: readFieldSheet(sh) });
+  }
+  if (body.fields !== 'push') return json({ ok: false, error: '알 수 없는 요청입니다.' });
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    writeFieldSheet(ss, body.items || []);
+    return json({ ok: true, count: (body.items || []).length });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function writeFieldSheet(ss, items) {
+  var sheet = ss.getSheetByName(FIELD_SHEET);
+  if (!sheet) sheet = ss.insertSheet(FIELD_SHEET);
+
+  var head = sheet.getRange(2, 1, 1, FIELD_HEADER.length);
+  head.setValues([FIELD_HEADER]);
+  head.setFontWeight('bold').setBackground('#f0f2f6');
+  sheet.setFrozenRows(2);
+  for (var c = 0; c < FIELD_WIDTHS.length; c++) {
+    sheet.setColumnWidth(c + 1, FIELD_WIDTHS[c]);
+  }
+
+  var rows = [];
+  for (var i = 0; i < items.length; i++) {
+    var f = items[i];
+    rows.push([
+      String(f.fieldLabel || ''),
+      String(f.fieldType || 'TEXT'),
+      String(f.options || ''),
+      f.isRequired ? 'Y' : '',
+      String(f.id || ''),
+    ]);
+  }
+
+  // 값을 먼저 만들고 **그 다음에** 옛 줄을 지운다. 순서가 반대면 쓰다가
+  // 실패했을 때 탭이 빈 채로 남는다 (가이드 탭에서 실제로 그랬다).
+  var last = sheet.getLastRow();
+  if (last >= 3) sheet.getRange(3, 1, last - 2, FIELD_HEADER.length).clearContent();
+  if (rows.length) {
+    sheet.getRange(3, 1, rows.length, FIELD_HEADER.length).setValues(rows);
+  }
+}
+
+function readFieldSheet(sheet) {
+  var last = sheet.getLastRow();
+  if (last < 3) return [];
+  var values = sheet.getRange(3, 1, last - 2, FIELD_HEADER.length).getValues();
+  var out = [];
+  for (var i = 0; i < values.length; i++) {
+    var r = values[i];
+    var label = String(r[0] || '').trim();
+    if (!label) continue;                       // 빈 줄은 건너뛴다
+    out.push({
+      id: String(r[4] || '').trim(),
+      fieldLabel: label,
+      fieldType: String(r[1] || 'TEXT').trim() || 'TEXT',
+      options: String(r[2] || '').trim(),
+      isRequired: String(r[3] || '').trim().toUpperCase() === 'Y',
+      displayOrder: i + 1,                      // 시트에 적힌 순서가 곧 열 순서
+    });
+  }
+  return out;
+}
 
 function handleGuides(ss, body) {
   // 시트에서 고친 가이드를 앱으로 돌려준다 (v3.3 — 양방향)

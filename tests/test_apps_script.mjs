@@ -63,6 +63,19 @@ class FakeRange {
   }
   setValue(v) { this.sheet._set(this.row, this.col, v); return this; }
   getValue() { return this.sheet._get(this.row, this.col); }
+  /**
+   * 실제 Apps Script 의 Range 에 있는 메서드다. 가짜에 없으면 이것을 쓰는
+   * 코드가 "is not a function" 으로 조용히 터지고, 응답은 ok:false 로만
+   * 돌아와 **탭에 옛 줄이 그대로 남는다.** 실제로 그렇게 잡혔다.
+   */
+  clearContent() {
+    for (let r = this.row; r < this.row + this.rows; r += 1) {
+      for (let c = this.col; c < this.col + this.cols; c += 1) {
+        this.sheet.cells.delete(`${r},${c}`);
+      }
+    }
+    return this;
+  }
   setFontWeight() { return this; }
   setBackground() { return this; }
   setVerticalAlignment() { return this; }
@@ -533,6 +546,43 @@ const months = call({ reports: 'months' }).months || [];
 check('월 목록에 갈라진 탭도 나온다',
       months.indexOf('2099-01') >= 0 && months.indexOf('2099-01 (2)') >= 0,
       months.join(' | '));
+
+// ────────────────────────────────────────────────────────────────────
+// 리포트 항목 설정도 시트로 주고받는다 (팀 공통)
+// ────────────────────────────────────────────────────────────────────
+const FIELDS = [
+  { id: 'f1', fieldLabel: '방문 식당명', fieldType: 'TEXT', options: '', isRequired: true },
+  { id: 'f2', fieldLabel: '오류 코드', fieldType: 'TEXT', options: '', isRequired: false },
+  { id: 'f3', fieldLabel: '처리 결과', fieldType: 'DROPDOWN',
+    options: '완료,모니터링', isRequired: true },
+];
+let fr = call({ fields: 'push', items: FIELDS });
+check('항목 설정을 시트에 올린다', fr.ok === true && fr.count === 3, JSON.stringify(fr));
+
+const fieldSheet = ss.getSheetByName('리포트 항목');
+check('[리포트 항목] 탭이 생긴다', !!fieldSheet,
+      ss.getSheets().map((x) => x.getName()).join(' | '));
+check('머리는 2행에 있다',
+      fieldSheet.getRange(2, 1, 1, 5).getValues()[0][0] === '항목명');
+
+fr = call({ fields: 'pull' });
+check('올린 그대로 다시 읽힌다', (fr.items || []).length === 3, JSON.stringify(fr.items));
+check('종류·선택지·필수가 살아 있다',
+      fr.items[2].fieldType === 'DROPDOWN'
+      && fr.items[2].options === '완료,모니터링'
+      && fr.items[2].isRequired === true
+      && fr.items[1].isRequired === false,
+      JSON.stringify(fr.items[2]));
+check('시트에 적힌 순서가 곧 열 순서다',
+      fr.items.map((f) => f.displayOrder).join(',') === '1,2,3');
+check('ID 가 그대로 돌아온다', fr.items[0].id === 'f1', fr.items[0].id);
+
+// 항목을 하나 빼고 다시 올리면 그 줄이 사라진다 (옛 줄이 남으면 안 된다)
+const shrink = call({ fields: 'push', items: FIELDS.slice(0, 2) });
+check('항목을 빼고 올려도 오류가 없다', shrink.ok === true, JSON.stringify(shrink));
+fr = call({ fields: 'pull' });
+check('뺀 항목은 시트에서도 빠진다', (fr.items || []).length === 2,
+      (fr.items || []).map((f) => f.fieldLabel).join(' | '));
 
 console.log('='.repeat(62));
 if (failures.length) {

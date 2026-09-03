@@ -63,6 +63,14 @@ async function queueGuideSheetPushIfOn() {
   if (await sheetInventoryOn()) await enqueue({ type: 'guidesheet-push' });
 }
 
+/**
+ * 시트가 연결돼 있으면, 리포트 항목 탭 갱신을 예약한다.
+ * 항목은 **팀 공통**이라 한 사람이 바꾸면 모두가 같이 바뀌어야 한다.
+ */
+async function queueFieldSheetPushIfOn() {
+  if (await sheetInventoryOn()) await enqueue({ type: 'fieldsheet-push' });
+}
+
 export const isDirty = () => getMeta('dirty', false).then(Boolean);
 
 export async function syncState() {
@@ -586,6 +594,7 @@ export async function saveField(payload, fieldId = null) {
   };
   await idb.put('fields', row);
   await markDirty();
+  await queueFieldSheetPushIfOn();
   return { ...row, isRequired: Boolean(row.isRequired) };
 }
 
@@ -593,6 +602,7 @@ export async function deleteField(fieldId) {
   if (!(await idb.get('fields', fieldId))) return false;
   await idb.remove('fields', fieldId);
   await markDirty();
+  await queueFieldSheetPushIfOn();
   return true;
 }
 
@@ -602,6 +612,7 @@ export async function reorderFields(orderedIds) {
     if (row) await idb.put('fields', { ...row, displayOrder: i + 1 });
   }
   await markDirty();
+  await queueFieldSheetPushIfOn();
   return listFields();
 }
 
@@ -753,15 +764,17 @@ export const outbox = () => idb.getAll('outbox');
 export const outboxCount = () => idb.count('outbox');
 export const dequeue = (id) => idb.remove('outbox', id);
 
+const PUSH_TYPES = new Set(['invsheet-push', 'guidesheet-push', 'fieldsheet-push']);
+
 /** 같은 (차량, 부품) 수량 작업은 마지막 것만 남긴다. 시트 전체 반영도 종류별 1건만. */
 export async function compactOutbox() {
   const rows = await idb.getAll('outbox');
   const lastByTarget = new Map();
-  const lastPushByType = new Map();      // 'invsheet-push' | 'guidesheet-push'
+  const lastPushByType = new Map();      // '*-push' 는 종류별 마지막 1건만
   const lastStatusByRow = new Map();     // 같은 줄의 상태는 마지막 것만
   const firstBefore = new Map();         // 되돌릴 값은 맨 처음 것
   for (const row of rows) {
-    if (row.type === 'invsheet-push' || row.type === 'guidesheet-push') {
+    if (PUSH_TYPES.has(row.type)) {
       lastPushByType.set(row.type, row.id);
       continue;
     }
@@ -778,7 +791,7 @@ export async function compactOutbox() {
     lastByTarget.set(key, row.id);
   }
   for (const row of rows) {
-    if (row.type === 'invsheet-push' || row.type === 'guidesheet-push') {
+    if (PUSH_TYPES.has(row.type)) {
       if (row.id !== lastPushByType.get(row.type)) await idb.remove('outbox', row.id);
       continue;
     }

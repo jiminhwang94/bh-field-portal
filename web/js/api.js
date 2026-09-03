@@ -7,33 +7,21 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.7.0';
+export const APP_VERSION = '3.8.0';
 
 export const deviceId = sync.deviceId;
 
 export const api = {
   deviceId: sync.deviceId,
 
+  /** 앱 버전 정보. 기기 안에 있는 값만 쓴다 — 물어볼 서버가 없다. */
   async version() {
-    const local = {
+    return {
       version: APP_VERSION,
-      buildHash: (await store.getMeta('buildHash', '')) || 'local',
-      siteUrl: '', detectedUrl: '',
+      buildHash: (await store.getMeta('buildHash', '')) || '-',
+      siteUrl: sync.isPackagedApp() ? '앱으로 설치됨' : location.origin,
     };
-    try {
-      const server = await sync.serverRequest('GET', '/api/version', undefined,
-                                              { timeout: 5000 });
-      await store.setMeta('buildHash', server.buildHash || '');
-      return { ...server, version: APP_VERSION, serverVersion: server.version };
-    } catch {
-      return local;      // 오프라인 — 기기에 있는 정보로 표시
-    }
   },
-
-  // ------------------------------------------------- 업데이트(공개본 동기화)
-  state: () => sync.state(),
-  publish: (deviceName, opts) => sync.push(deviceName, opts),
-  takeLatest: () => sync.pull(),
 
   // ------------------------------------------------------------------ 가이드
   listGuides: async (type, q) => ({ items: await store.listGuides(type || null, q || null) }),
@@ -178,13 +166,6 @@ export const api = {
         : payload.site_url,
       deviceName: payload.device_name,
     });
-    // 시트 주소는 팀 공통이므로 온라인이면 서버에도 함께 저장한다.
-    if (payload.sheets_webapp_url !== undefined && sync.isOnline()) {
-      sync.serverRequest('PUT', '/api/settings', {
-        sheets_webapp_url: payload.sheets_webapp_url,
-        sheets_spreadsheet_id: payload.sheets_spreadsheet_id,
-      }).catch(() => { /* 서버가 없어도 기기에는 저장됐다 */ });
-    }
     return this.getSettings();
   },
 
