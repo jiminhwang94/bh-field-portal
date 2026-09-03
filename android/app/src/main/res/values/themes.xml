@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 앱 화면 색과 맞춘 어두운 배경 (실행 순간 흰 화면이 번쩍이지 않게) -->
+    <!-- 앱을 켜는 순간 보이는 색. 화면(흰 바탕 · 검은 글자 · 코발트 강조)과
+         같은 흰색으로 둬야 실행 직후 색이 튀지 않는다.
+         예전에는 어두운 남색이었는데, 디자인이 바뀐 뒤로는 앱이 켜질 때만
+         남색이 번쩍이고 곧 흰 화면으로 바뀌어 어색했다. -->
     <style name="Theme.FieldPortal" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:statusBarColor">#0f172a</item>
-        <item name="android:navigationBarColor">#0f172a</item>
-        <item name="android:windowBackground">#0f172a</item>
+        <item name="android:statusBarColor">#ffffff</item>
+        <item name="android:navigationBarColor">#ffffff</item>
+        <item name="android:windowBackground">#ffffff</item>
+        <!-- 흰 상단바 위의 시계·배터리를 검게 (안 그러면 흰 글자가 안 보인다) -->
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>

@@ -38,7 +38,8 @@ export async function inventoryView(view) {
           <span class="qty">
             <button class="btn btn-secondary qty__btn" data-act="dec" data-id="${item.id}"
                     type="button" aria-label="${name} 하나 사용">−</button>
-            <span class="qty__val tnum ${low ? 'is-low' : ''}">${item.quantity}</span>
+            <span class="qty__val tnum ${low ? 'is-low' : ''}"
+                  data-qty="${item.id}">${item.quantity}</span>
             <button class="btn btn-secondary qty__btn" data-act="inc" data-id="${item.id}"
                     type="button" aria-label="${name} 하나 보충">＋</button>
           </span>
@@ -127,6 +128,15 @@ export async function inventoryView(view) {
     render();
   }
 
+  /** 수량 칸 하나만 고쳐 그린다. 칸이 없으면 아무 일도 하지 않는다. */
+  function paintQty(item) {
+    const cell = view.querySelector(`[data-qty="${item.id}"]`);
+    if (!cell) return;
+    cell.textContent = item.quantity;
+    cell.classList.toggle('is-low',
+      item.minQuantity > 0 && item.quantity <= item.minQuantity);
+  }
+
   async function onClick(ev) {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
@@ -161,19 +171,22 @@ export async function inventoryView(view) {
       if (!item) return;
       const delta = act === 'inc' ? 1 : -1;
       if (item.quantity + delta < 0) return;
-      item.quantity += delta;
-      const cell = $(`[data-qty="${id}"]`);
-      cell.textContent = item.quantity;
-      cell.classList.toggle('is-low', item.minQuantity > 0 && item.quantity <= item.minQuantity);
+
+      // 눌린 느낌이 바로 나도록 화면부터 고치고, 서버는 뒤따라간다.
+      // 화면 칸을 못 찾아도 **여기서 멈추면 안 된다** — 예전에 그렇게 터져서
+      // 화면은 그대로인데 기억 속 수량만 올라갔고, 그 값이 [수정] 창에 채워져
+      // 저장하는 순간 보유 수량이 엉뚱하게 바뀌었다.
+      const before = item.quantity;
+      item.quantity = before + delta;
+      paintQty(item);
       try {
         const updated = await api.patchInventory(id, { delta });
         item.quantity = updated.quantity;
         item.pending = updated.pending;
-        cell.textContent = updated.quantity;
         render();          // 상단 요약(총 개수·반영 대기 표시)도 함께 갱신
       } catch (err) {
-        item.quantity -= delta;
-        cell.textContent = item.quantity;
+        item.quantity = before;   // 보낸 만큼 빼는 게 아니라 **원래 값으로** 되돌린다
+        paintQty(item);
         toast(err.message, 'err');
       }
       return;
@@ -300,7 +313,12 @@ export async function inventoryView(view) {
       if (!partName) { toast('부품명을 입력하세요.', 'err'); return; }
       try {
         if (item) {
-          await api.patchInventory(item.id, { partName, quantity, minQuantity });
+          // **손대지 않은 칸은 보내지 않는다.** 최소보유만 고쳤는데 보유 수량까지
+          // 함께 보내면, 창을 연 사이에 바뀐 실제 수량을 창에 적혀 있던 옛 값으로
+          // 덮어쓴다. 실제로 보유 수량이 엉뚱하게 바뀌는 일이 있었다.
+          const patch = { partName, minQuantity };
+          if (quantity !== item.quantity) patch.quantity = quantity;
+          await api.patchInventory(item.id, patch);
         } else {
           await api.addInventory({ vehicleName: current, partName, quantity, minQuantity });
         }

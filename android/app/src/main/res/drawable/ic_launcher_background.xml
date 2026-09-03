@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 아이콘 바탕 — 디자인 토큰의 코발트 (#0047AB) 한 가지 색.
+     디자인 규칙: 색은 흰 면 · 검정 · 코발트 셋뿐. 아이콘은 코발트를 바탕으로,
+     마크는 흰색으로 둔다. 태블릿 배경화면이 밝든 어둡든 또렷하게 보인다. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <path
+      android:fillColor="#0047AB"
+      android:pathData="M0,0h108v108h-108z" />
+</vector>

@@ -128,6 +128,37 @@ missing = [c for c in NEEDED if not re.search(r"\.%s\b" % re.escape(c), css)]
 check("디자인 이름표가 모두 정의되어 있다", not missing, ", ".join(missing))
 
 print()
+print("화면이 손잡이를 빠뜨리지 않는다")
+
+# 디자인을 새로 그리면서 마크업이 손잡이(data-*)를 빠뜨리면, 눌러도 아무 일이
+# 없거나 더 나쁘게는 핸들러가 중간에서 터진다. 실제로 재고를 표로 바꾸면서
+# data-qty 를 빠뜨려 [+]/[-] 가 죽었고, 그때 기억 속 수량만 올라가 있다가
+# [수정] 창에 그 값이 채워져 **보유 수량이 엉뚱하게 저장**됐다.
+inv = read("web/js/views/inventory.js")
+check("재고 표의 수량 칸에 data-qty 가 있다",
+      'data-qty="${item.id}"' in inv,
+      "이게 없으면 [+]/[-] 가 조용히 죽는다")
+check("수량 칸을 못 찾아도 멈추지 않는다",
+      "function paintQty(" in inv and "if (!cell) return;" in inv)
+check("실패하면 원래 값으로 되돌린다 (뺄셈이 아니라)",
+      "item.quantity = before;" in inv and "item.quantity -= delta;" not in inv)
+check("수정 창은 손대지 않은 칸을 보내지 않는다",
+      "if (quantity !== item.quantity) patch.quantity = quantity;" in inv,
+      "최소보유만 고쳤는데 보유 수량까지 덮어쓰면 안 된다")
+
+print()
+print("앱 아이콘이 디자인 색을 쓴다")
+
+check("적응형 아이콘이 있다 (없으면 런처가 옛 PNG 를 흰 판에 욱여넣는다)",
+      os.path.exists(os.path.join(ROOT, "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml")))
+bg = read("android/app/src/main/res/drawable/ic_launcher_background.xml")
+check("아이콘 바탕이 코발트다", "#0047AB" in bg.upper())
+themes = read("android/app/src/main/res/values/themes.xml")
+check("실행 순간 색이 옛 남색이 아니다", "#0f172a" not in themes)
+manifest = read("web/manifest.webmanifest")
+check("홈 화면 추가 색도 옛 남색이 아니다", "#0f172a" not in manifest)
+
+print()
 if fails:
     print("실패 %d건: %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)

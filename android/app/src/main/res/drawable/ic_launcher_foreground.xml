@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 아이콘 마크 — 허니컴 한 칸(정육각형 테두리).
+     상단바의 브랜드 마크와 같은 언어다: 코발트 바탕 위 흰 도형 하나.
+
+     적응형 아이콘은 108×108 중 가운데 지름 66 원 안쪽만 반드시 보인다
+     (런처가 원·둥근사각 등 어떤 모양으로 잘라낼지 모른다).
+     그래서 반지름 30 으로 넉넉히 안쪽에 둔다. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <path
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="9.3"
+      android:strokeLineJoin="round"
+      android:fillColor="#00000000"
+      android:pathData="M79.98,69 L54,84 L28.02,69 L28.02,39 L54,24 L79.98,39 Z" />
+</vector>
