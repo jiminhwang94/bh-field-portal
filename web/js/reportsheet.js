@@ -207,7 +207,14 @@ export async function pullMonth(sheetName, { refresh = true } = {}) {
     const result = await callAppsScript(
       { reports: 'pull', sheetName }, 60000);
     const headers = (result.headers || []).map((x) => String(x || '').trim());
-    const entries = (result.rows || []).map((row) => toEntry(headers, row, sheetName));
+    // 한 탭에 항목 묶음이 여러 개일 수 있다 (항목 설정을 바꾼 시점마다 늘어난다).
+    // 줄마다 딸려 온 자기 항목으로 읽어야 한다 — 맨 아래 항목만 믿으면
+    // 항목이 바뀌기 전의 줄이 통째로 어긋나 보인다.
+    const entries = (result.rows || []).map((row) => toEntry(
+      (row.headers || []).length
+        ? row.headers.map((x) => String(x || '').trim())
+        : headers,
+      row, sheetName));
     // 최근 작성분이 위로. 시트에서 사람이 줄을 옮기거나 정렬해도
     // 화면 순서가 흔들리지 않도록 줄 번호가 아니라 작성일시로 맞춘다.
     entries.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));

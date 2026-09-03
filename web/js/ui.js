@@ -215,22 +215,43 @@ export async function hydrateMedia(root = document) {
     import('./local/store.js'), import('./sync.js'),
   ]);
   const base = await sync.serverBase();
+  const { previewUrl, thumbUrl } = await import('./reportsheet.js');
   for (const el of nodes) {
     el.setAttribute('data-media-done', '1');
     const raw = el.dataset.media || '';
-    const filename = raw.split('/').pop();
     let url = '';
-    try {
-      const blob = await store.getMediaBlob(filename);
-      if (blob) url = URL.createObjectURL(blob);
-    } catch { /* 아래에서 서버 경로로 시도한다 */ }
-    // 기기에 없다 — 웹으로 접속했으면 그 주소에서 받아 본다.
-    if (!url && base) url = base + raw;
+
+    if (/^https?:\/\//.test(raw)) {
+      // 드라이브에 올라간 사진 — 주소에서 파일 id 를 뽑아 미리보기로 바꾼다.
+      // 드라이브 '보기' 주소를 <img src> 에 그대로 넣으면 그림이 아니라
+      // 페이지가 와서 액박이 된다.
+      const id = driveFileId(raw);
+      if (el.tagName === 'A') url = raw;
+      else if (id) url = el.tagName === 'IMG' ? thumbUrl(id, 640) : previewUrl(id);
+      else url = raw;
+    } else {
+      const filename = raw.split('/').pop();
+      try {
+        const blob = await store.getMediaBlob(filename);
+        if (blob) url = URL.createObjectURL(blob);
+      } catch { /* 아래에서 접속한 주소로 시도한다 */ }
+      // 기기에 없다 — 웹으로 접속했으면 그 주소에서 받아 본다.
+      if (!url && base) url = base + raw;
+    }
 
     if (!url) { el.replaceWith(brokenNote()); continue; }
     if (el.tagName === 'A') el.href = url;
     else el.src = url;
   }
+}
+
+/** 드라이브 주소에서 파일 id 를 뽑는다. 못 찾으면 빈 문자열. */
+function driveFileId(url) {
+  const text = String(url || '');
+  const byPath = text.match(/\/d\/([A-Za-z0-9_-]{10,})/);
+  if (byPath) return byPath[1];
+  const byQuery = text.match(/[?&]id=([A-Za-z0-9_-]{10,})/);
+  return byQuery ? byQuery[1] : '';
 }
 
 function brokenNote() {

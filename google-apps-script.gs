@@ -85,23 +85,15 @@ function doPost(e) {
     var lock = LockService.getScriptLock();
     lock.waitLock(30000);            // 동시에 여러 명이 올려도 줄이 섞이지 않게
     try {
-      // 이미 있는 탭의 **헤더는 절대 고쳐 쓰지 않는다.**
-      //
-      // 예전에는 항목 설정이 바뀌면 2행 헤더를 최신으로 덮어썼다. 그러면
-      // 그 아래 이미 쌓여 있던 줄들은 **옛 항목 순서로 적힌 채** 새 헤더를
-      // 뒤집어써서, 열 이름과 값이 통째로 어긋났다. 실제로 그런 일이 있었다.
-      //
-      // 항목이 달라졌으면 그 달의 **다음 탭**(2026-09 (2) …)에 새로 시작한다.
-      // 옛 탭은 옛 항목 그대로 남아 계속 읽을 수 있다.
-      var sheet = pickReportSheet(ss, sheetName, headers);
-      var created = sheet.created;
-      sheetName = sheet.name;
-      sheet = sheet.sheet;
+      // 한 달은 **탭 하나**다. 항목이 달라지면 탭을 새로 만들지 않고,
+      // 그 탭 **맨 아래에 새 항목 줄을 넣고** 그 아래로 쌓는다.
+      // 옛 줄은 옛 항목 줄 아래 그대로 남아 어긋나지 않는다.
+      var picked = openMonthSheet(ss, sheetName);
+      var sheet = picked.sheet;
+      var created = picked.created;
 
-      // 3행부터 채운다 (2행 헤더 아래)
-      var lastRow = sheet.getLastRow();
-      var target = lastRow < 2 ? 3 : lastRow + 1;
-      if (target < 3) target = 3;
+      // 쌓을 자리. 맨 아래 항목 묶음과 지금 항목이 다르면 새 항목 줄이 먼저 들어간다.
+      var target = placeForRow(sheet, headers, created);
 
       // 사진·영상은 드라이브 폴더에 저장하고, 칸에는 링크만 넣는다.
       // (시트에 박아 넣으면 영상이 안 되고 앱이 되읽을 수도 없다)
@@ -181,51 +173,86 @@ function insertImages(sheet, images, rowIndex) {
   return count;
 }
 
-/**
- * 이 리포트를 어느 탭에 적을지 고른다.
- *
- *  - 그 달 탭이 없으면 만든다
- *  - 있고 **항목이 같으면** 그 탭에 이어 붙인다
- *  - 있는데 **항목이 다르면** `2026-09 (2)`, `(3)` … 순으로 옮겨 간다
- *    (같은 항목을 쓰는 탭이 이미 있으면 거기에 이어 붙인다)
- *
- * 반환: { sheet, name, created }
- */
-function pickReportSheet(ss, baseName, headers) {
-  var want = headerKey(headers);
-  for (var n = 1; n <= 50; n++) {
-    var name = (n === 1) ? baseName : (baseName + ' (' + n + ')');
-    var sheet = ss.getSheetByName(name);
-
-    if (!sheet) {                       // 빈자리 — 여기에 새로 만든다
-      sheet = ss.insertSheet(name);
-      writeHeaders(sheet, headers);     // 1행은 비우고 2행에 항목명
-      ss.setActiveSheet(sheet);
-      ss.moveActiveSheet(1);            // 최근 것이 앞에 오도록
-      return { sheet: sheet, name: name, created: true };
-    }
-
-    var have = headerKey(readHeaderRow(sheet));
-    // 헤더가 아직 비어 있으면(사람이 손으로 만든 탭) 지금 것으로 채운다.
-    if (!have) {
-      writeHeaders(sheet, headers);
-      return { sheet: sheet, name: name, created: false };
-    }
-    if (!want || have === want) {
-      return { sheet: sheet, name: name, created: false };
-    }
-    // 항목이 다르다 — 다음 번호를 본다
-  }
-  throw new Error('같은 달에 탭이 너무 많습니다. 시트를 정리해 주세요.');
+/** 그 달 탭을 열고, 없으면 만든다. 반환: { sheet, created } */
+function openMonthSheet(ss, name) {
+  var sheet = ss.getSheetByName(name);
+  if (sheet) return { sheet: sheet, created: false };
+  sheet = ss.insertSheet(name);
+  ss.setActiveSheet(sheet);
+  ss.moveActiveSheet(1);              // 최근 달이 앞에 오도록
+  return { sheet: sheet, created: true };
 }
 
-/** 2행(항목명)을 읽는다. 없으면 빈 배열. */
-function readHeaderRow(sheet) {
-  var lastCol = sheet.getLastColumn();
-  if (sheet.getLastRow() < 2 || lastCol < 1) return [];
-  var values = sheet.getRange(2, 1, 1, lastCol).getValues()[0];
-  while (values.length && String(values[values.length - 1]).trim() === '') values.pop();
-  return values;
+/**
+ * 항목 줄인가?
+ *
+ * 항목 줄의 첫 칸은 언제나 '작성일시' 라는 **글자**다. 자료 줄의 첫 칸은
+ * 실제 시각(2026-09-03 16:57)이므로 둘은 헷갈리지 않는다.
+ * 이 한 가지 규칙으로 한 탭 안의 항목 묶음을 모두 알아낼 수 있다.
+ */
+function isHeaderRow(cells) {
+  return String((cells || [])[0] || '').trim() === REPORT_FIRST_HEADER;
+}
+
+/** 탭 전체를 읽어 항목 묶음의 경계를 찾는다. 반환: [{ row, headers }] */
+function headerBlocks(sheet) {
+  var lastRow = sheet.getLastRow();
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var out = [];
+  if (lastRow < 1) return out;
+  var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  for (var r = 0; r < values.length; r++) {
+    if (!isHeaderRow(values[r])) continue;
+    var head = values[r].slice();
+    while (head.length && String(head[head.length - 1]).trim() === '') head.pop();
+    for (var i = 0; i < head.length; i++) head[i] = String(head[i] || '').trim();
+    out.push({ row: r + 1, headers: head });
+  }
+  return out;
+}
+
+/** 맨 아래 항목 묶음. 없으면 { row: 0, headers: [] } */
+function lastHeaderBlock(sheet) {
+  var blocks = headerBlocks(sheet);
+  return blocks.length ? blocks[blocks.length - 1] : { row: 0, headers: [] };
+}
+
+/** 이 자료 줄을 지배하는 항목 묶음 (그 줄 위의 가장 가까운 항목 줄) */
+function blockForRow(sheet, rowIndex) {
+  var blocks = headerBlocks(sheet);
+  var found = null;
+  for (var i = 0; i < blocks.length; i++) {
+    if (blocks[i].row < rowIndex) found = blocks[i];
+  }
+  return found;
+}
+
+/**
+ * 이 리포트를 적을 줄 번호를 정한다.
+ *
+ * 맨 아래 항목 묶음과 지금 항목이 같으면 그 아래에 이어 붙인다.
+ * 다르면 **새 항목 줄을 넣고** 그 아래에 적는다 — 탭은 그대로 하나다.
+ */
+function placeForRow(sheet, headers, created) {
+  if (created) {
+    writeHeaders(sheet, headers, REPORT_HEADER_ROW);   // 1행은 비우고 2행에 항목명
+    return REPORT_DATA_ROW;
+  }
+  var block = lastHeaderBlock(sheet);
+  var lastRow = sheet.getLastRow();
+
+  if (!block.row) {                    // 항목 줄이 아예 없다 (사람이 만든 빈 탭)
+    var at = Math.max(lastRow + 1, REPORT_HEADER_ROW);
+    writeHeaders(sheet, headers, at);
+    return at + 1;
+  }
+  if (!headers.length || headerKey(block.headers) === headerKey(headers)) {
+    return Math.max(lastRow + 1, block.row + 1);
+  }
+  // 항목이 달라졌다 — 한 줄 띄우고 새 항목 줄을 넣는다 (눈으로도 구분되도록)
+  var headRow = lastRow + 2;
+  writeHeaders(sheet, headers, headRow);
+  return headRow + 1;
 }
 
 /** 항목 목록을 비교하기 좋은 한 줄로 만든다. 빈 목록은 빈 문자열. */
@@ -239,13 +266,14 @@ function headerKey(headers) {
   return parts.join('');
 }
 
-function writeHeaders(sheet, headers) {
+function writeHeaders(sheet, headers, atRow) {
   if (!headers || !headers.length) return;
-  var range = sheet.getRange(2, 1, 1, headers.length);
+  var row = Math.floor(atRow || REPORT_HEADER_ROW);
+  var range = sheet.getRange(row, 1, 1, headers.length);
   range.setValues([headers]);
   range.setFontWeight('bold');
   range.setBackground('#eef1f5');
-  sheet.setFrozenRows(2);
+  if (row === REPORT_HEADER_ROW) sheet.setFrozenRows(REPORT_HEADER_ROW);
   for (var i = 1; i <= headers.length; i++) {
     var width = sheet.getColumnWidth(i);
     if (width < 140) sheet.setColumnWidth(i, 140);
@@ -454,9 +482,11 @@ var GUIDE_SHEETS = {
 var NEWLINE = String.fromCharCode(10);
 
 var GUIDE_ID_HEADER = 'ID(고치지 마세요)';
+/** 단계 사진 — `1. <주소>` 꼴로 단계 번호와 함께 적는다 (번호가 곧 몇 번째 단계인지) */
+var GUIDE_PHOTO_HEADER = '단계 사진';
 var GUIDE_HEADER = ['코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일',
-                    GUIDE_ID_HEADER];
-var GUIDE_WIDTHS = [160, 260, 160, 300, 420, 130, 200];
+                    GUIDE_PHOTO_HEADER, GUIDE_ID_HEADER];
+var GUIDE_WIDTHS = [160, 260, 160, 300, 420, 130, 260, 200];
 
 /* ── 리포트 항목 설정 탭 ──────────────────────────────────────────────
  *
@@ -554,6 +584,13 @@ function handleGuides(ss, body) {
     }
     return json({ ok: true, items: out });
   }
+  // 가이드 단계 사진을 드라이브에 저장한다.
+  //   { guides: 'media', categoryType, title, files: [{filename, mimeType, data}] }
+  //   → { ok, links: ['https://drive...', ...] }
+  if (body.guides === 'media') {
+    return json(saveGuideMedia(ss, body));
+  }
+
   if (body.guides !== 'push') return json({ ok: false, error: '알 수 없는 요청입니다.' });
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -618,6 +655,21 @@ function readGuideSheet(sheet, categoryType) {
       commands.push({ label: label, cmd: text.trim(), desc: desc });
     });
 
+    // 단계 사진 — `1. <주소>` 꼴. 번호로 몇 번째 단계인지 알아낸다.
+    var photoCol = -1;
+    for (var pc = 0; pc < header.length; pc++) {
+      if (String(header[pc] || '').trim() === GUIDE_PHOTO_HEADER) { photoCol = pc; break; }
+    }
+    var photos = {};
+    if (photoCol >= 0) {
+      String(row[photoCol] || '').split(NEWLINE).forEach(function (line) {
+        var text = line.trim();
+        if (!text) return;
+        var m = text.match(/^(\d+)\.\s*(.+)$/);
+        if (m) photos[Number(m[1])] = m[2].trim();
+      });
+    }
+
     var steps = [];
     String(row[4] || '').split(NEWLINE).forEach(function (line) {
       var text = line.trim();
@@ -629,7 +681,11 @@ function readGuideSheet(sheet, categoryType) {
         metric = text.slice(mark + 7).replace(/\)$/, '').trim();
         text = text.slice(0, mark);
       }
-      steps.push({ instruction: text.trim(), expectedMetric: metric || null });
+      steps.push({
+        instruction: text.trim(),
+        expectedMetric: metric || null,
+        imageUrl: photos[steps.length + 1] || null
+      });
     });
 
     out.push({
@@ -673,12 +729,17 @@ function writeGuideSheet(ss, name, list) {
       if (line) commands.push(line);
     }
     var steps = [];
+    var photos = [];
     var stepList = g.steps || [];
     for (var k = 0; k < stepList.length; k++) {
       var step = stepList[k] || {};
       var text = (k + 1) + '. ' + (step.instruction || '');
       if (step.expectedMetric) text += '  (기준: ' + step.expectedMetric + ')';
       steps.push(text);
+      // 드라이브에 올라간 사진만 적는다. 기기 안에만 있는 것(/media/...)은
+      // 다른 사람이 열 수 없으므로 시트에 적어 봐야 소용이 없다.
+      var url = String(step.imageUrl || '');
+      if (url.indexOf('http') === 0) photos.push((k + 1) + '. ' + url);
     }
     // 칸 수는 GUIDE_HEADER 와 반드시 같아야 한다. 다르면 setValues 가 예외를 던지는데,
     // 그 직전에 clearContents() 가 이미 실행돼 탭이 비워진 채로 남는다.
@@ -686,6 +747,7 @@ function writeGuideSheet(ss, name, list) {
       g.codeOrTitle || '', g.summary || '', g.requiredTools || '',
       commands.join(NEWLINE), steps.join(NEWLINE),
       String(g.updatedAt || '').replace('T', ' '),
+      photos.join(NEWLINE),
       g.id || '',
     ]);
   }
@@ -765,6 +827,68 @@ function safeFolderName(value, fallback) {
   var text = String(value || '').trim().replace(/[\\/:*?"<>|]/g, ' ');
   text = text.replace(/\s+/g, ' ').slice(0, 80).trim();
   return text || fallback;
+}
+
+/** 가이드 이름표 — 폴더 이름으로도 쓴다 (시트 탭 이름과 같다). */
+var GUIDE_FOLDER_ROOT = '가이드';
+
+/**
+ * 가이드 단계 사진이 들어갈 폴더.
+ *   <공유 드라이브>/가이드/<분류>/<제목>/사진/
+ *
+ * 리포트 첨부(매장 → 날짜 → 사진)와 **같은 뿌리**를 쓰되 가지가 다르다.
+ * 사람이 드라이브에서 직접 찾을 때 "무슨 가이드의 사진" 인지가 경로에 보인다.
+ */
+function guideMediaFolder(root, categoryType, title) {
+  var base = folderByName(root, GUIDE_FOLDER_ROOT);
+  var label = GUIDE_SHEETS[categoryType] || '분류 미지정';
+  var kind = folderByName(base, safeFolderName(label, '분류 미지정'));
+  var one = folderByName(kind, safeFolderName(title, '제목 없음'));
+  return folderByName(one, PHOTO_FOLDER_NAME);
+}
+
+/**
+ * 가이드 단계 사진을 드라이브에 저장하고 주소를 돌려준다.
+ *   { guides: 'media', categoryType, title, files: [{filename, mimeType, data}] }
+ *   → { ok, links: [...], skipped: [...], shared }
+ */
+function saveGuideMedia(ss, body) {
+  var files = body.files || [];
+  if (!files.length) return { ok: true, links: [], skipped: [] };
+
+  var space = driveSpace();
+  var needed = 0;
+  for (var n = 0; n < files.length; n++) {
+    needed += Math.ceil((String((files[n] || {}).data || '').length * 3) / 4);
+  }
+  if (space.free !== null && needed > space.free) {
+    return { ok: false, error: '구글 드라이브 용량이 부족합니다 (남은 공간 '
+      + Math.round(space.free / 1048576) + 'MB, 필요 '
+      + Math.round(needed / 1048576) + 'MB)' };
+  }
+
+  var root = mediaRoot(ss);
+  var folder = guideMediaFolder(root.folder, body.categoryType, body.title);
+  var links = [];
+  var skipped = [];
+  for (var i = 0; i < files.length; i++) {
+    var item = files[i] || {};
+    try {
+      var bytes = Utilities.base64Decode(item.data);
+      var blob = Utilities.newBlob(bytes,
+                                   item.mimeType || 'application/octet-stream',
+                                   item.filename || ('사진' + (i + 1)));
+      var file = folder.createFile(blob);
+      try {
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (shareErr) { /* 공유 드라이브 정책 — 무시 */ }
+      links.push(file.getUrl());
+    } catch (err) {
+      skipped.push({ filename: item.filename || '(이름 없음)',
+                     reason: String(err).slice(0, 120) });
+    }
+  }
+  return { ok: true, links: links, skipped: skipped, shared: root.shared };
 }
 
 /** 매장 → 날짜 → 사진/동영상 순으로 내려가며 폴더를 만든다. */
@@ -863,9 +987,13 @@ function driveSpace() {
  * 시트에서 직접 고쳐도 되고, 앱이 다음에 읽어 갈 때 그대로 반영된다.
  */
 var STATUS_HEADER = '상태';
+/** 항목 줄의 첫 칸 — 자료 줄과 구분하는 기준이다 (앱의 META_HEADERS[0] 과 같아야 한다) */
+var REPORT_FIRST_HEADER = '작성일시';
 var REPORT_HEADER_ROW = 2;
 var REPORT_DATA_ROW = 3;
 // 월 탭 이름. 항목이 바뀌어 갈라진 탭도 같은 달로 본다 — `2026-09`, `2026-09 (2)`
+// 새로 만들 때는 `2026-09` 하나만 쓴다. 예전 판이 만든 `2026-09 (2)` 탭도
+// 목록에는 계속 보여 준다 — 이미 쌓인 리포트를 못 보게 하면 안 된다.
 var MONTH_TAB = /^\d{4}-\d{2}( \(\d+\))?$/;
 
 function handleReports(ss, body) {
@@ -902,7 +1030,21 @@ function handleReports(ss, body) {
       var line = body.row_values || [];
       if (!line.length) return json({ ok: false, error: 'row 가 비어 있습니다.' });
 
-      if ((body.headers || []).length) writeHeaders(target, body.headers);
+      // **항목 줄은 절대 고쳐 쓰지 않는다.** 그 줄이 속한 묶음의 항목 순서에
+      // 맞춰 값을 다시 늘어놓는다. 앱의 항목 순서가 달라도 이름으로 맞춘다.
+      var blockU = blockForRow(target, rowIndex);
+      if (blockU && (body.headers || []).length) {
+        var byName = {};
+        for (var hi = 0; hi < body.headers.length; hi++) {
+          byName[String(body.headers[hi] || '').trim()] = line[hi];
+        }
+        var mapped = [];
+        for (var bi = 0; bi < blockU.headers.length; bi++) {
+          var key = blockU.headers[bi];
+          mapped.push(Object.prototype.hasOwnProperty.call(byName, key) ? byName[key] : '');
+        }
+        line = mapped;
+      }
 
       // 첨부를 새로 올렸으면 드라이브에 저장하고 그 칸만 바꾼다.
       var savedU = saveMediaToDrive(ss, body.media || []);
@@ -953,7 +1095,7 @@ function handleReports(ss, body) {
       if (rowIndex < REPORT_DATA_ROW) {
         return json({ ok: false, error: '줄 번호가 올바르지 않습니다.' });
       }
-      var col = statusColumn(target, true);
+      var col = statusColumn(target, rowIndex, true);
       target.getRange(rowIndex, col).setValue(String(body.status || ''));
       SpreadsheetApp.flush();
       return json({ ok: true, row: rowIndex, column: col,
@@ -997,15 +1139,21 @@ function handleDriveInfo(body) {
 }
 
 /** '상태' 열 번호를 찾는다. 없으면 create=true 일 때 헤더 맨 뒤에 만든다. */
-function statusColumn(sheet, create) {
-  var lastCol = Math.max(sheet.getLastColumn(), 1);
-  var header = sheet.getRange(REPORT_HEADER_ROW, 1, 1, lastCol).getValues()[0];
+/**
+ * 그 줄의 '상태' 열 번호.
+ *
+ * 한 탭에 항목 묶음이 여러 개일 수 있어, **그 줄이 속한 묶음**에서 찾아야 한다.
+ * 2행만 보면 항목이 바뀐 뒤의 줄에서 엉뚱한 칸에 상태가 적힌다.
+ */
+function statusColumn(sheet, rowIndex, create) {
+  var block = blockForRow(sheet, rowIndex) || lastHeaderBlock(sheet);
+  var header = (block && block.headers) || [];
   for (var c = 0; c < header.length; c++) {
     if (String(header[c] || '').trim() === STATUS_HEADER) return c + 1;
   }
-  if (!create) return -1;
-  var col = lastCol + 1;
-  var cell = sheet.getRange(REPORT_HEADER_ROW, col);
+  if (!create || !block || !block.row) return -1;
+  var col = header.length + 1;
+  var cell = sheet.getRange(block.row, col);
   cell.setValue(STATUS_HEADER);
   cell.setFontWeight('bold');
   cell.setBackground('#eef1f5');
@@ -1021,27 +1169,30 @@ function readReportSheet(sheet) {
     return { ok: true, exists: true, headers: [], rows: [] };
   }
 
-  var headers = sheet.getRange(REPORT_HEADER_ROW, 1, 1, lastCol).getValues()[0];
-  for (var i = 0; i < headers.length; i++) {
-    headers[i] = String(headers[i] || '').trim();
-  }
-
+  // 한 탭에 항목 묶음이 여러 개일 수 있다. 줄마다 **자기 항목**을 함께 준다 —
+  // 앱이 2행 항목만 믿으면 항목이 바뀐 뒤의 줄을 잘못 읽는다.
+  var display = sheet.getRange(1, 1, lastRow, lastCol).getDisplayValues();
   var rows = [];
-  if (lastRow >= REPORT_DATA_ROW) {
-    var data = sheet
-      .getRange(REPORT_DATA_ROW, 1, lastRow - REPORT_DATA_ROW + 1, lastCol)
-      .getDisplayValues();
-    for (var r = 0; r < data.length; r++) {
-      var cells = data[r];
-      var empty = true;
-      for (var c = 0; c < cells.length; c++) {
-        if (String(cells[c] || '').trim()) { empty = false; break; }
-      }
-      if (empty) continue;                     // 사람이 지운 빈 줄은 건너뛴다
-      rows.push({ row: REPORT_DATA_ROW + r, cells: cells });
+  var current = [];
+  var lastHeaders = [];
+  for (var r = 0; r < display.length; r++) {
+    var cells = display[r];
+    if (isHeaderRow(cells)) {
+      current = cells.slice();
+      while (current.length && String(current[current.length - 1]).trim() === '') current.pop();
+      for (var i = 0; i < current.length; i++) current[i] = String(current[i] || '').trim();
+      lastHeaders = current;
+      continue;
     }
+    var empty = true;
+    for (var c = 0; c < cells.length; c++) {
+      if (String(cells[c] || '').trim()) { empty = false; break; }
+    }
+    if (empty) continue;                       // 빈 줄(항목 묶음 사이 여백 포함)
+    if (!current.length) continue;             // 항목 줄보다 위에 있는 줄은 무시
+    rows.push({ row: r + 1, cells: cells, headers: current });
   }
-  return { ok: true, exists: true, headers: headers, rows: rows };
+  return { ok: true, exists: true, headers: lastHeaders, rows: rows };
 }
 
 function json(payload) {

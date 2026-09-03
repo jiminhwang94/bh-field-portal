@@ -161,7 +161,10 @@ function makeFolder(name, path) {
     },
     createFile(blob) {
       const file = {
-        id: `f${folder.files.length}-${path}`,
+        // 진짜 드라이브 id 처럼 공백·슬래시 없는 문자열이어야 한다.
+        // 경로를 그대로 넣으면 주소에 공백이 섞여, 주소를 공백 기준으로
+        // 자르는 코드가 통과해 버린다 (실제로 그렇게 못 잡았다).
+        id: `f${allFiles.size}${path.replace(/[^A-Za-z0-9]/g, '')}`.slice(0, 33),
         name: blob.name, mime: blob.mime, path,
         getUrl() { return `https://drive.google.com/file/d/${file.id}/view`; },
         getName: () => blob.name,
@@ -499,90 +502,125 @@ check('뺀 첨부만 빠진다', finalLinks.length === 1 && finalLinks[0] === af
       `${finalLinks.length}개`);
 
 // ────────────────────────────────────────────────────────────────────
-// 항목이 바뀌면 새 탭으로 — 옛 줄이 어긋나지 않아야 한다
+// 항목이 바뀌어도 **같은 탭**에 쌓는다 (v3.11)
 //
-// 예전에는 항목 설정이 바뀌면 그 달 탭의 2행 헤더를 최신으로 덮어썼다.
-// 아래 줄들은 옛 항목 순서 그대로인데 머리만 바뀌니, 열 이름과 값이
-// 통째로 어긋났다. 실제로 시트에서 그 일이 났다.
+// 예전에는 `2026-09 (2)` 처럼 탭을 갈랐다. 한 달을 여러 탭에서 찾아야 해서
+// 불편했다. 이제 같은 탭 맨 아래에 **새 항목 줄**을 넣고 그 아래로 쌓는다.
+// 옛 줄은 옛 항목 줄 아래 그대로 남아 어긋나지 않는다.
 // ────────────────────────────────────────────────────────────────────
-const H1 = ['작성일시', '작성자', '식당명', '오류 코드'];
-const H2 = ['작성일시', '작성자', '식당명', '오류 코드', '조치 내용'];
+const H1 = ['작성일시', '작성자', '식당명', '오류 코드', '상태'];
+const H2 = ['작성일시', '작성자', '식당명', '오류 코드', '조치 내용', '상태'];
 
 call({ sheetName: '2099-01', headers: H1,
-       row: ['2099-01-05 10:00', '김현장', '옥동식', 'E-1'] });
+       row: ['2099-01-05 10:00', '김현장', '옥동식', 'E-1', '조치 완료'] });
 call({ sheetName: '2099-01', headers: H1,
-       row: ['2099-01-06 10:00', '김현장', '미트로', 'E-2'] });
+       row: ['2099-01-06 10:00', '김현장', '미트로', 'E-2', '조치 완료'] });
 
-const tab1 = ss.getSheetByName('2099-01');
-check('같은 항목이면 같은 탭에 이어 붙인다', tab1.getLastRow() === 4,
-      `${tab1.getLastRow()}행`);
+const tab = ss.getSheetByName('2099-01');
+check('같은 항목이면 이어 붙인다', tab.getLastRow() === 4, `${tab.getLastRow()}행`);
+check('항목 줄은 2행이다',
+      tab.getRange(2, 1, 1, 1).getValues()[0][0] === '작성일시');
 
-const headerBefore = tab1.getRange(2, 1, 1, H1.length).getValues()[0].join('|');
-
-// 항목을 하나 더한 채로 올린다 → 새 탭으로 가야 한다
+// 항목을 하나 더한 채로 올린다 → **같은 탭**에 새 항목 줄이 생겨야 한다
 const moved = call({ sheetName: '2099-01', headers: H2,
-                     row: ['2099-01-07 10:00', '김현장', '한솔', 'E-3', '패드 교체'] });
-
-check('항목이 바뀌면 옛 탭의 머리를 건드리지 않는다',
-      tab1.getRange(2, 1, 1, H1.length).getValues()[0].join('|') === headerBefore,
-      headerBefore);
-check('옛 탭에 줄이 늘지 않는다', tab1.getLastRow() === 4, `${tab1.getLastRow()}행`);
-
-const tab2 = ss.getSheetByName('2099-01 (2)');
-check('항목이 바뀌면 새 탭을 만든다', !!tab2,
+                     row: ['2099-01-07 10:00', '김현장', '한솔', 'E-3', '패드 교체', '모니터링'] });
+check('탭을 새로 만들지 않는다', !ss.getSheetByName('2099-01 (2)'),
       ss.getSheets().map((x) => x.getName()).join(' | '));
-check('새 탭이 응답에 실린다', moved.sheetName === '2099-01 (2)', String(moved.sheetName));
-check('새 탭의 머리는 새 항목이다',
-      tab2.getRange(2, 1, 1, H2.length).getValues()[0].join('|') === H2.join('|'));
+check('응답의 탭 이름이 그대로다', moved.sheetName === '2099-01', String(moved.sheetName));
+check('옛 항목 줄을 건드리지 않는다',
+      tab.getRange(2, 1, 1, H1.length).getValues()[0].join('|') === H1.join('|'),
+      tab.getRange(2, 1, 1, H1.length).getValues()[0].join('|'));
 
-// 다시 옛 항목으로 올리면 **옛 탭으로 되돌아간다**
+// 같은 탭 안에 항목 줄이 두 개
+const headerRows = [];
+for (let r = 1; r <= tab.getLastRow(); r += 1) {
+  if (String(tab.getRange(r, 1).getValue() || '').trim() === '작성일시') headerRows.push(r);
+}
+check('같은 탭에 항목 줄이 두 개다', headerRows.length === 2, headerRows.join(', '));
+check('새 항목 줄이 새 항목이다',
+      tab.getRange(headerRows[1], 1, 1, H2.length).getValues()[0].join('|') === H2.join('|'));
+
+// 읽으면 줄마다 자기 항목이 딸려 온다
+let read = call({ reports: 'pull', sheetName: '2099-01' });
+check('세 줄 모두 읽힌다', (read.rows || []).length === 3,
+      `${(read.rows || []).length}줄`);
+const withNew = read.rows.filter((r) => (r.headers || []).length === H2.length);
+const withOld = read.rows.filter((r) => (r.headers || []).length === H1.length);
+check('줄마다 자기 항목이 함께 온다', withOld.length === 2 && withNew.length === 1,
+      `옛 ${withOld.length} · 새 ${withNew.length}`);
+check('항목 줄은 자료로 읽지 않는다',
+      read.rows.every((r) => r.cells[0] !== '작성일시'));
+
+// 다시 옛 항목으로 올리면 맨 아래(새 항목 묶음)에 또 항목 줄이 생긴다
 call({ sheetName: '2099-01', headers: H1,
-       row: ['2099-01-08 10:00', '김현장', '옥동식', 'E-4'] });
-check('옛 항목은 옛 탭으로 되돌아간다', tab1.getLastRow() === 5, `${tab1.getLastRow()}행`);
-check('그 사이 새 탭은 늘지 않는다', tab2.getLastRow() === 3, `${tab2.getLastRow()}행`);
+       row: ['2099-01-08 10:00', '김현장', '옥동식', 'E-4', '조치 완료'] });
+read = call({ reports: 'pull', sheetName: '2099-01' });
+check('옛 항목으로 돌아가도 같은 탭이다', !ss.getSheetByName('2099-01 (2)'));
+check('네 줄이 모두 읽힌다', (read.rows || []).length === 4, `${(read.rows || []).length}줄`);
 
-// 이력 화면이 갈라진 탭도 월 목록에서 본다
+// 상태 변경 — 항목이 바뀐 뒤의 줄도 제 칸에 적혀야 한다
+const newRow = read.rows.find((r) => (r.headers || []).length === H2.length);
+const st = call({ reports: 'status', sheetName: '2099-01',
+                  row: newRow.row, status: '교체 예정' });
+check('상태를 그 줄의 항목 기준으로 적는다', st.ok === true && st.column === H2.length,
+      `열 ${st.column} (기대 ${H2.length})`);
+check('시트에 실제로 적혔다',
+      tab.getRange(newRow.row, H2.length).getDisplayValues()[0][0] === '교체 예정',
+      tab.getRange(newRow.row, H2.length).getDisplayValues()[0][0]);
+
+// 월 목록은 여전히 한 달 하나
 const months = call({ reports: 'months' }).months || [];
-check('월 목록에 갈라진 탭도 나온다',
-      months.indexOf('2099-01') >= 0 && months.indexOf('2099-01 (2)') >= 0,
+check('월 목록에 갈라진 탭이 없다', !months.some((m) => /\(\d+\)/.test(m)),
       months.join(' | '));
 
 // ────────────────────────────────────────────────────────────────────
-// 리포트 항목 설정도 시트로 주고받는다 (팀 공통)
+// 가이드 단계 사진 — 드라이브 저장 + 시트로 공유 (v3.11)
 // ────────────────────────────────────────────────────────────────────
-const FIELDS = [
-  { id: 'f1', fieldLabel: '방문 식당명', fieldType: 'TEXT', options: '', isRequired: true },
-  { id: 'f2', fieldLabel: '오류 코드', fieldType: 'TEXT', options: '', isRequired: false },
-  { id: 'f3', fieldLabel: '처리 결과', fieldType: 'DROPDOWN',
-    options: '완료,모니터링', isRequired: true },
-];
-let fr = call({ fields: 'push', items: FIELDS });
-check('항목 설정을 시트에 올린다', fr.ok === true && fr.count === 3, JSON.stringify(fr));
+const photo = call({
+  guides: 'media',
+  categoryType: 'ERROR_CODE',
+  title: 'E-104 그리퍼 온도 센서',
+  files: [{ filename: 'step1.jpg', mimeType: 'image/jpeg', data: 'AAAA' }],
+});
+check('가이드 사진을 드라이브에 올린다', photo.ok === true && (photo.links || []).length === 1,
+      JSON.stringify(photo).slice(0, 120));
+const gdir = findPath('가이드', '오류 코드 가이드', 'E-104 그리퍼 온도 센서', '사진');
+check('경로가 가이드 → 분류 → 제목 → 사진 이다', !!gdir,
+      gdir ? gdir.path : [...driveTree.folders.keys()].join(' | '));
+check('그 폴더에 파일이 들어 있다', !!gdir && gdir.files.length === 1,
+      gdir ? `${gdir.files.length}개` : '없음');
 
-const fieldSheet = ss.getSheetByName('리포트 항목');
-check('[리포트 항목] 탭이 생긴다', !!fieldSheet,
-      ss.getSheets().map((x) => x.getName()).join(' | '));
-check('머리는 2행에 있다',
-      fieldSheet.getRange(2, 1, 1, 5).getValues()[0][0] === '항목명');
-
-fr = call({ fields: 'pull' });
-check('올린 그대로 다시 읽힌다', (fr.items || []).length === 3, JSON.stringify(fr.items));
-check('종류·선택지·필수가 살아 있다',
-      fr.items[2].fieldType === 'DROPDOWN'
-      && fr.items[2].options === '완료,모니터링'
-      && fr.items[2].isRequired === true
-      && fr.items[1].isRequired === false,
-      JSON.stringify(fr.items[2]));
-check('시트에 적힌 순서가 곧 열 순서다',
-      fr.items.map((f) => f.displayOrder).join(',') === '1,2,3');
-check('ID 가 그대로 돌아온다', fr.items[0].id === 'f1', fr.items[0].id);
-
-// 항목을 하나 빼고 다시 올리면 그 줄이 사라진다 (옛 줄이 남으면 안 된다)
-const shrink = call({ fields: 'push', items: FIELDS.slice(0, 2) });
-check('항목을 빼고 올려도 오류가 없다', shrink.ok === true, JSON.stringify(shrink));
-fr = call({ fields: 'pull' });
-check('뺀 항목은 시트에서도 빠진다', (fr.items || []).length === 2,
-      (fr.items || []).map((f) => f.fieldLabel).join(' | '));
+// 사진 주소가 시트에 실리고 다시 읽힌다
+call({ guides: 'push', items: [{
+  id: 'g1', categoryType: 'ERROR_CODE', codeOrTitle: 'E-104 그리퍼 온도 센서',
+  summary: '온도 편차', requiredTools: '육각 3mm', commands: [],
+  steps: [
+    { instruction: '커버 분리', expectedMetric: '', imageUrl: photo.links[0] },
+    { instruction: '저항 측정', expectedMetric: '1.8~2.2 kΩ', imageUrl: '' },
+  ],
+  updatedAt: '2099-01-09 10:00',
+}] });
+const photoGuide = (call({ guides: 'pull' }).items || [])
+  .find((g) => g.codeOrTitle === 'E-104 그리퍼 온도 센서');
+check('가이드가 다시 읽힌다', !!photoGuide);
+check('1단계 사진 주소가 살아 있다', !!photoGuide && photoGuide.steps[0].imageUrl === photo.links[0],
+      back ? String(photoGuide.steps[0].imageUrl) : '없음');
+check('사진 없는 단계는 비어 있다', !!photoGuide && !photoGuide.steps[1].imageUrl,
+      back ? String(photoGuide.steps[1].imageUrl) : '');
+check('단계 순서가 지켜진다',
+      !!photoGuide && photoGuide.steps.map((x) => x.instruction).join(' / ') === '커버 분리 / 저항 측정',
+      back ? photoGuide.steps.map((x) => x.instruction).join(' / ') : '');
+// 기기 안에만 있는 사진(/media/...)은 시트에 적지 않는다 — 남이 열 수 없다
+call({ guides: 'push', items: [{
+  id: 'g2', categoryType: 'ERROR_CODE', codeOrTitle: 'E-200 기기 전용 사진',
+  summary: '', requiredTools: '', commands: [],
+  steps: [{ instruction: '한 단계', expectedMetric: '', imageUrl: '/media/local.jpg' }],
+  updatedAt: '2099-01-09 11:00',
+}] });
+const local = (call({ guides: 'pull' }).items || [])
+  .find((g) => g.codeOrTitle === 'E-200 기기 전용 사진');
+check('기기 안 사진은 시트에 적지 않는다', !!local && !local.steps[0].imageUrl,
+      local ? String(local.steps[0].imageUrl) : '가이드 없음');
 
 console.log('='.repeat(62));
 if (failures.length) {

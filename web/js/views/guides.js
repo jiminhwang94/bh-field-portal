@@ -6,6 +6,43 @@ import {
 
 const DONE_KEY = (id) => `bh_steps_done_${id}`;
 
+/** 시트가 연결돼 있으면 가이드 사진도 드라이브에 올릴 수 있다. */
+async function guideMediaEnabled() {
+  const store = await import('../local/store.js');
+  return store.sheetInventoryOn();
+}
+
+/**
+ * 가이드 단계 사진 하나를 드라이브에 올린다.
+ *   <공유 드라이브>/가이드/<분류>/<제목>/사진/
+ * 반환: 드라이브 주소
+ */
+async function uploadGuidePhoto(fileOrBlob, categoryType, title) {
+  const { callAppsScript } = await import('../sheets.js');
+  const data = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('사진을 읽지 못했습니다.'));
+    reader.readAsDataURL(fileOrBlob);
+  });
+  const result = await callAppsScript({
+    guides: 'media',
+    categoryType,
+    title,
+    files: [{
+      filename: fileOrBlob.name || '단계사진.jpg',
+      mimeType: fileOrBlob.type || 'image/jpeg',
+      data,
+    }],
+  }, 120000);
+  const url = (result.links || [])[0];
+  if (!url) {
+    const why = (result.skipped || [])[0];
+    throw new Error(result.error || (why && why.reason) || '드라이브가 주소를 주지 않았습니다.');
+  }
+  return url;
+}
+
 // ---------------------------------------------------------------- 목록
 export async function guideListView(view, categoryType) {
   const meta = CATEGORY[categoryType];
@@ -404,11 +441,31 @@ export async function guideEditView(view, guideId, categoryType) {
         btn.disabled = true;
         btn.textContent = '업로드 중…';
         try {
+          // 1) 기기에 먼저 담는다 — 오프라인에서도 바로 보인다.
           const media = await api.uploadMedia(file);
           collect();
           state.steps[idx].imageUrl = media.url;
           render();
-          toast('사진을 첨부했습니다.', 'ok');
+
+          // 2) 시트가 연결돼 있으면 드라이브에도 올린다. 그래야 **다른 사람도**
+          //    이 사진을 볼 수 있다 (기기 안 파일은 그 기기에만 있다).
+          //    제목이 없으면 폴더 이름을 정할 수 없으니 저장할 때 올린다.
+          const title = (state.codeOrTitle || '').trim();
+          if (title && await guideMediaEnabled()) {
+            try {
+              const url = await uploadGuidePhoto(file, state.categoryType, title);
+              collect();
+              state.steps[idx].imageUrl = url;
+              render();
+              toast('사진을 드라이브에 올렸습니다. 팀 전체가 볼 수 있습니다.', 'ok');
+            } catch (err) {
+              toast(`사진은 이 기기에만 저장했습니다 — ${err.message}`, 'err');
+            }
+          } else {
+            toast(title
+              ? '사진을 첨부했습니다. (구글 시트 연결 시 팀에 공유됩니다)'
+              : '사진을 첨부했습니다. 제목을 넣고 저장하면 팀에 공유됩니다.', 'ok');
+          }
         } catch (err) {
           toast(err.message, 'err');
           btn.disabled = false;
@@ -423,9 +480,31 @@ export async function guideEditView(view, guideId, categoryType) {
     }
   }
 
+  /**
+   * 저장 직전에 기기 안에만 있는 단계 사진을 드라이브로 올린다.
+   *
+   * 사진을 붙일 때는 제목이 아직 없을 수 있고(새 가이드), 폴더 이름이 제목이라
+   * 그때는 올릴 수가 없다. 제목이 확정되는 저장 시점에 한 번 더 챙긴다.
+   */
+  async function uploadPendingPhotos() {
+    const title = (state.codeOrTitle || '').trim();
+    if (!title || !(await guideMediaEnabled())) return;
+    for (const step of state.steps) {
+      const url = String(step.imageUrl || '');
+      if (!url.startsWith('/media/')) continue;
+      try {
+        const blob = await (await import('../local/store.js'))
+          .getMediaBlob(url.split('/').pop());
+        if (!blob) continue;
+        step.imageUrl = await uploadGuidePhoto(blob, state.categoryType, title);
+      } catch { /* 못 올려도 기기에는 남는다 — 다음 저장에서 다시 시도한다 */ }
+    }
+  }
+
   async function save(ev) {
     ev.preventDefault();
     collect();
+    await uploadPendingPhotos();
     if (!state.codeOrTitle.trim()) { toast('오류 코드 / 제목은 필수입니다.', 'err'); return; }
     const submitBtn = $('#guideForm button[type=submit]');
     submitBtn.disabled = true;

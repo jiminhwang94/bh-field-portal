@@ -187,12 +187,52 @@ check("비어 있을 때만 채운다",
 check("첫 실행에 기본 항목을 넣는다", "store.ensureDefaultFields()" in read("web/js/net.js"))
 
 gs = read("google-apps-script.gs")
-check("이미 있는 탭의 머리를 고쳐 쓰지 않는다",
-      "function pickReportSheet" in gs
-      and "// 항목 설정이 바뀐 경우 2행 헤더를 최신으로 유지" not in gs,
+# v3.11: 한 달은 탭 하나. 항목이 달라지면 탭을 새로 만들지 않고
+# 같은 탭 맨 아래에 새 항목 줄을 넣고 그 아래로 쌓는다.
+check("한 달은 탭 하나다 (갈라 만들지 않는다)",
+      "function openMonthSheet" in gs and "function pickReportSheet" not in gs
+      and "baseName + ' (' + n + ')'" not in gs,
+      "예전에는 2026-09 (2) 처럼 탭을 갈랐다")
+check("항목이 달라지면 같은 탭에 새 항목 줄을 넣는다",
+      "function placeForRow" in gs and "writeHeaders(sheet, headers, headRow)" in gs)
+check("항목 줄은 첫 칸이 작성일시 인 것으로 알아본다",
+      "function isHeaderRow" in gs and "REPORT_FIRST_HEADER" in gs,
+      "자료 줄의 첫 칸은 실제 시각이라 헷갈리지 않는다")
+check("읽을 때 줄마다 자기 항목을 함께 준다",
+      "rows.push({ row: r + 1, cells: cells, headers: current })" in gs
+      and "row.headers" in read("web/js/reportsheet.js"),
+      "맨 아래 항목만 믿으면 항목이 바뀌기 전 줄이 어긋난다")
+check("상태는 그 줄이 속한 묶음에서 칸을 찾는다",
+      "function blockForRow" in gs and "statusColumn(target, rowIndex, true)" in gs)
+check("수정할 때 항목 줄을 고쳐 쓰지 않는다",
+      "writeHeaders(target, body.headers)" not in gs and "var blockU = blockForRow(" in gs,
       "옛 줄이 새 머리 아래 놓여 통째로 어긋난다")
-check("항목이 바뀌면 다음 탭으로 간다", "baseName + ' (' + n + ')'" in gs)
-check("갈라진 탭도 월 목록에 나온다", r"( \(\d+\))?$" in gs)
+check("예전 판이 만든 갈라진 탭도 목록에 보여 준다", r"( \(\d+\))?$" in gs,
+      "이미 쌓인 리포트를 못 보게 하면 안 된다")
+
+print()
+print("가이드 사진도 팀이 함께 본다")
+
+check("가이드 사진 폴더가 가이드 → 분류 → 제목 → 사진 이다",
+      "function guideMediaFolder" in gs and "GUIDE_FOLDER_ROOT" in gs)
+check("가이드 사진을 드라이브에 올리는 창구가 있다",
+      "function saveGuideMedia" in gs and "body.guides === 'media'" in gs)
+check("가이드 시트에 사진 열이 있다", "GUIDE_PHOTO_HEADER" in gs)
+gsheet = read("web/js/guidesheet.js")
+check("사진 주소를 시트로 주고받는다",
+      "imageUrl: s.imageUrl" in gsheet and "(s.imageUrl || '').trim()" in gsheet)
+check("사진 주소도 같은지 비교한다", "s.imageUrl || ''" in gsheet.split("function same")[1],
+      "빼면 시트의 새 사진이 영영 안 내려온다")
+guides_js = read("web/js/views/guides.js")
+check("사진을 드라이브에 올린다", "async function uploadGuidePhoto" in guides_js)
+check("제목이 정해지는 저장 시점에 한 번 더 챙긴다",
+      "async function uploadPendingPhotos" in guides_js
+      and "await uploadPendingPhotos();" in guides_js,
+      "새 가이드는 사진을 붙일 때 제목이 없어 폴더를 정할 수 없다")
+ui_js = read("web/js/ui.js")
+check("드라이브 주소는 미리보기로 바꿔 보여 준다",
+      "function driveFileId" in ui_js and "thumbUrl(id" in ui_js,
+      "드라이브 '보기' 주소를 img src 에 넣으면 액박이 된다")
 
 print()
 print("사무실 서버 주소는 없앴다")

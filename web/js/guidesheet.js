@@ -33,6 +33,9 @@ export async function pushGuides(changes = null) {
     steps: (g.steps || []).map((s) => ({
       instruction: s.instruction || '',
       expectedMetric: s.expectedMetric || '',
+      // 드라이브에 올라간 사진 주소. 기기 안에만 있는 것은 시트에 적지 않는다
+      // (다른 사람이 열 수 없다) — .gs 쪽에서 http 로 시작하는 것만 적는다.
+      imageUrl: s.imageUrl || '',
     })),
     updatedAt: g.updatedAt || '',
   }));
@@ -138,8 +141,10 @@ export async function pullGuides() {
           stepOrder: i + 1,
           instruction: (s.instruction || '').trim(),
           expectedMetric: (s.expectedMetric || '').trim() || null,
-          // 사진은 시트에 실리지 않으므로 기기에 있던 것을 지키고 지나간다.
-          imageUrl: (existing && (existing.steps || [])[i] || {}).imageUrl || null,
+          // 시트에 드라이브 주소가 있으면 그것을 쓴다 (다른 사람도 볼 수 있다).
+          // 없으면 기기에 있던 것을 지키고 지나간다.
+          imageUrl: (s.imageUrl || '').trim()
+            || (existing && (existing.steps || [])[i] || {}).imageUrl || null,
         })),
       createdAt: existing ? existing.createdAt : store.now(),
       updatedAt: store.now(),
@@ -176,7 +181,9 @@ function same(a, b) {
   const key = (g) => JSON.stringify([
     g.categoryType, g.codeOrTitle, g.summary, g.requiredTools,
     (g.commands || []).map((c) => [c.label, c.cmd, c.desc]),
-    (g.steps || []).map((s) => [s.instruction, s.expectedMetric || '']),
+    // 사진 주소도 비교에 넣는다. 빼면 시트에 새 사진이 올라와도
+    // "같다" 고 보고 넘어가 **다른 사람 사진이 영영 안 내려온다.**
+    (g.steps || []).map((s) => [s.instruction, s.expectedMetric || '', s.imageUrl || '']),
   ]);
   return key(a) === key(b);
 }
