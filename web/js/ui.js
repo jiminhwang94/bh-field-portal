@@ -159,9 +159,9 @@ export function errorView(target, message) {
 }
 
 export const CATEGORY = {
-  ERROR_CODE: { emoji: '🔴', label: '오류 코드 가이드', desc: '정량 측정 수치와 단계별 진단 절차' },
-  HARDWARE_SOP: { emoji: '🔧', label: '하드웨어 교체 SOP', desc: '공구 준비 · 분해/조립 순서 · 토크값' },
-  SOFTWARE_CMD: { emoji: '💻', label: 'SW & 명령어', desc: '펌웨어 · 캘리브레이션 명령어 원클릭 복사' },
+  ERROR_CODE: { emoji: '', label: '오류 코드 가이드', desc: '정량 측정 수치와 단계별 진단 절차' },
+  HARDWARE_SOP: { emoji: '', label: '하드웨어 교체 SOP', desc: '공구 준비 · 분해/조립 순서 · 토크값' },
+  SOFTWARE_CMD: { emoji: '', label: 'SW & 명령어', desc: '펌웨어 · 캘리브레이션 명령어 원클릭 복사' },
 };
 
 export const FIELD_TYPE_LABEL = {

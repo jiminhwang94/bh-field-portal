@@ -30,11 +30,12 @@ export async function inventoryView(view) {
       <tr data-id="${item.id}" class="${low ? 'is-low-row' : ''}">
         <td>
           ${name}
-          ${low ? '<span class="tag--low">보충 필요</span>' : ''}
+          ${low ? '<span class="tag tag--low">보충 필요</span>' : ''}
           ${item.pending ? '<span class="tag tag-neutral">반영 대기</span>' : ''}
         </td>
-        <td class="tnum ${low ? 'is-low' : ''}" style="text-align:right">${item.quantity}</td>
-        <td class="tnum" style="text-align:right">${item.minQuantity}</td>
+        <td class="tnum ${low ? 'is-low' : ''}" style="text-align:right"
+            data-label="보유">${item.quantity}</td>
+        <td class="tnum" style="text-align:right" data-label="최소보유">${item.minQuantity}</td>
         <td style="text-align:right">
           <span class="qty">
             <button class="btn btn-secondary qty__btn" data-act="dec" data-id="${item.id}"
@@ -69,7 +70,7 @@ export async function inventoryView(view) {
           ${current ? `
             ${sheetMode ? `
               <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
-            <button class="filter-toggle btn ${lowOnly ? 'is-on' : ''}" data-act="toggle-low"
+            <button class="filter-toggle ${lowOnly ? 'is-on' : ''}" data-act="toggle-low"
                     type="button" aria-pressed="${lowOnly}">부족 항목만${lowCount ? ` · ${lowCount}` : ''}</button>
             <button class="btn btn-primary" data-act="add-item" type="button">＋ 품목 추가</button>` : ''}
         </div>
@@ -78,8 +79,8 @@ export async function inventoryView(view) {
           ${vehicles.map((v) => `
             <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
                     data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
-          <button class="veh-tab" data-act="manage-vehicles" type="button"
-                  style="color:var(--color-accent-700)">＋ 차량</button>
+          <button class="veh-tab veh-tab--manage" data-act="manage-vehicles"
+                  type="button">＋ 차량</button>
         </div>
 
         ${current ? `

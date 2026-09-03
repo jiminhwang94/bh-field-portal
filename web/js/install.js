@@ -55,7 +55,7 @@ export function showManualGuide() {
       </p>
       <ol style="line-height:2;padding-left:22px;margin:0">
         <li>이 화면을 <strong>Safari</strong> 로 엽니다. (Chrome 은 설치가 안 됩니다)</li>
-        <li>하단(또는 상단)의 <strong>공유 ⬆️</strong> 버튼을 누릅니다.</li>
+        <li>하단(또는 상단)의 <strong>공유 ⬆</strong>버튼을 누릅니다.</li>
         <li><strong>[홈 화면에 추가]</strong> → <strong>[추가]</strong></li>
       </ol>`
     : `
@@ -71,7 +71,7 @@ export function showManualGuide() {
       </ol>`}
 
     <div class="sub-card" style="margin-top:16px">
-      <strong>⚠️ Play 스토어에서 찾지 마세요</strong>
+      <strong>Play 스토어에서 찾지 마세요</strong>
       <p class="muted" style="margin:6px 0 0;font-size:.9rem;line-height:1.6">
         이 앱은 스토어에 등록된 앱이 아니라, 브라우저에서 주소로 접속해 설치하는 방식입니다.
         스토어에서 비슷한 이름의 앱을 설치하면 전혀 다른 앱이며,
@@ -96,7 +96,7 @@ export function initInstallBanner() {
     banner.id = 'installBanner';
     banner.className = 'update-banner';
     banner.innerHTML = `
-      <span>📲 이 앱을 태블릿에 설치해 전체화면으로 쓸 수 있습니다.</span>
+      <span>이 앱을 태블릿에 설치해 전체화면으로 쓸 수 있습니다.</span>
       <button class="btn btn--sm btn--primary" id="installNowBtn" type="button">앱 설치</button>
       <button class="btn btn--sm btn--ghost" id="installLaterBtn" type="button">닫기</button>`;
     document.body.appendChild(banner);

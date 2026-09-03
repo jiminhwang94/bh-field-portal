@@ -23,7 +23,7 @@ function driveLine(drive) {
   const low = drive.free < 500 * 1048576;
   return `
     <p class="${low ? 'hint' : 'muted'}" style="margin:10px 0 0${low ? ';color:var(--color-danger);font-weight:600' : ''}">
-      ${low ? '⚠️ ' : '💾 '}구글 드라이브 남은 공간
+      ${low ? '남은 공간 부족 — ' : ''}구글 드라이브 남은 공간
       <strong>${h(formatBytes(drive.free))}</strong>
       (전체 ${h(formatBytes(drive.limit))} 중 ${h(formatBytes(drive.used))} 사용)
       ${low ? '<br />공간이 부족하면 사진·영상이 올라가지 않습니다. 드라이브를 정리해 주세요.' : ''}
@@ -83,13 +83,13 @@ export async function settingsView(view) {
           </div>
 
           <p class="muted" style="margin:0 0 14px;font-size:.9rem;line-height:1.65">
-            🚐 시트가 연결되어 있으면 <strong>차량 재고도 스프레드시트의 [차량재고] 탭과
+            시트가 연결되어 있으면 <strong>차량 재고도 스프레드시트의 [차량재고] 탭과
             자동 동기화</strong>됩니다. 수량 변경은 즉시 시트에 기록되고,
             시트에서 직접 고친 내용(차량 이름·품목·수량)도 재고 화면을 열 때 반영됩니다.
           </p>
 
           <div class="form-actions">
-            <button class="btn btn--ghost" data-act="sheets-help" type="button">📖 설치 방법</button>
+            <button class="btn btn--ghost" data-act="sheets-help" type="button">설치 방법</button>
             <button class="btn btn--ghost" data-act="sheets-test" type="button">연결 테스트</button>
             <button class="btn btn--primary" type="submit">저장</button>
           </div>
@@ -103,7 +103,7 @@ export async function settingsView(view) {
         <ul class="muted" style="line-height:1.9;padding-left:20px;margin:0">
           <li>리포트를 업로드하면 <strong>월마다 새 시트</strong>가 만들어집니다. (시트 이름 = <span class="mono">YYYY-MM</span>)</li>
           <li><strong>1행은 비워 두고</strong>, <strong>2행에 항목명</strong>, <strong>3행부터</strong> 리포트가 한 줄씩 쌓입니다.</li>
-          <li>열 순서는 <a class="link" href="#/fields">🧩 항목 설정</a> 순서를 그대로 따릅니다. (앞에 작성일시·작성자 2열)</li>
+          <li>열 순서는 <a class="link" href="#/fields">항목 설정</a> 순서를 그대로 따릅니다. (앞에 작성일시·작성자 2열)</li>
           <li><strong>사진·영상은 구글 드라이브</strong>의 [현장 리포트 첨부] 폴더에 저장되고,
               시트 칸에는 링크가 들어갑니다. 이력 화면에서 미리보기로 볼 수 있습니다.</li>
           <li>첨부 크기는 한 개 20MB, 리포트 하나당 25MB 까지입니다.</li>
@@ -170,7 +170,7 @@ export async function settingsView(view) {
             ${canInstallDirectly()
               ? '버튼을 누르면 바로 설치됩니다.'
               : 'iPhone·iPad 는 Safari 의 [공유 → 홈 화면에 추가] 로 설치합니다.'}
-            <br />⚠️ <strong>Play 스토어·앱 스토어에서 검색해 설치하는 앱이 아닙니다.</strong>
+            <br /> <strong>Play 스토어·앱 스토어에서 검색해 설치하는 앱이 아닙니다.</strong>
           </p>`}
         <div class="divider"></div>
         <p class="muted" style="margin:0;font-size:.9rem;line-height:1.65">
@@ -183,7 +183,7 @@ export async function settingsView(view) {
         <summary class="panel__title">오프라인 사용</summary>
         <div class="row" style="gap:8px;margin:14px 0">
           <span class="badge ${isOnline() ? 'badge--ok' : 'badge--warn'}">
-            ${isOnline() ? '🟢 온라인' : '📴 오프라인'}
+            ${isOnline() ? ' 온라인' : ' 오프라인'}
           </span>
           <span class="badge">기기 보관 가이드 ${guideCount}건</span>
           <span class="badge">재고 ${itemCount}종</span>

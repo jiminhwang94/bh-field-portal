@@ -222,7 +222,7 @@ export async function reportFormView(view) {
         </div>
 
         ${hasDraft ? `
-          <div class="panel" style="border-color:var(--warn)">
+          <div class="panel panel--warn">
             <div class="row row--between">
               <div><strong>작성 중이던 내용을 복구했습니다.</strong>
                 <div class="muted" style="font-size:.9rem">새로 시작하려면 초기화하세요.</div></div>
@@ -424,7 +424,7 @@ export async function reportFormView(view) {
       btn.disabled = true;
       const saved = await persist({ requireComplete: false });
       if (saved) {
-        toast('저장했습니다. [🗂 리포트]에서 다시 열 수 있습니다.', 'ok');
+        toast('저장했습니다. [ 리포트]에서 다시 열 수 있습니다.', 'ok');
       }
       btn.disabled = false;
       return;
@@ -465,7 +465,7 @@ export async function reportFormView(view) {
     const saved = await persist({ requireComplete: true });
     if (!saved) {
       submitBtn.disabled = false;
-      submitBtn.textContent = '📊 구글 시트로 업로드';
+      submitBtn.textContent = '구글 시트로 업로드';
       return;
     }
     submitBtn.textContent = '구글 시트에 올리는 중…';
@@ -474,12 +474,12 @@ export async function reportFormView(view) {
       localStorage.removeItem(draftKey);
       if (result.queued) {
         // 오프라인 — 기기에 저장해 두었다가 연결되면 자동으로 올린다.
-        toast('⏳ 기기에 저장했습니다. 인터넷에 연결되면 자동으로 시트에 올립니다.', 'ok');
+        toast('기기에 저장했습니다. 인터넷에 연결되면 자동으로 시트에 올립니다.', 'ok');
       } else {
         toast(`구글 시트 [${result.sheetName}] ${result.row}행에 기록했습니다.`
           + (result.media ? ` (첨부 ${result.media}개 공유 드라이브 저장)` : ''), 'ok');
         if (result.media && result.mediaShared === false) {
-          toast('⚠️ 공유 드라이브에 닿지 못해 개인 드라이브에 저장했습니다. '
+          toast('공유 드라이브에 닿지 못해 개인 드라이브에 저장했습니다. '
                 + '설정에서 공유 드라이브 권한을 확인해 주세요.', 'err');
         }
         (result.mediaSkipped || []).forEach((s) =>
@@ -488,11 +488,11 @@ export async function reportFormView(view) {
       location.hash = `#/reports/${saved.id}`;
     } catch (err) {
       toast(err.message, 'err');
-      toast('리포트는 저장되었습니다. [🗂 리포트]에서 다시 업로드할 수 있습니다.');
+      toast('리포트는 저장되었습니다. [ 리포트]에서 다시 업로드할 수 있습니다.');
       location.hash = `#/reports/${saved.id}`;
     }
     submitBtn.disabled = false;
-    submitBtn.textContent = '📊 구글 시트로 업로드';
+    submitBtn.textContent = '구글 시트로 업로드';
   }
 
   render();
@@ -501,7 +501,7 @@ export async function reportFormView(view) {
 // ------------------------------------------------------------ 이력 목록
 const STATUS = {
   DRAFT: ['badge', '저장됨 (업로드 안 함)'],
-  QUEUED: ['badge badge--warn', '⏳ 업로드 대기 (연결되면 자동)'],
+  QUEUED: ['badge badge--warn', '업로드 대기 (연결되면 자동)'],
   UPLOADED: ['badge badge--ok', '구글 시트 업로드 완료'],
   FAILED: ['badge badge--danger', '업로드 실패'],
 };
@@ -664,7 +664,7 @@ export function openViewer(links, start = 0) {
     const l = links[at];
     root.innerHTML = `
       <div class="viewer__bar">
-        <span class="viewer__label">${l.isVideo ? '🎬 ' : ''}${h(l.name || l.label)}</span>
+        <span class="viewer__label">${l.isVideo ? ' ' : ''}${h(l.name || l.label)}</span>
         <span class="viewer__count tnum">${at + 1} / ${links.length}</span>
         <span class="spacer"></span>
         <a class="btn btn--ghost btn--sm" href="${h(l.url)}" target="_blank"
@@ -728,7 +728,7 @@ export async function reportListView(view) {
       <div class="page-head"><h1 class="page-head__title">리포트 이력</h1></div>
       <div class="empty">
         구글 시트 연결이 아직 설정되지 않았습니다.<br />
-        <a class="link" href="#/settings">⚙️ 설정</a> 에서 웹 앱 URL 을 먼저 등록하세요.
+        <a class="link" href="#/settings">설정</a> 에서 웹 앱 URL 을 먼저 등록하세요.
       </div>`;
     return;
   }
@@ -856,12 +856,12 @@ export async function reportListView(view) {
   /** 못 받아 왔으면 왜인지 화면에 적는다 — 그냥 비워 두면 원인을 알 수 없다. */
   function noticeHtml() {
     if (data.error && !data.entries.length) {
-      return `<div class="hist-note hist-note--bad">⚠️ 시트에서 이력을 받지 못했습니다.
+      return `<div class="hist-note hist-note--bad">시트에서 이력을 받지 못했습니다.
         <div style="margin-top:6px;white-space:pre-wrap;font-weight:400">${h(explainError(data.error))}</div>
       </div>`;
     }
     if (data.fromCache) {
-      return '<div class="hist-note">📴 연결이 안 돼 마지막으로 받아 둔 내용을 보여 줍니다.</div>';
+      return '<div class="hist-note">연결이 안 돼 마지막으로 받아 둔 내용을 보여 줍니다.</div>';
     }
     return '';
   }
@@ -981,7 +981,7 @@ export async function reportListView(view) {
       try {
         const result = await api.setReportStatus(entry.sheetName, entry.row, next);
         toast(result.queued
-          ? '⏳ 오프라인입니다. 연결되면 시트에 반영합니다.'
+          ? '오프라인입니다. 연결되면 시트에 반영합니다.'
           : `상태를 '${next}' 로 바꿨습니다.`, 'ok');
       } catch (err) {
         entry.status = before;             // 실패하면 되돌린다
@@ -1032,12 +1032,12 @@ export async function reportDetailView(view, reportId) {
         <span class="page-head__spacer"></span>
         ${report.sheetName ? `<p class="muted">구글 시트 <strong>${h(report.sheetName)}</strong> 시트 ${report.sheetRow || '-'}행
           ${settings.spreadsheetUrl ? `· <a class="link" href="${h(settings.spreadsheetUrl)}" target="_blank" rel="noopener">스프레드시트 열기 ↗</a>` : ''}</p>` : ''}
-        ${report.errorMessage ? `<p style="color:var(--danger);white-space:pre-wrap">${h(report.errorMessage)}</p>` : ''}
+        ${report.errorMessage ? `<p style="color:var(--color-danger);white-space:pre-wrap">${h(report.errorMessage)}</p>` : ''}
       </div>
 
       <div class="row" style="margin-bottom:16px">
         <button class="btn btn--primary btn--sm" data-act="upload" type="button">
-          ${report.status === 'UPLOADED' ? '🔁 구글 시트에 다시 업로드' : '📊 구글 시트로 업로드'}
+          ${report.status === 'UPLOADED' ? ' 구글 시트에 다시 업로드' : ' 구글 시트로 업로드'}
         </button>
         <button class="btn btn--ghost btn--sm" data-act="share" type="button">공유</button>
         <button class="btn btn--ghost btn--sm" data-act="copy" type="button">텍스트 복사</button>
@@ -1094,7 +1094,7 @@ export async function reportDetailView(view, reportId) {
       } catch (err) {
         toast(err.message, 'err');
         btn.disabled = false;
-        btn.textContent = '📊 구글 시트로 업로드';
+        btn.textContent = ' 구글 시트로 업로드';
       }
     }
     if (act === 'share') {

@@ -204,7 +204,7 @@ function recentRow(guide) {
 }
 
 function guideRow(guide) {
-  const meta = CATEGORY[guide.categoryType] || { emoji: '📄', label: '' };
+  const meta = CATEGORY[guide.categoryType] || { emoji: '', label: '' };
   return `
     <a class="item cat-${guide.categoryType}" href="#/guides/${guide.id}">
       <div style="font-size:1.4rem">${meta.emoji}</div>
@@ -257,7 +257,7 @@ window.addEventListener('hashchange', render);
   render();
 })();
 registerServiceWorker();       // 오프라인에서 앱이 열리도록
-initNetStatus();               // 📴 오프라인 표시 + 대기 작업 자동 처리
+initNetStatus();               //  오프라인 표시 + 대기 작업 자동 처리
 initSyncButton();
 initInstallBanner();
 showFirstRunGuide();
@@ -268,26 +268,26 @@ function showFirstRunGuide() {
   if (localStorage.getItem(KEY)) return;
   setTimeout(() => {
     if (localStorage.getItem(KEY) || document.querySelector('.modal')) return;
-    const body = openSheet('처음 오셨네요 👋', `
+    const body = openSheet('처음 오셨네요', `
       <p class="muted" style="margin:0 0 14px;line-height:1.7">
         이 앱은 <strong>가이드·재고·리포트·항목</strong>을 팀이 구글 시트 하나로 함께 씁니다.
         딱 두 가지만 알면 됩니다.
       </p>
       <div class="sub-card" style="margin-bottom:10px">
-        <strong>1️⃣ 내가 고친 내용은 자동으로 올라갑니다</strong>
+        <strong>내가 고친 내용은 자동으로 올라갑니다</strong>
         <p class="muted" style="margin:6px 0 0;font-size:.9rem">
           가이드·재고·리포트·항목을 바꾸면 인터넷이 되는 순간 바로 시트로 올라가요.
           따로 누를 것이 없습니다. 오프라인이면 쌓였다가 연결되면 올라갑니다.
         </p>
       </div>
       <div class="sub-card" style="margin-bottom:10px">
-        <strong>2️⃣ 상단 [새로고침] 은 다른 사람이 바꾼 것을 받아옵니다</strong>
+        <strong>상단 [새로고침] 은 다른 사람이 바꾼 것을 받아옵니다</strong>
         <p class="muted" style="margin:6px 0 0;font-size:.9rem">
           앱으로 돌아올 때와 5분마다 자동으로도 받아와요. 지금 당장 보고 싶을 때 누르세요.
         </p>
       </div>
       <div class="sub-card">
-        <strong>💡 상단의 작은 칩은 밀린 것이 있을 때만 숫자를 보입니다</strong>
+        <strong>상단의 작은 칩은 밀린 것이 있을 때만 숫자를 보입니다</strong>
         <p class="muted" style="margin:6px 0 0;font-size:.9rem">
           오프라인이거나 올리기가 실패했을 때예요. 누르면 무엇이 밀려 있는지 보고, 되돌릴 수 있습니다.
         </p>

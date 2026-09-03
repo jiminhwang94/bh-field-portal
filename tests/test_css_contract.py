@@ -110,7 +110,13 @@ check("화면이 하단 탭바의 .tab 을 빌려 쓰지 않는다", not misuse,
       ", ".join(misuse) if misuse else "확인")
 
 # 토큰 밖의 새 색을 만들지 않는다 (디자인 규칙)
-body = css[css.index("/* ── 2. 기본"):]
+#
+# 토큰은 파일 맨 위 `:root { … }` 한 덩어리에 모여 있다. 그 블록이 끝나는 곳부터
+# 파일 끝까지가 "본문" 이고, 여기서는 색을 var() 로만 써야 한다.
+# (예전에는 절 제목 문자열로 경계를 찾았는데, 디자인이 새 CSS 를 주면서
+#  그 제목이 바뀌자 검사가 통째로 터졌다. 구조로 찾도록 바꿨다.)
+_root = css.index(":root {")
+body = css[css.index("\n}", _root) + 2:]
 hexes = {h.lower() for h in re.findall(r"#[0-9a-fA-F]{3,8}", body)}
 allowed = {"#fff", "#ffffff", "#000", "#000000"}
 check("토큰 정의부 밖에서 새 색을 만들지 않는다", not (hexes - allowed),

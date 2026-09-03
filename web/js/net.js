@@ -19,8 +19,8 @@ async function paint() {
     banner.hidden = online;
     if (!online) {
       banner.textContent = pending
-        ? `📴 오프라인 — 기기에 저장하며 계속 사용할 수 있습니다 · 대기 중 ${pending}건`
-        : '📴 오프라인 — 기기에 저장하며 계속 사용할 수 있습니다';
+        ? `오프라인 — 기기에 저장하며 계속 사용할 수 있습니다 · 대기 중 ${pending}건`
+        : '오프라인 — 기기에 저장하며 계속 사용할 수 있습니다';
     }
   }
   // 상단바 칩은 syncnow.js 가 그린다 (같은 사실을 두 곳에 적지 않는다).

@@ -202,7 +202,7 @@ function checkEndpoint(endpoint) {
   if (!endpoint) {
     throw new SheetsError(
       '구글 시트 연결이 아직 설정되지 않았습니다.\n'
-      + '[⚙️ 설정 → 구글 시트 연결]에서 Apps Script 웹 앱 URL 을 등록하세요.');
+      + '[설정 → 구글 시트 연결] 에서 Apps Script 웹 앱 URL 을 등록하세요.');
   }
   const local = endpoint.startsWith('http://localhost')
     || endpoint.startsWith('http://127.0.0.1');

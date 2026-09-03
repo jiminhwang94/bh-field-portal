@@ -80,7 +80,7 @@ export async function guideDetailView(view, guideId) {
   loading(view);
   const guide = await api.getGuide(guideId);
   if (!guide) throw new Error('가이드를 찾을 수 없습니다.');
-  const meta = CATEGORY[guide.categoryType] || { emoji: '📄', label: '' };
+  const meta = CATEGORY[guide.categoryType] || { emoji: '', label: '' };
   const tools = (guide.requiredTools || '').split(',').map((t) => t.trim()).filter(Boolean);
   let done = new Set();
   try {
