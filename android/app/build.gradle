@@ -3,7 +3,7 @@ plugins {
 }
 
 // 앱 버전 — web/js/api.js 의 APP_VERSION 과 맞춘다.
-def appVersionName = "3.8.0"
+def appVersionName = "3.9.0"
 // 설치 시 "더 낮은 버전" 으로 거부되지 않도록 배포마다 올라가는 번호.
 // GitHub Actions 가 빌드 번호를 넣어 주고, 없으면 1 을 쓴다.
 def buildNumber = (System.getenv("BH_BUILD_NUMBER") ?: "1") as Integer

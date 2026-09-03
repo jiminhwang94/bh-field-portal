@@ -104,7 +104,12 @@ export async function fetchMediaFromHost(filename) {
 export async function flushOutbox() {
   await store.compactOutbox();
   const rows = await store.outbox();
-  if (!rows.length) return { sent: 0 };
+  if (!rows.length) {
+    // 올릴 것이 없으면 지난 실패 표시도 지운다 — 남겨 두면 "올리지 못한 것 0건"
+    // 이라는 말이 안 되는 칩이 계속 떠 있다 (실제로 그랬다).
+    await store.setMeta('flushFailed', '');
+    return { sent: 0, failed: [] };
+  }
 
   const quantityOps = rows.filter(
     (r) => r.type === 'quantity' || r.type === 'quantity-delete');
@@ -122,12 +127,14 @@ export async function flushOutbox() {
   };
 
   const onSheet = await store.sheetInventoryOn();
+  // 탭을 통째로 쓰는 종류는 "무엇을 바꿨는지" 를 함께 넘겨 시트 것과 합치게 한다.
+  const changesOf = (ops) => ops.flatMap((o) => o.changes || []);
 
   // 가이드 열람용 탭 갱신 (시트 연결 시)
   if (guidePushOps.length && onSheet) {
     await step('가이드 탭', async () => {
       const guidesheet = await import('./guidesheet.js');
-      await guidesheet.pushGuides();
+      await guidesheet.pushGuides(changesOf(guidePushOps));
       for (const op of guidePushOps) {
         await store.dequeue(op.id);
         sent += 1;
@@ -141,7 +148,7 @@ export async function flushOutbox() {
   if (fieldPushOps.length && onSheet) {
     await step('리포트 항목', async () => {
       const fieldsheet = await import('./fieldsheet.js');
-      await fieldsheet.pushFields();
+      await fieldsheet.pushFields(changesOf(fieldPushOps));
       for (const op of fieldPushOps) {
         await store.dequeue(op.id);
         sent += 1;
@@ -169,7 +176,7 @@ export async function flushOutbox() {
         let result;
         if (sheetPushOps.length) {
           // 구조 변경(차량·품목)이 있으면 탭 전체를 다시 쓴다 (수량도 함께 실린다).
-          result = await invsheet.pushInventory();
+          result = await invsheet.pushInventory(changesOf(sheetPushOps));
         } else {
           result = await invsheet.pushQuantityOps(quantityOps.map((r) => ({
             type: r.type, vehicleName: r.vehicleName, partName: r.partName,
@@ -202,6 +209,9 @@ export async function flushOutbox() {
     }
   });
 
+  // 실패가 있으면 기억해 둔다 — 상단 칩은 **이때만** 눈에 띄게 보인다.
+  // 올리기는 자동이라 정상일 때는 숫자를 보일 이유가 없다.
+  await store.setMeta('flushFailed', failed.length ? failed[0] : '');
   return { sent, failed };
 }
 

@@ -11,9 +11,13 @@ import { callAppsScript } from './sheets.js';
 
 export const isEnabled = () => store.sheetInventoryOn();
 
-/** 기기의 항목 설정을 시트로 내보낸다. */
-export async function pushFields() {
-  const items = await store.listFields();
+/**
+ * 항목 설정을 시트로 내보낸다.
+ * `changes` 가 있으면 시트 것과 합친다 (가이드와 같은 규칙). 순서는 시트 순서를
+ * 따르고, 내가 새로 만든 항목은 뒤에 붙는다.
+ */
+export async function pushFields(changes = null) {
+  const items = await mergeWithSheet(await store.listFields(), changes);
   return callAppsScript({
     fields: 'push',
     items: items.map((f) => ({
@@ -24,6 +28,33 @@ export async function pushFields() {
       isRequired: !!f.isRequired,
     })),
   }, 60000);
+}
+
+async function mergeWithSheet(local, changes) {
+  if (!changes || !changes.length) return local;
+  let sheet;
+  try { sheet = (await callAppsScript({ fields: 'pull' }, 60000)).items || []; }
+  catch { return local; }
+  if (!sheet.length) return local;
+
+  const mine = new Map(local.map((f) => [f.id, f]));
+  const touched = new Set(changes.map((c) => c.id));
+  const out = [];
+  const seen = new Set();
+  for (const row of sheet) {
+    const id = row.id;
+    if (id && seen.has(id)) continue;
+    if (id) seen.add(id);
+    if (id && touched.has(id)) {
+      if (mine.has(id)) out.push(mine.get(id));
+      continue;
+    }
+    out.push(id && mine.has(id) ? mine.get(id) : row);
+  }
+  for (const f of local) {
+    if (touched.has(f.id) && !seen.has(f.id)) out.push(f);
+  }
+  return out;
 }
 
 /**

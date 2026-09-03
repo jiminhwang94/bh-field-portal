@@ -1,31 +1,28 @@
-// [⬆ 업데이트] — 밀린 것을 구글 시트에 올리고, 최신 시트 내용을 받아온다.
+// [새로고침] — 다른 사람이 바꾼 내용을 구글 시트에서 받아온다.
 //
-// 팀이 함께 보는 원본은 **구글 시트 하나**다. 가이드·재고·리포트 이력이
-// 전부 거기 있고, 인터넷만 되면 어느 와이파이에서도 된다.
-// (예전에는 사무실 서버에도 따로 올렸는데, 시트로 이미 다 올라가고 있어
-//  하는 일이 없으면서 서버 주소를 안 넣은 기기에서는 실패만 했다. 뺐다.)
+// **올리기는 자동이다.** 재고 수량 · 리포트 · 가이드 · 항목 설정 변경은 인터넷이
+// 되는 순간 곧바로 시트로 올라간다 (오프라인이면 대기열에 쌓였다가 연결되면 올라간다).
+// 그래서 이 버튼이 하는 일은 하나 — **지금 시트에서 최신 내용을 받아오는 것.**
+// 받기도 앱으로 돌아올 때와 5분마다 조용히 자동으로 돌지만, "지금 당장" 보고 싶을 때
+// 누른다.
 //
-// 누르면 순서대로:
-//   1. 오프라인에서 쌓인 것을 전부 올린다 (리포트 · 재고 수량 · 이력 상태 · 가이드)
-//   2. 시트에서 재고 · 가이드 · 리포트 이력을 다시 받아온다
+// 예전 이름은 [⬆ 업데이트] 였다. 올리기와 받기를 다 하는 것처럼 읽혔는데 올리기는
+// 이미 자동이어서, 눌러 봐야 하는 일이 없는 것처럼 느껴졌다. 뜻을 실제 하는 일에 맞췄다.
 //
-// 그래서 현장에서 오프라인으로 일하다 인터넷이 되는 곳에서 한 번 누르면
-// 올릴 것은 올라가고 받을 것은 받아진다.
+// 상단 칩의 숫자는 **오프라인이거나 올리기가 실패했을 때만** 보인다.
+// 정상일 때 숫자가 보이면 무언가 잘못됐다는 뜻이 되어 신호가 분명하다.
 import * as sync from './sync.js';
 import * as store from './local/store.js';
 import { confirmDialog, promptDialog, toast } from './ui.js';
 
 const NAME_KEY = 'bh_device_name';
 const LAST_SYNC_KEY = 'lastSyncAt';
-const CHECK_INTERVAL_MS = 60 * 1000;
 
 let state = {
   pending: 0,          // 올릴 대기 건수 (outbox)
-  dirty: false,        // 서버에 아직 안 올린 가이드·항목 변경
+  failed: '',          // 마지막 자동 올리기가 실패했으면 그 이유
   offline: false,
   lastSyncAt: '',
-  published: { revision: 0, at: '', by: '' },
-  summary: {},
 };
 
 export const getSyncState = () => ({ ...state });
@@ -76,11 +73,10 @@ async function doRefreshState() {
  * 서버를 부르지 않고 기기 안 값만 읽으므로 아무 때나 불러도 된다.
  */
 export async function paint() {
-  // 올릴 것은 전부 대기열에 들어 있다. 예전에는 여기에 'dirty' 표시를
-  // 하나 더 얹었는데, 가이드를 고치면 대기열에도 들어가고 dirty 도 서면서
-  // **같은 변경을 두 번 셌다.** 그게 정체 모를 "올릴 내용 1건" 이었다.
+  // 올릴 것은 전부 대기열 하나에 들어 있다 (두 번 세지 않는다).
   state.pending = await store.outboxCount();
-  state.dirty = false;
+  // 올릴 것이 없으면 실패도 없는 것이다 — 지난 실패 표시가 남아 있어도 무시한다.
+  state.failed = state.pending ? ((await store.getMeta('flushFailed', '')) || '') : '';
   state.offline = !sync.isOnline();
   state.lastSyncAt = (await store.getMeta(LAST_SYNC_KEY, '')) || '';
   paintNow();
@@ -89,21 +85,25 @@ export async function paint() {
 function paintNow() {
   const chip = document.getElementById('sync-chip');
   const text = document.getElementById('sync-text');
-  const btn = document.getElementById('btn-update');
   const waiting = state.pending;
 
+  // 숫자는 오프라인이거나 올리기가 실패했을 때만 보인다.
+  // 온라인이고 대기 중이면 곧 자동으로 올라가므로 '올리는 중' 으로만 표시한다.
+  const failed = !state.offline && !!state.failed;
   if (chip) {
     chip.classList.toggle('is-offline', state.offline);
-    chip.classList.toggle('is-dirty', !state.offline && waiting > 0);
+    chip.classList.toggle('is-failed', failed);
+    chip.classList.toggle('is-dirty', !state.offline && !failed && waiting > 0);
+    chip.title = failed ? `올리지 못했습니다: ${state.failed}` : '아직 올리지 않은 내용 보기';
   }
-  if (btn) btn.classList.toggle('is-dirty', !state.offline && waiting > 0);
 
   if (!text) return;
   if (state.offline) {
-    text.textContent = waiting
-      ? `오프라인 · 올릴 것 ${waiting}건` : '오프라인';
+    text.textContent = waiting ? `오프라인 · 올릴 것 ${waiting}건` : '오프라인';
+  } else if (failed) {
+    text.textContent = `올리지 못한 것 ${waiting}건`;
   } else if (waiting) {
-    text.textContent = `올릴 내용 ${waiting}건`;
+    text.textContent = `올리는 중 ${waiting}건`;
   } else {
     text.textContent = state.lastSyncAt
       ? `시트와 같은 내용 · ${state.lastSyncAt.slice(5, 16).replace('T', ' ')}`
@@ -114,94 +114,96 @@ function paintNow() {
 // ------------------------------------------------------------------ 실행
 
 /**
- * 지금 시트와 맞춘다. 반환: 무엇을 했는지 요약.
+ * 시트에서 최신 내용을 받아온다. 밀린 것이 있으면 먼저 올린다.
  * 어느 한 단계가 실패해도 나머지는 계속한다 — 부분 성공이 아무것도 안 한 것보다 낫다.
+ *
+ * quiet=true 면 자동 실행이다 — 토스트를 띄우지 않고, 사용자가 무언가 적는 중이면
+ * 화면을 다시 그리지 않는다.
  */
-export async function runSync(btn) {
+export const runSync = (...a) => runRefresh(...a);
+export async function runRefresh(btn, { quiet = false } = {}) {
   if (!sync.isOnline()) {
-    toast('오프라인입니다. 인터넷이 되는 곳에서 다시 눌러 주세요.', 'err');
+    if (!quiet) toast('오프라인입니다. 인터넷이 되는 곳에서 다시 눌러 주세요.', 'err');
     return null;
   }
+  if (quiet && !safeToRepaint()) return null;
 
   const before = await store.outboxCount();
   let name = deviceName();
-  if (before && !name) {
+  if (before && !name && !quiet) {
     name = await ensureDeviceName();
     if (!name) return null;
   }
 
-  if (btn) { btn.disabled = true; btn.textContent = '맞추는 중…'; }
+  if (btn) { btn.disabled = true; btn.textContent = '받는 중…'; }
   const done = { uploaded: 0, sheet: false, guides: 0, guidesRemoved: 0, fields: 0 };
   const problems = [];
 
-  // 1. 밀린 것 올리기 (리포트·재고 수량·이력 상태·가이드 탭)
+  // 1. 밀린 것이 있으면 먼저 올린다 (오프라인에서 쌓인 것 · 실패했던 것)
   try {
     const result = await sync.flushOutbox();
     done.uploaded = result.sent || 0;
+    for (const f of result.failed || []) problems.push(f);
   } catch (err) {
     problems.push(`대기분 전송: ${err.message}`);
   }
 
-  // 가이드·재고·리포트는 **모두 구글 시트가 원본**이다. 예전에는 여기서
-  // 사무실 서버에도 따로 올렸는데, 시트로 이미 다 올라가고 있어 하는 일이
-  // 없었다. 서버 주소를 안 넣은 태블릿에서는 그 단계가 매번 실패해
-  // 빨간 알림만 띄웠다. 그래서 뺐다.
-
-  // 4. 시트에서 최신 자료 받기 (재고 · 가이드 · 리포트 이력)
-  try {
-    if (await store.sheetInventoryOn()) {
-      const invsheet = await import('./invsheet.js');
-      await invsheet.pullInventory();
-      await dropReportCache();       // 이력 화면이 새로 받아오게 한다
-      done.sheet = true;
-    }
-  } catch (err) {
-    problems.push(`시트 받기: ${err.message}`);
-  }
-
-  // 리포트 항목은 팀 공통 — 다른 사람이 바꾼 것을 받아 온다.
-  try {
-    if (await store.sheetInventoryOn()) {
+  // 2. 시트에서 받기 — 항목 · 재고 · 가이드 · 리포트 이력
+  const onSheet = await store.sheetInventoryOn();
+  if (onSheet) {
+    try {
       const fieldsheet = await import('./fieldsheet.js');
       const got = await fieldsheet.pullFields();
       done.fields = (got.changed || 0) + (got.added || 0) + (got.removed || 0);
-    }
-  } catch (err) {
-    problems.push(`항목 설정 받기: ${err.message}`);
-  }
+    } catch (err) { problems.push(`항목 설정 받기: ${err.message}`); }
 
-  try {
-    if (await store.sheetInventoryOn()) {
+    try {
+      const invsheet = await import('./invsheet.js');
+      await invsheet.pullInventory();
+      await dropReportCache();
+      done.sheet = true;
+    } catch (err) { problems.push(`시트 받기: ${err.message}`); }
+
+    try {
       const guidesheet = await import('./guidesheet.js');
       const got = await guidesheet.pullGuides();
       done.guides = (got.changed || 0) + (got.added || 0);
       done.guidesRemoved = got.removed || 0;
-    }
-  } catch (err) {
-    problems.push(`가이드 받기: ${err.message}`);
+    } catch (err) { problems.push(`가이드 받기: ${err.message}`); }
   }
 
   await store.setMeta('dirty', false);   // 예전 버전이 남긴 표시를 지운다
   await store.setMeta(LAST_SYNC_KEY, store.now());
   await refreshState();
-  if (btn) { btn.disabled = false; btn.textContent = '⬆ 업데이트'; }
+  if (btn) { btn.disabled = false; btn.textContent = '새로고침'; }
 
-  // 화면이 새 자료를 반영하도록 다시 그린다.
-  window.dispatchEvent(new HashChangeEvent('hashchange'));
+  // 화면이 새 자료를 반영하도록 다시 그린다 (적는 중이면 건드리지 않는다).
+  if (!quiet || safeToRepaint()) window.dispatchEvent(new HashChangeEvent('hashchange'));
 
+  if (quiet) return { ...done, problems, before };
   const parts = [];
   if (done.uploaded) parts.push(`${done.uploaded}건 올림`);
-  if (done.sheet) parts.push('시트 받음');
-  if (done.fields) parts.push(`리포트 항목 ${done.fields}건 갱신`);
-  if (done.guides) parts.push(`가이드 ${done.guides}건 갱신`);
+  if (done.fields) parts.push(`리포트 항목 ${done.fields}건`);
+  if (done.guides) parts.push(`가이드 ${done.guides}건`);
   if (done.guidesRemoved) parts.push(`중복 가이드 ${done.guidesRemoved}건 정리`);
   if (problems.length) {
     toast(`일부 실패 — ${problems[0]}`, 'err');
+  } else if (!onSheet) {
+    toast('구글 시트가 연결되어 있지 않습니다. 설정에서 먼저 연결하세요.', 'err');
   } else {
-    toast(parts.length ? `맞췄습니다 (${parts.join(' · ')})`
-                       : '이미 최신입니다. 올릴 것도 받을 것도 없습니다.', 'ok');
+    toast(parts.length ? `새로고침했습니다 (${parts.join(' · ')})` : '이미 최신입니다.', 'ok');
   }
   return { ...done, problems, before };
+}
+
+/** 사용자가 무언가 적는 중이거나 창을 열어 둔 상태면 화면을 건드리지 않는다. */
+function safeToRepaint() {
+  if (document.getElementById('modalRoot').innerHTML) return false;
+  const hash = location.hash;
+  if (hash.startsWith('#/report/') || hash.startsWith('#/guides/new')
+      || hash.startsWith('#/guides/edit')) return false;
+  const active = document.activeElement;
+  return !(active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName));
 }
 
 /** 이력 화면이 시트에서 다시 받아오도록 기기 사본을 비운다. */
@@ -217,18 +219,21 @@ async function dropReportCache() {
 /** 설정 화면에 보여 줄 한 줄 요약 */
 export function syncSummaryText() {
   const waiting = state.pending;
-  if (state.offline) return `오프라인입니다. 올릴 것 ${waiting}건이 기다리고 있습니다.`;
-  if (waiting) return `아직 올리지 않은 내용이 ${waiting}건 있습니다. [⬆ 업데이트] 를 누르세요.`;
+  if (state.offline) return `오프라인입니다. 올릴 것 ${waiting}건은 연결되면 자동으로 올라갑니다.`;
+  if (state.failed) return `올리지 못한 것이 ${waiting}건 있습니다 — ${state.failed}`;
+  if (waiting) return `${waiting}건을 올리는 중입니다.`;
   return state.lastSyncAt
-    ? `시트와 같은 내용입니다. 마지막 맞춤 ${state.lastSyncAt.replace('T', ' ')}`
-    : '아직 한 번도 맞추지 않았습니다.';
+    ? `시트와 같은 내용입니다. 마지막 새로고침 ${state.lastSyncAt.replace('T', ' ')}`
+    : '아직 한 번도 새로고침하지 않았습니다.';
 }
+
+const AUTO_REFRESH_MS = 5 * 60 * 1000;
 
 export function initSyncButton() {
   const btn = document.getElementById('btn-update');
-  if (btn) btn.addEventListener('click', () => runSync(btn));
+  if (btn) btn.addEventListener('click', () => runRefresh(btn));
 
-  // 상단바의 [올릴 내용 N건] 을 누르면 무엇이 밀려 있는지 보여 준다.
+  // 상단바의 칩을 누르면 무엇이 밀려 있는지 보여 준다.
   const chip = document.getElementById('sync-chip');
   if (chip) {
     chip.addEventListener('click', async () => {
@@ -236,10 +241,17 @@ export function initSyncButton() {
       pending.openPendingList();
     });
   }
+
   refreshState();
-  setInterval(refreshState, CHECK_INTERVAL_MS);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') refreshState();
-  });
+  setInterval(refreshState, 60 * 1000);
   sync.onNetChange(() => refreshState());
+
+  // 받기는 조용히 자동으로도 돈다 — 앱으로 돌아올 때, 그리고 5분마다.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      refreshState();
+      runRefresh(null, { quiet: true });
+    }
+  });
+  setInterval(() => runRefresh(null, { quiet: true }), AUTO_REFRESH_MS);
 }

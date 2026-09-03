@@ -46,7 +46,7 @@ export async function fieldsView(view) {
           <span class="page-head__meta">
             항목 <span class="tnum">${fields.length}</span>개 ·
             필수 <span class="tnum">${fields.filter((f) => f.isRequired).length}</span>개 ·
-            <strong>[⬆ 업데이트] 하면 팀 전체가 같은 항목을 씁니다</strong> ·
+            <strong>바꾸면 팀 전체에 자동으로 적용됩니다</strong> ·
             구글 시트의 열 순서도 이 순서를 따릅니다
           </span>
           <span class="page-head__spacer"></span>
@@ -65,8 +65,9 @@ export async function fieldsView(view) {
         </div>
 
         <p class="muted" style="font-size:.9rem;line-height:1.6">
-          ※ 항목을 바꾸면 <strong>내 화면에만</strong> 반영됩니다.
-          상단 <strong>[⬆️ 업데이트]</strong> 를 눌러야 모든 사용자에게 적용됩니다.
+          ※ 항목은 <strong>팀 공통</strong>입니다. 바꾸면 인터넷이 되는 순간 시트의
+          [리포트 항목] 탭으로 올라가 <strong>모든 기기에 자동으로 적용</strong>됩니다.
+          항목이 바뀐 뒤의 리포트는 그 달 <strong>새 탭</strong>에 이어 쌓입니다.
         </p>
       </div>`;
 

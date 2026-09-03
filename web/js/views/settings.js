@@ -37,6 +37,11 @@ export async function settingsView(view) {
   const state = getSyncState();
   const install = installStateLabel();
   const waiting = state.pending;
+  // 기기에 담긴 자료 규모 — 예전에는 서버가 세어 주었는데, 이제 기기 안에서 직접 센다.
+  const [guideCount, itemCount] = await Promise.all([
+    api.listGuides().then((r) => r.items.length).catch(() => 0),
+    api.listInventory().then((r) => r.items.length).catch(() => 0),
+  ]);
 
   view.innerHTML = `
     <div id="pageRoot">
@@ -109,7 +114,7 @@ export async function settingsView(view) {
         <h2 class="panel__title">리포트 항목 설정</h2>
         <p class="muted" style="margin:0 0 14px;line-height:1.65">
           리포트 입력 항목과 구글 시트 열 순서를 정합니다.
-          <strong>항목은 팀 공통</strong>입니다 — [⬆ 업데이트] 하면 시트의
+          <strong>항목은 팀 공통</strong>입니다 — 바꾸면 자동으로 시트의
           [리포트 항목] 탭을 통해 <strong>모든 기기가 같은 항목</strong>을 씁니다.
           항목이 바뀌면 그 달 리포트는 <strong>새 탭</strong>에 이어 쌓이고,
           이미 쌓인 줄은 그대로 남습니다.
@@ -118,21 +123,22 @@ export async function settingsView(view) {
       </div>
 
       <div class="panel">
-        <h2 class="panel__title">업데이트 — 시트와 맞추기</h2>
+        <h2 class="panel__title">새로고침 — 다른 사람 변경 받기</h2>
         <p class="muted" style="margin:0 0 14px;line-height:1.65">
-          오프라인에서 작성한 리포트·재고 변경·이력 상태를 <strong>구글 시트로 올리고</strong>,
-          이어서 <strong>시트의 최신 내용을 받아옵니다.</strong>
-          현장에서 일하다 인터넷이 되는 곳에서 한 번만 누르면 됩니다.
+          <strong>올리기는 자동</strong>입니다 — 재고·리포트·가이드·항목 변경은 인터넷이 되는
+          순간 곧바로 시트로 올라갑니다 (오프라인이면 쌓였다가 연결되면 올라갑니다).
+          이 버튼은 <strong>다른 사람이 바꾼 내용을 지금 받아오는</strong> 것입니다.
+          앱으로 돌아올 때와 5분마다 자동으로도 받아옵니다.
         </p>
         <div class="row" style="gap:8px;margin-bottom:14px">
-          <span class="badge ${waiting ? 'badge--warn' : 'badge--ok'}">
-            ${waiting ? `올릴 내용 ${waiting}건` : '시트와 같은 내용'}
+          <span class="badge ${state.failed ? 'badge--danger' : (waiting ? 'badge--warn' : 'badge--ok')}">
+            ${state.failed ? `올리지 못한 것 ${waiting}건` : (waiting ? `올리는 중 ${waiting}건` : '시트와 같은 내용')}
           </span>
         </div>
         <p class="muted" style="margin:0 0 14px;font-size:.9rem">${h(syncSummaryText())}</p>
         <div class="row">
           <button class="btn ${waiting ? 'btn--pending' : 'btn-primary'}"
-                  data-act="do-publish" type="button">⬆ 지금 맞추기</button>
+                  data-act="do-publish" type="button">새로고침</button>
         </div>
 
         <div class="divider"></div>
@@ -179,8 +185,8 @@ export async function settingsView(view) {
           <span class="badge ${isOnline() ? 'badge--ok' : 'badge--warn'}">
             ${isOnline() ? '🟢 온라인' : '📴 오프라인'}
           </span>
-          <span class="badge">기기 보관 가이드 ${state.summary.guides || 0}건</span>
-          <span class="badge">재고 ${state.summary.inventoryItems || 0}종</span>
+          <span class="badge">기기 보관 가이드 ${guideCount}건</span>
+          <span class="badge">재고 ${itemCount}종</span>
           ${settings.pendingCount ? `<span class="badge badge--warn">
             대기 작업 ${settings.pendingCount}건</span>` : ''}
         </div>
@@ -188,7 +194,7 @@ export async function settingsView(view) {
           <li>가이드 열람·검색·수정, 리포트 작성, 재고 수정은 <strong>인터넷 없이 전부</strong> 됩니다.</li>
           <li>오프라인에서 누른 시트 업로드와 재고 수량 변경은 <strong>대기열에 쌓였다가
               연결되면 자동 처리</strong>됩니다.</li>
-          <li><strong>[⬆️ 업데이트]</strong>(팀과 내용 주고받기)는 인터넷만 되면
+          <li><strong>올리기·받기</strong>는 인터넷만 되면
               <strong>어느 와이파이에서도</strong> 됩니다. 따로 등록할 주소는 없습니다.</li>
         </ul>
       </details>

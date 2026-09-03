@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <!-- 상단바 색과 맞춘다 — 밝을 땐 흰 상단바, 어두울 땐 잉크색 -->
-  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-  <meta name="theme-color" content="#0b0d12" media="(prefers-color-scheme: dark)" />
+  <!-- 앱은 항상 흰 바탕이다 (다크 모드 없음) -->
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="color-scheme" content="light" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="현장 포털" />
@@ -18,13 +18,11 @@
 <body>
 <div class="app">
 
-  <!-- 상단바 : 브랜드 · 동기화 상태(항상 노출) · [⬆ 업데이트] -->
+  <!-- 상단바 : 브랜드 · 동기화 상태(항상 노출) · [새로고침] -->
   <header class="topbar">
     <button class="btn btn--icon btn--ghost" id="backBtn" type="button" aria-label="뒤로"
             hidden>‹</button>
-    <a class="topbar__brand" href="#/">비욘드허니컴</a>
-    <span class="page-head__meta">현장 포털</span>
-    <span class="topbar__rule"></span>
+    <a class="topbar__brand" href="#/">비욘드허니컴 현장 포털</a>
     <button class="sync" id="sync-chip" type="button"
             title="아직 올리지 않은 내용 보기">
       <span class="sync__dot"></span>
@@ -32,7 +30,7 @@
     </button>
     <span class="topbar__spacer"></span>
     <button class="btn btn-primary btn-update" id="btn-update" type="button"
-            title="밀린 것을 구글 시트에 올리고 최신 내용을 받아옵니다">⬆ 업데이트</button>
+            title="다른 사람이 바꾼 내용을 지금 받아옵니다 (올리기는 자동)">새로고침</button>
   </header>
 
   <!-- 오프라인일 때만 표시 (net.js 가 토글) -->
@@ -43,8 +41,9 @@
 
   <main id="view" class="screen" aria-live="polite"></main>
 
-  <!-- 하단 탭바 5개 -->
+  <!-- 좌측 레일 (좁은 화면에서는 하단 탭바) -->
   <nav class="tabbar" aria-label="주요 화면">
+    <span class="tabbar__mark" aria-hidden="true"></span>
     <a class="tab" data-tab="home" href="#/">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg>
       <span>홈</span>

@@ -205,23 +205,31 @@ export function when(value, { time = true } = {}) {
  * 쓰는 법: `<img data-media="/media/xxx.jpg" />` 로 그린 뒤 hydrateMedia(root).
  */
 export async function hydrateMedia(root = document) {
-  const imgs = root.querySelectorAll('img[data-media]:not([data-media-done])');
-  if (!imgs.length) return;
+  // 사진(img) · 영상(video) · "열어 보기" 링크(a) 를 한꺼번에 채운다.
+  const nodes = root.querySelectorAll(
+    'img[data-media]:not([data-media-done]),'
+    + 'video[data-media]:not([data-media-done]),'
+    + 'a[data-media]:not([data-media-done])');
+  if (!nodes.length) return;
   const [store, sync] = await Promise.all([
     import('./local/store.js'), import('./sync.js'),
   ]);
-  for (const img of imgs) {
-    img.setAttribute('data-media-done', '1');
-    const raw = img.dataset.media || '';
+  const base = await sync.serverBase();
+  for (const el of nodes) {
+    el.setAttribute('data-media-done', '1');
+    const raw = el.dataset.media || '';
     const filename = raw.split('/').pop();
+    let url = '';
     try {
       const blob = await store.getMediaBlob(filename);
-      if (blob) { img.src = URL.createObjectURL(blob); continue; }
+      if (blob) url = URL.createObjectURL(blob);
     } catch { /* 아래에서 서버 경로로 시도한다 */ }
-    // 기기에 없다 — 서버에 있으면 거기서 받는다.
-    const base = await sync.serverBase();
-    if (base) img.src = base + raw;
-    else img.replaceWith(brokenNote());
+    // 기기에 없다 — 웹으로 접속했으면 그 주소에서 받아 본다.
+    if (!url && base) url = base + raw;
+
+    if (!url) { el.replaceWith(brokenNote()); continue; }
+    if (el.tagName === 'A') el.href = url;
+    else el.src = url;
   }
 }
 

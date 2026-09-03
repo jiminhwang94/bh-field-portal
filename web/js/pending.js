@@ -9,6 +9,19 @@ import * as store from './local/store.js';
 import * as idb from './local/idb.js';
 import { closeModal, h, openSheet, toast, when } from './ui.js';
 
+/** changes 를 "만듦 N · 고침 N · 지움 N" 으로 요약한다. */
+function summarize(changes) {
+  let created = 0; let touched = 0;
+  for (const c of changes || []) {
+    if (c.before === null || c.before === undefined) created += 1;
+    else touched += 1;
+  }
+  const parts = [];
+  if (created) parts.push(`새로 만듦 ${created}`);
+  if (touched) parts.push(`고치거나 지움 ${touched}`);
+  return parts.join(' · ') || '변경';
+}
+
 /** 대기열 한 줄을 사람이 읽을 수 있게 풀어 쓴다. */
 async function describe(op) {
   if (op.type === 'sheet') {
@@ -17,72 +30,125 @@ async function describe(op) {
       title: report ? report.title : '리포트',
       what: '구글 시트에 올릴 리포트',
       goto: report ? `#/reports/${report.id}` : '#/reports',
-      undoLabel: '올리기 취소',
-      undoNote: '리포트는 기기에 그대로 남습니다. 나중에 다시 올릴 수 있습니다.',
+      undoLabel: '작성 취소',
+      // 아직 올리지 않은 리포트는 이 기기에만 있다. 올리기를 취소한다는 것은
+      // 그 리포트를 없던 일로 하는 것 — 리포트도 함께 지운다.
+      undoNote: '이 리포트를 지웁니다. 아직 시트에 올라가지 않았던 것입니다.',
     };
   }
   if (op.type === 'quantity') {
-    const moved = op.before === null || op.before === undefined
-      ? `${op.quantity}개로 설정`
-      : `${op.before}개 → ${op.quantity}개`;
+    const known = op.before !== null && op.before !== undefined;
     return {
       title: `${op.partName} · ${op.vehicleName}`,
-      what: `재고 수량 ${moved}`,
+      what: `재고 수량 ${known ? `${op.before}개 → ${op.quantity}개` : `${op.quantity}개로 설정`}`,
       goto: '#/inventory',
       undoLabel: '되돌리기',
-      undoNote: op.before === null || op.before === undefined
-        ? '이 변경만 취소합니다.'
-        : `수량을 ${op.before}개로 되돌립니다.`,
+      undoNote: known ? `수량을 ${op.before}개로 되돌립니다.` : '이 변경만 취소합니다.',
     };
   }
   if (op.type === 'quantity-delete') {
     return {
       title: `${op.partName} · ${op.vehicleName}`,
-      what: '재고 품목 삭제',
+      what: '재고 품목 삭제 (수량 칸)',
       goto: '#/inventory',
       undoLabel: '올리기 취소',
-      undoNote: '시트에서 지우지 않습니다. 기기 화면은 그대로입니다.',
+      undoNote: '이 항목만 대기열에서 뺍니다. 품목 되돌리기는 [재고 구성] 줄에서 하세요.',
     };
   }
   if (op.type === 'report-status') {
+    const known = op.before !== null && op.before !== undefined;
     return {
       title: `${op.sheetName} 시트 ${op.row}행`,
       what: `이력 상태 → ${op.status}`,
       goto: '#/reports',
       undoLabel: '되돌리기',
-      undoNote: '상태 변경을 취소합니다. 시트의 값은 그대로입니다.',
+      undoNote: known ? `상태를 '${op.before}' 로 되돌립니다.` : '상태 변경을 취소합니다.',
     };
   }
   if (op.type === 'invsheet-push') {
-    return { title: '재고 전체', what: '차량·품목 구성을 시트에 반영',
-             goto: '#/inventory', undoLabel: '올리기 취소',
-             undoNote: '기기 화면은 그대로입니다. 시트에만 반영하지 않습니다.' };
+    return { title: '재고 구성 (차량 · 품목)', what: summarize(op.changes),
+             goto: '#/inventory', undoLabel: '되돌리기',
+             undoNote: '차량·품목을 바꾸기 전으로 되돌립니다. 새로 만든 것은 지웁니다.' };
   }
   if (op.type === 'guidesheet-push') {
-    return { title: '가이드 전체', what: '가이드를 시트에 반영',
-             goto: '#/', undoLabel: '올리기 취소',
-             undoNote: '기기 화면은 그대로입니다. 시트에만 반영하지 않습니다.' };
+    return { title: '가이드', what: summarize(op.changes),
+             goto: '#/', undoLabel: '되돌리기',
+             undoNote: '가이드를 바꾸기 전으로 되돌립니다. 새로 만든 것은 지웁니다.' };
+  }
+  if (op.type === 'fieldsheet-push') {
+    return { title: '리포트 항목 설정', what: summarize(op.changes),
+             goto: '#/fields', undoLabel: '되돌리기',
+             undoNote: '항목 설정을 바꾸기 전으로 되돌립니다. 새로 만든 것은 지웁니다.' };
   }
   return { title: op.type, what: '올릴 내용', goto: '', undoLabel: '취소',
            undoNote: '이 작업만 대기열에서 뺍니다.' };
 }
 
+/** changes 목록을 그대로 거꾸로 적용한다 — before 가 있으면 되살리고, 없으면 지운다. */
+async function restoreRows(storeName, changes) {
+  for (const c of changes || []) {
+    if (c.before) await idb.put(storeName, c.before);
+    else await idb.remove(storeName, c.id);
+  }
+}
+
 /**
  * 대기열의 한 건을 취소한다. **바꾸기 전 내용으로 되돌린다.**
- * 자료 자체를 지우지는 않는다.
+ * 새로 만든 것은 지운다 — 오프라인에서 만들고 올리기를 취소했으면
+ * 그 자료가 남아 있을 이유가 없다.
  */
 async function undo(op) {
   if (op.type === 'quantity' && op.before !== null && op.before !== undefined) {
-    // 수량을 바꾸기 전 값으로 되돌린다. 되돌리는 것 자체는 새 대기 건을
-    // 만들지 않는다 — 시트는 아직 이 변경을 받지 못했으므로 맞출 것이 없다.
     const key = store.qtyKey(op.vehicleName, op.partName);
     const row = await idb.get('quantities', key);
     if (row) await idb.put('quantities', { ...row, quantity: op.before });
   }
   if (op.type === 'sheet') {
-    // 리포트는 남기고 '올리는 중' 표시만 되돌린다.
-    await store.markReport(op.reportId, { status: 'DRAFT', errorMessage: null })
-      .catch(() => {});
+    await store.deleteReport(op.reportId).catch(() => {});
+  }
+  if (op.type === 'report-status') {
+    const reportsheet = await import('./reportsheet.js');
+    await reportsheet.restoreStatusCache(op.sheetName, op.row, op.before);
+  }
+  if (op.type === 'guidesheet-push') {
+    await restoreRows('guides', op.changes);
+    await store.pruneOrphanMedia();
+  }
+  if (op.type === 'fieldsheet-push') {
+    await restoreRows('fields', op.changes);
+  }
+  if (op.type === 'invsheet-push') {
+    for (const c of op.changes || []) {
+      if (c.kind === 'vehicle') {
+        if (c.before) await idb.put('vehicles', c.before);
+        else await idb.remove('vehicles', c.id);
+        continue;
+      }
+      // 품목 — 재고 행과 수량 칸을 함께 되돌린다
+      if (c.before) {
+        const { quantity, ...row } = c.before;
+        await idb.put('inventory', row);
+        await idb.put('quantities', {
+          key: store.qtyKey(row.vehicleName, row.partName),
+          vehicleName: row.vehicleName, partName: row.partName,
+          quantity: Number(quantity) || 0, updatedAt: store.now(),
+        });
+      } else {
+        const row = await idb.get('inventory', c.id);
+        await idb.remove('inventory', c.id);
+        if (row) await idb.remove('quantities', store.qtyKey(row.vehicleName, row.partName));
+      }
+    }
+    // 품목을 되살렸으니, 그 품목의 '수량 칸 지우기' 대기도 함께 뺀다.
+    const restored = new Set((op.changes || [])
+      .filter((c) => c.kind === 'item' && c.before)
+      .map((c) => store.qtyKey(c.before.vehicleName, c.before.partName)));
+    for (const other of await store.outbox()) {
+      if (other.type === 'quantity-delete'
+          && restored.has(store.qtyKey(other.vehicleName, other.partName))) {
+        await store.dequeue(other.id);
+      }
+    }
   }
   await store.dequeue(op.id);
 }
@@ -132,15 +198,34 @@ export async function openPendingList() {
   const body = openSheet(`올릴 내용 ${ops.length}건`, `
     <p class="muted" style="margin:0 0 var(--space-3);line-height:1.6">
       아직 구글 시트에 올라가지 않은 것들입니다.
-      <strong>[⬆ 업데이트]</strong> 를 누르면 한꺼번에 올라갑니다.<br />
+      <strong>인터넷이 연결되면 자동으로</strong> 올라갑니다.<br />
       고칠 것이 있으면 항목을 누르고, 올리고 싶지 않으면 오른쪽 버튼을 누르세요
-      — <strong>취소해도 기기의 내용은 그대로 남습니다.</strong>
+      — <strong>바꾸기 전으로 되돌리고, 새로 만든 것은 지웁니다.</strong>
     </p>
     <div id="pendingRows">${ops.map((op, i) => rowHtml(op, infos[i], i, false)).join('')}</div>`);
+
+  // 되돌린 것이 있으면 시트가 **닫힐 때** 뒤 화면을 다시 그린다.
+  // 되돌릴 때마다 그리면 라우터가 창을 닫아 버려(render → closeModal)
+  // 두 번째 되돌리기를 할 수 없다 — 실제로 그랬다.
+  let changed = false;
+  const modal = body.closest('.modal');
+  if (modal) {
+    modal.addEventListener('click', (ev) => {
+      if ((ev.target.dataset.close || ev.target.dataset.act === 'close') && changed) {
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }
+    });
+  }
+  function closeAndRepaint() {
+    closeModal();
+    if (changed) window.dispatchEvent(new HashChangeEvent('hashchange'));
+  }
 
   function paintRows() {
     const box = body.querySelector('#pendingRows');
     if (box) box.innerHTML = ops.map((op, i) => rowHtml(op, infos[i], i, i === asking)).join('');
+    const title = modal && modal.querySelector('.modal__title');
+    if (title) title.textContent = `올릴 내용 ${ops.length}건`;
   }
 
   body.addEventListener('click', async (ev) => {
@@ -154,7 +239,8 @@ export async function openPendingList() {
 
     if (act === 'goto') {
       closeModal();
-      if (info.goto) location.hash = info.goto;
+      if (info.goto && location.hash !== info.goto) location.hash = info.goto;
+      else if (changed) window.dispatchEvent(new HashChangeEvent('hashchange'));
       return;
     }
     if (act === 'undo-ask') { asking = idx; paintRows(); return; }
@@ -165,11 +251,11 @@ export async function openPendingList() {
       ops.splice(idx, 1);
       infos.splice(idx, 1);
       asking = -1;
+      changed = true;
       const syncnow = await import('./syncnow.js');
       await syncnow.paint();
-      toast('취소했습니다. 기기의 내용은 그대로입니다.', 'ok');
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-      if (!ops.length) { closeModal(); return; }
+      toast(op.type === 'sheet' ? '리포트를 지웠습니다.' : '되돌렸습니다.', 'ok');
+      if (!ops.length) { closeAndRepaint(); return; }
       paintRows();
     }
   });

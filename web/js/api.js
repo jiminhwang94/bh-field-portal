@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.8.0';
+export const APP_VERSION = '3.9.0';
 
 export const deviceId = sync.deviceId;
 
@@ -148,9 +148,7 @@ export const api = {
     return {
       sheets_webapp_url: settings.sheetsWebappUrl,
       sheets_spreadsheet_id: settings.sheetsSpreadsheetId,
-      site_url: settings.serverUrl,
       device_name: settings.deviceName,
-      server_url: settings.serverUrl,
       sheetsReady: Boolean((settings.sheetsWebappUrl || '').trim()),
       spreadsheetUrl: spreadsheetUrl(settings),
       pendingCount: await store.outboxCount(),
@@ -162,8 +160,6 @@ export const api = {
       sheetsWebappUrl: payload.sheets_webapp_url,
       sheetsSpreadsheetId: payload.sheets_spreadsheet_id === undefined
         ? undefined : extractSpreadsheetId(payload.sheets_spreadsheet_id),
-      serverUrl: payload.server_url !== undefined ? payload.server_url
-        : payload.site_url,
       deviceName: payload.device_name,
     });
     return this.getSettings();

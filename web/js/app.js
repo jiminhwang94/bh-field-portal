@@ -6,7 +6,6 @@ import { inventoryView } from './views/inventory.js';
 import { fieldsView } from './views/fields.js';
 import { reportFormView, reportListView, reportDetailView } from './views/report.js';
 import { settingsView } from './views/settings.js';
-import { initUpdateWatcher } from './update.js';
 import { initSyncButton } from './syncnow.js';
 import { initInstallBanner } from './install.js';
 import { initNetStatus, ensureFirstData } from './net.js';
@@ -254,17 +253,16 @@ $('#backBtn').addEventListener('click', () => {
 window.addEventListener('hashchange', render);
 
 (async () => {
-  await ensureFirstData();     // 처음 실행이면 서버에서 자료를 한 번 받는다
+  await ensureFirstData();     // 붙박이 항목을 넣고, 시트가 있으면 최신 자료를 받는다
   render();
 })();
 registerServiceWorker();       // 오프라인에서 앱이 열리도록
 initNetStatus();               // 📴 오프라인 표시 + 대기 작업 자동 처리
 initSyncButton();
-initUpdateWatcher();
 initInstallBanner();
 showFirstRunGuide();
 
-/** 처음 쓰는 사람에게 [업데이트] 개념을 1회만 설명한다. */
+/** 처음 쓰는 사람에게 "올리기는 자동, 새로고침은 받기" 를 1회만 설명한다. */
 function showFirstRunGuide() {
   const KEY = 'bh_intro_done';
   if (localStorage.getItem(KEY)) return;
@@ -272,26 +270,26 @@ function showFirstRunGuide() {
     if (localStorage.getItem(KEY) || document.querySelector('.modal')) return;
     const body = openSheet('처음 오셨네요 👋', `
       <p class="muted" style="margin:0 0 14px;line-height:1.7">
-        이 앱은 <strong>가이드·재고·항목</strong>을 팀이 함께 씁니다.
+        이 앱은 <strong>가이드·재고·리포트·항목</strong>을 팀이 구글 시트 하나로 함께 씁니다.
         딱 두 가지만 알면 됩니다.
       </p>
       <div class="sub-card" style="margin-bottom:10px">
-        <strong>1️⃣ 내가 고친 내용은 처음엔 나만 보입니다</strong>
+        <strong>1️⃣ 내가 고친 내용은 자동으로 올라갑니다</strong>
         <p class="muted" style="margin:6px 0 0;font-size:.9rem">
-          가이드를 추가·수정·삭제하면 우선 내 화면에만 반영돼요. 마음껏 정리해도 괜찮습니다.
+          가이드·재고·리포트·항목을 바꾸면 인터넷이 되는 순간 바로 시트로 올라가요.
+          따로 누를 것이 없습니다. 오프라인이면 쌓였다가 연결되면 올라갑니다.
         </p>
       </div>
-      <div class="sub-card" style="margin-bottom:10px;border-color:var(--pending)">
-        <strong>2️⃣ 상단 [⬆️ 업데이트] 를 누르면 모두에게 적용됩니다</strong>
+      <div class="sub-card" style="margin-bottom:10px">
+        <strong>2️⃣ 상단 [새로고침] 은 다른 사람이 바꾼 것을 받아옵니다</strong>
         <p class="muted" style="margin:6px 0 0;font-size:.9rem">
-          올릴 내용이 있으면 버튼이 <span style="color:var(--pending);font-weight:800">노란색</span>으로
-          바뀝니다. 다른 사람이 업데이트한 내용은 자동으로 받아옵니다.
+          앱으로 돌아올 때와 5분마다 자동으로도 받아와요. 지금 당장 보고 싶을 때 누르세요.
         </p>
       </div>
       <div class="sub-card">
-        <strong>💡 재고 수량은 예외 — 바로 공유됩니다</strong>
+        <strong>💡 상단의 작은 칩은 밀린 것이 있을 때만 숫자를 보입니다</strong>
         <p class="muted" style="margin:6px 0 0;font-size:.9rem">
-          부품을 쓰고 [−] 를 누르면 즉시 모두에게 반영돼요. (품목·차량 추가·삭제는 [업데이트] 대상)
+          오프라인이거나 올리기가 실패했을 때예요. 누르면 무엇이 밀려 있는지 보고, 되돌릴 수 있습니다.
         </p>
       </div>
       <div class="form-actions">

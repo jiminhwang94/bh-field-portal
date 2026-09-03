@@ -25,16 +25,10 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: 문법 검사 (외부 의존성 없음)
-        run: python -m compileall -q server.py app tools tests
+        run: python -m compileall -q server.py tools tests
 
       - name: 오프라인 실행 보장 (서비스워커 캐시 목록)
         run: python tests/test_offline_shell.py
-
-      - name: 기기 ↔ 서버 동기화 모델 테스트
-        run: python tests/test_sync_model.py
-
-      - name: 구글 시트 전송 검사
-        run: python tests/test_sheets_relay.py
 
       - name: 리포트 이력 계약 검사
         run: python tests/test_report_history.py
@@ -54,28 +48,5 @@ jobs:
       - name: 화면 코드가 브라우저에서 읽히는지 검사
         run: node --experimental-vm-modules tests/test_js_parses.mjs
 
-      - name: APK 앱 ↔ 서버 연결 규칙 테스트
-        run: python tests/test_apk_cors.py
-
-      - name: 서버 API 스모크 테스트
-        env:
-          BH_DATA_DIR: /tmp/ci-data
-        run: |
-          python server.py --port 8788 --host 127.0.0.1 &
-          for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:8788/api/version > /dev/null && break
-            sleep 0.5
-          done
-          python tests/test_api_smoke.py
-
-      - name: 동시 업데이트 덮어쓰기 방지 검사
-        env:
-          BH_DATA_DIR: /tmp/ci-conflict
-          BH_TEST_BASE: http://127.0.0.1:8793
-        run: |
-          python server.py --port 8793 --host 127.0.0.1 &
-          for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:8793/api/version > /dev/null && break
-            sleep 0.5
-          done
-          python tests/test_publish_conflict.py
+      - name: 화면 서버 검사 (화면 파일만 내주는지)
+        run: python tests/test_static_host.py

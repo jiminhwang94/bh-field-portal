@@ -19,11 +19,11 @@
   /* 면 */
   --color-bg: #ffffff;
   --color-surface: #f7f8fa;      /* 상단바 · 탭바 · 옅은 면 */
-  --color-surface-2: #f0f2f6;    /* 코드 블록 · 눌린 면 */
-  --color-text: #0b0d12;         /* 검정 (잉크) */
-  --color-muted: #5b6472;        /* 보조 텍스트 */
-  --color-border: #e3e6ec;       /* 1px 경계 */
-  --color-border-strong: #cbd1db;
+  --color-surface-2: #f4f6f9;    /* 코드 블록 · 눌린 면 */
+  --color-text: #16181d;         /* 검정 (잉크) */
+  --color-muted: #6b7280;        /* 보조 텍스트 */
+  --color-border: #e6e8ee;       /* 1px 경계 */
+  --color-border-strong: #dfe3ea;
 
   /* 코발트 블루 — 브랜드 강조색 */
   --color-accent: #0047ab;
@@ -40,7 +40,7 @@
   --color-ok-tint: #eaf6f0;
   /* 삭제 등 되돌릴 수 없는 동작에만. 넓은 면을 칠하지 않는다. */
   --color-danger: #b4231f;
-  --color-danger-tint: #fdeceb;
+  --color-danger-tint: #fdf7f6;
 
   /* 서체 — Pretendard 하나로 한글·라틴·숫자 모두 */
   --font-body: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -56,17 +56,17 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  --radius-sm: 6px;
+  --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-pill: 999px;
 
-  --shadow-sm: 0 1px 2px rgba(11, 13, 18, 0.06);
-  --shadow-md: 0 4px 16px rgba(11, 13, 18, 0.08);
-  --shadow-lg: 0 16px 40px rgba(11, 13, 18, 0.12);
+  --shadow-sm: 0 1px 2px rgba(16, 18, 23, .05);
+  --shadow-md: 0 4px 16px rgba(16, 18, 23, .08);
+  --shadow-lg: 0 16px 40px rgba(16, 18, 23, .14);
 
   /* 앱 셸 치수 */
-  --topbar-h: 64px;
+  --topbar-h: 66px;
   --tabbar-h: 84px;
   --touch-lg: 88px;  /* 검색 입력대 */
   --touch-md: 64px;  /* 코드 · 수량 버튼 */
@@ -86,39 +86,16 @@
   --color-accent-700: var(--color-accent);
   --color-accent-800: var(--color-accent-hover);
   --color-accent-900: var(--color-accent-press);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #0b0d12;
-    --color-surface: #12151c;
-    --color-surface-2: #191d26;
-    --color-text: #f3f5f9;
-    --color-muted: #98a1b0;
-    --color-border: #242a35;
-    --color-border-strong: #333b48;
-
-    --color-accent: #5b8bff;
-    --color-accent-hover: #7aa2ff;
-    --color-accent-press: #4a76e6;
-    --color-accent-tint: #121a2e;
-    --color-accent-tint-2: #1a2645;
-    --color-on-accent: #06101f;
-
-    --color-warn: #f0b45e;
-    --color-warn-tint: #1d1608;
-    --color-ok: #4ad395;
-    --color-ok-tint: #0d2419;
-    --color-danger: #ff7a72;
-    --color-danger-tint: #2a1211;
-
-    --color-neutral-500: #6b7480;
-    --color-neutral-800: #cdd3dc;
-
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.55);
-    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
-  }
+  /* 디자인 1c 에서 새로 들어온 토큰 */
+  --color-faint: #8a919e;
+  --color-hairline: #eef0f4;
+  --color-danger-tint-2: #f6e2df;
+  --color-danger-border: #f0d9d6;
+  --radius-xl: 16px;
+  --shadow-accent: 0 1px 2px rgba(0, 71, 171, .3);
+  --rail-w: 104px;
+  --rail-item-h: 76px;
 }
 
 /* ── 2. 기본 ─────────────────────────────────────────────────────────── */
@@ -1060,3 +1037,333 @@ img { display: block; max-width: 100%; }
   border: 0; border-radius: var(--radius-md);
   background: #000;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   비욘드허니컴 현장 포털 — 디자인 1c "좌측 레일" 적용 레이어
+   ──────────────────────────────────────────────────────────────────────────
+   붙여넣는 방법
+   1) web/css/app.css 의 `@media (prefers-color-scheme: dark) { … }` 블록을
+      **통째로 삭제**한다. (다크 배경 제거 — 앱은 항상 흰 바탕)
+   2) 이 파일 내용을 web/css/app.css **맨 끝에 붙인다.**
+      (같은 특정도의 규칙은 나중에 나온 것이 이기므로 기존 규칙을 덮어쓴다)
+   3) index.html / views/inventory.js 의 작은 수정은 ../README.md 의
+      「필요한 마크업 수정」 절을 따른다.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+
+/* ── 2. 앱 셸 — 하단 탭바를 좌측 세로 레일로 ─────────────────────────
+   index.html 의 DOM 순서(topbar → offline-banner → main → nav.tabbar)를
+   그대로 두고 grid 배치만 바꾼다. app.js 는 손대지 않는다. */
+.app {
+  height: 100%;
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--color-bg);
+}
+.topbar         { grid-column: 2; grid-row: 1; }
+.offline-banner { grid-column: 2; grid-row: 2; }
+.screen         { grid-column: 2; grid-row: 3; }
+.tabbar         { grid-column: 1; grid-row: 1 / -1; }
+
+.tabbar {
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 16px 10px;
+  background: var(--color-surface);
+  border-top: 0;
+  border-right: 1px solid var(--color-border);
+}
+/* 레일 머리의 브랜드 마크 (index.html 에 추가하는 .tabbar__mark) */
+.tabbar__mark {
+  flex: none;
+  height: 44px;
+  margin-bottom: 10px;
+  display: grid;
+  place-items: center;
+}
+.tabbar__mark::before {
+  content: "";
+  width: 11px; height: 11px;
+  background: var(--color-accent);
+  border-radius: 2px;
+}
+.tab {
+  height: var(--rail-item-h);
+  gap: 7px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.tab:hover { background: rgba(16, 18, 23, .04); color: var(--color-text); }
+.tab[aria-current="page"] {
+  background: var(--color-bg);
+  box-shadow: 0 1px 2px rgba(16, 18, 23, .08);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.tab[aria-current="page"]::before { content: none; }   /* 상단 막대 제거 */
+.tab svg { width: 24px; height: 24px; stroke-width: 1.7; }
+/* [설정]은 레일 맨 아래로 내려 붙인다 */
+.tab[data-tab="settings"] { margin-top: auto; }
+
+/* ── 3. 상단바 ───────────────────────────────────────────────────────── */
+.topbar {
+  height: var(--topbar-h);
+  gap: 14px;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--color-hairline);
+}
+.topbar__brand { font-size: 17px; font-weight: 600; letter-spacing: -.025em; }
+.topbar__brand::before { content: none; }   /* 마크는 레일이 갖는다 */
+.topbar__rule { display: none; }
+.topbar .btn--icon {
+  min-width: 40px; min-height: 40px;
+  border: 0; border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  color: var(--color-muted);
+  font-size: 18px;
+}
+.topbar .btn--icon:hover { background: var(--color-accent-tint); color: var(--color-accent); }
+
+.sync {
+  flex: none;
+  white-space: nowrap;
+  height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+.sync__dot { width: 7px; height: 7px; background: var(--color-ok); }
+.sync:hover { background: var(--color-border); }
+.sync.is-dirty { background: var(--color-accent-tint); color: var(--color-accent); font-weight: 600; }
+.sync.is-dirty .sync__dot { background: var(--color-accent); }
+.sync.is-offline { background: var(--color-warn-tint); color: var(--color-warn); }
+
+.btn-update {
+  flex: none;
+  white-space: nowrap;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+  font-size: 15px;
+  box-shadow: var(--shadow-accent);
+}
+.btn-update:hover { background: var(--color-accent-hover); border-color: var(--color-accent-hover); }
+
+/* ── 4. 버튼 · 입력 공통 ─────────────────────────────────────────────── */
+.btn { border-radius: var(--radius-md); }
+.btn-primary, .btn--primary, .btn--pending {
+  background: var(--color-accent); border-color: var(--color-accent);
+  color: var(--color-on-accent); box-shadow: var(--shadow-accent);
+}
+.btn-secondary, .btn--secondary, .btn--ghost {
+  background: var(--color-bg); border-color: var(--color-border-strong);
+  color: var(--color-text); box-shadow: none;
+}
+.btn-secondary:hover, .btn--secondary:hover, .btn--ghost:hover { background: var(--color-surface); }
+.input, .select, .textarea, textarea.input {
+  border-color: var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+.input:focus-visible, .textarea:focus-visible {
+  box-shadow: 0 0 0 3px var(--color-accent-tint);
+}
+
+/* ── 5. 화면 여백 ────────────────────────────────────────────────────── */
+.screen { padding: 26px 28px; gap: 22px; }
+.page-head__title { font-size: 24px; letter-spacing: -.025em; }
+
+/* ── 6. 홈 — 검색대 · 코드 버튼 · 현황 패널 ─────────────────────────── */
+.search-row .input {
+  min-height: 76px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  font-size: 22px;
+}
+.search-row .btn {
+  min-height: 76px; min-width: 140px;
+  border-radius: var(--radius-lg);
+  font-size: 18px;
+}
+.code-grid { gap: 10px; }
+.code-btn {
+  min-height: 62px;
+  border-radius: var(--radius-lg);
+  border-color: var(--color-border-strong);
+  font-size: 17px; font-weight: 600;
+}
+.code-btn:hover { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-tint); }
+
+/* 카드/패널은 둥근 흰 판 + 아주 옅은 그림자 */
+.card, .panel, .setting, .stat {
+  border-radius: var(--radius-xl);
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-sm);
+}
+.home-stats { gap: 10px; }
+.home-stats .stat, .stat-grid .stat {
+  border: 0; box-shadow: none;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+  padding: 12px 14px;
+}
+.home-stats .stat:first-child { background: var(--color-accent-tint); }
+.home-stats .stat:first-child .stat__n,
+.home-stats .stat:first-child .stat__label { color: var(--color-accent); }
+.stat:hover { background: var(--color-border); }
+.stat.is-active { background: var(--color-accent-tint); }
+.stat__n { font-size: 26px; }
+
+.recent__row, .item, .row {
+  border-radius: var(--radius-md);
+  min-height: 48px;
+}
+.recent__row + .recent__row, .item + .item, .row + .row { box-shadow: none; }
+.recent__row:hover, .item:hover, .row:hover { background: var(--color-surface); }
+
+/* ── 7. 재고 — 차량 탭은 알약 세그먼트, 표는 둥근 카드 행 ───────────── */
+.veh-tabs {
+  display: inline-flex;
+  flex: none;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 4px;
+  border-bottom: 0;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+.veh-tab {
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 9px;
+  border-bottom: 0;
+  font-size: 15px; font-weight: 500;
+}
+.veh-tab.is-active {
+  background: var(--color-bg);
+  box-shadow: 0 1px 2px rgba(16, 18, 23, .1);
+  color: var(--color-accent);
+  font-weight: 600;
+  border-bottom-color: transparent;
+}
+.veh-tab--manage { margin-left: 0; color: var(--color-accent); }
+
+.table { border-collapse: separate; border-spacing: 0 8px; }
+.table th {
+  border-bottom: 0;
+  padding: 0 8px 4px;
+  font-size: 12px; letter-spacing: .02em; text-transform: none;
+  color: var(--color-faint);
+}
+.table tbody tr { background: var(--color-bg); }
+.table tbody tr:hover { background: var(--color-surface); }
+.table td {
+  border-bottom: 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  padding: 12px 10px;
+  height: 72px;
+}
+.table td:first-child {
+  border-left: 1px solid var(--color-border);
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  padding-left: 18px;
+}
+.table td:last-child {
+  border-right: 1px solid var(--color-border);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  padding-right: 18px;
+}
+/* 최소보유 이하 행 — 빨강 계열로 한눈에 (tr 에 .is-low-row 를 붙인다) */
+.table tbody tr.is-low-row { background: var(--color-danger-tint); }
+.table tbody tr.is-low-row td { border-color: var(--color-danger-border); }
+.is-low { color: var(--color-danger); font-weight: 600; }
+.tag--low {
+  display: inline-flex; align-items: center; height: 24px; padding: 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-danger-tint-2);
+  color: var(--color-danger);
+  font-size: 12px; font-weight: 600;
+}
+
+.qty__btn {
+  min-width: 48px; min-height: 48px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  font-size: 21px;
+}
+.qty__btn:hover { background: var(--color-accent-tint); border-color: var(--color-accent); color: var(--color-accent); }
+.is-low-row .qty__btn { background: var(--color-bg); border-color: var(--color-border-strong); }
+.qty__val { font-size: 20px; }
+
+.filter-toggle {
+  min-height: 46px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  color: var(--color-muted);
+  font-weight: 500;
+}
+.filter-toggle:hover { background: var(--color-border); }
+.filter-toggle.is-on, .btn-secondary.is-active {
+  background: var(--color-accent-tint);
+  border-color: transparent;
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* ── 8. 태그 · 배지 · 상태 알약 ─────────────────────────────────────── */
+.tag, .badge, .pill { border-radius: var(--radius-pill); }
+.tag-neutral, .badge { background: var(--color-surface-2); border-color: transparent; }
+.tag-accent { background: var(--color-accent-tint); color: var(--color-accent); font-weight: 600; }
+
+/* ── 9. 모달 · 토스트 (하단 탭바가 없으므로 여백을 줄인다) ──────────── */
+.modal__box { border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); }
+.toasts { bottom: 24px; }
+.toast { border-radius: var(--radius-md); }
+
+/* ── 10. 좁은 화면 (폰 · 세로) — 레일을 다시 하단 탭바로 ────────────── */
+@media (max-width: 720px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+  .topbar, .offline-banner, .screen { grid-column: 1; }
+  .topbar { grid-row: 1; }
+  .offline-banner { grid-row: 2; }
+  .screen { grid-row: 3; padding: 16px; gap: 16px; }
+  .tabbar {
+    grid-column: 1; grid-row: 4;
+    flex-direction: row;
+    padding: 6px 8px;
+    border-right: 0;
+    border-top: 1px solid var(--color-border);
+  }
+  .tab { flex: 1; height: 64px; }
+  .tab[data-tab="settings"] { margin-top: 0; }
+  .tabbar__mark { display: none; }
+  .search-row .input { min-height: 68px; font-size: 19px; }
+  .search-row .btn { min-height: 68px; min-width: 96px; font-size: 16px; }
+  .toasts { bottom: calc(64px + 20px); }
+}
+
+/* ── 11. 리핏에 딸린 보완 (markup-changes.md · 새로고침 칩) ─────────────── */
+/* 부품명 옆에 '보충 필요' · '반영 대기' 알약이 나란히 붙는다 */
+.table--touch td:first-child { display: flex; align-items: center; gap: 10px; }
+/* 자동 올리기가 실패했을 때만 칩이 빨강 계열로 눈에 띈다 */
+.sync.is-failed { background: var(--color-danger-tint-2); color: var(--color-danger); font-weight: 600; }
+.sync.is-failed .sync__dot { background: var(--color-danger); }
+/* 앱은 항상 흰 바탕 — 시스템이 다크여도 폼 컨트롤이 어두워지지 않게 */
+:root { color-scheme: light; }

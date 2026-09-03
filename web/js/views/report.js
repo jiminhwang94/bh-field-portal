@@ -1052,10 +1052,10 @@ export async function reportDetailView(view, reportId) {
             ${item.type === 'MEDIA'
               ? ((item.media || []).length
                 ? `<div class="media-grid">${item.media.map((m) => `
-                    <a class="media-tile" href="${h(m.url)}" target="_blank" rel="noopener">
+                    <a class="media-tile" data-media="${h(m.url)}" href="#" target="_blank" rel="noopener">
                       ${(m.mime || '').startsWith('video/')
-                        ? `<video src="${h(m.url)}" muted playsinline></video>`
-                        : `<img src="${h(m.url)}" alt="${h(m.originalName || '')}" loading="lazy" />`}
+                        ? `<video data-media="${h(m.url)}" muted playsinline></video>`
+                        : `<img data-media="${h(m.url)}" alt="${h(m.originalName || '')}" loading="lazy" />`}
                       <div class="media-tile__name">${h(m.originalName || m.filename)}</div>
                     </a>`).join('')}</div>`
                 : '<p class="muted">첨부 없음</p>')
@@ -1063,6 +1063,8 @@ export async function reportDetailView(view, reportId) {
           </div>`).join('')}
       </div>
     </div>`;
+
+  hydrateMedia(view);   // 첨부는 기기 안 파일에서 꺼낸다 (APK 에서 액박 방지)
 
   $('#pageRoot').addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');

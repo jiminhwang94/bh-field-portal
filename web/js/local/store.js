@@ -48,39 +48,30 @@ export async function setMeta(key, value) {
   return value;
 }
 
-/** 공유 데이터가 바뀌었음을 표시 ([업데이트] 버튼이 켜지는 근거) */
-async function markDirty() {
-  await setMeta('dirty', true);
-}
-
-/** 시트 재고 관리 중이면, 구조 변경(차량·품목)을 시트 전체 반영으로 예약한다. */
-async function queueSheetPushIfOn() {
-  if (await sheetInventoryOn()) await enqueue({ type: 'invsheet-push' });
-}
-
-/** 시트가 연결돼 있으면, 가이드 열람용 탭 갱신을 예약한다. */
-async function queueGuideSheetPushIfOn() {
-  if (await sheetInventoryOn()) await enqueue({ type: 'guidesheet-push' });
-}
-
-/**
- * 시트가 연결돼 있으면, 리포트 항목 탭 갱신을 예약한다.
- * 항목은 **팀 공통**이라 한 사람이 바꾸면 모두가 같이 바뀌어야 한다.
+/*
+ * 탭을 통째로 다시 쓰는 종류(가이드 · 항목 · 차량/품목)의 예약은
+ * **무엇을 어떻게 바꿨는지**(changes) 를 함께 담는다.
+ *
+ *   changes: [{ kind, id, before }]
+ *     before = null  → 새로 만든 것
+ *     before = {...} → 고치거나 지운 것의 **바꾸기 전 모습**
+ *
+ * 이게 있어야 두 가지가 된다.
+ *  1. 올릴 때 **시트 것과 합친다** — 내가 안 건드린 줄은 시트 것을 그대로 두고
+ *     내가 바꾼 줄만 얹는다. 없으면 마지막에 올린 사람이 남을 다 덮어쓴다.
+ *  2. [올릴 내용] 에서 취소하면 **바꾸기 전으로 되돌린다.** 새로 만든 것은 지운다.
  */
-async function queueFieldSheetPushIfOn() {
-  if (await sheetInventoryOn()) await enqueue({ type: 'fieldsheet-push' });
+async function queueSheetPushIfOn(changes = []) {
+  if (await sheetInventoryOn()) await enqueue({ type: 'invsheet-push', changes });
 }
 
-export const isDirty = () => getMeta('dirty', false).then(Boolean);
+async function queueGuideSheetPushIfOn(changes = []) {
+  if (await sheetInventoryOn()) await enqueue({ type: 'guidesheet-push', changes });
+}
 
-export async function syncState() {
-  return {
-    baseRevision: Number(await getMeta('baseRevision', 0)) || 0,
-    dirty: Boolean(await getMeta('dirty', false)),
-    lastPullAt: await getMeta('lastPullAt', ''),
-    publishedAt: await getMeta('publishedAt', ''),
-    publishedBy: await getMeta('publishedBy', ''),
-  };
+/** 항목은 **팀 공통**이라 한 사람이 바꾸면 모두가 같이 바뀌어야 한다. */
+async function queueFieldSheetPushIfOn(changes = []) {
+  if (await sheetInventoryOn()) await enqueue({ type: 'fieldsheet-push', changes });
 }
 
 // ---------------------------------------------------------------- 설정
@@ -88,7 +79,6 @@ export async function syncState() {
 const SETTING_DEFAULTS = {
   sheetsWebappUrl: '',
   sheetsSpreadsheetId: '1ywec2wKj0thmI0uPZeqNwCGpbD75TJ9s7Yc20iP_0z4',
-  serverUrl: '',        // APK 에서 사무실 서버 주소 (웹에서는 비워두면 접속한 주소)
   deviceName: '',
 };
 
@@ -201,16 +191,15 @@ export async function saveGuide(payload, guideId = null) {
     updatedAt: stamp,
   };
   await idb.put('guides', row);
-  await markDirty();
-  await queueGuideSheetPushIfOn();
+  await queueGuideSheetPushIfOn([{ kind: 'guide', id: row.id, before: existing || null }]);
   return guideOut(row, true);
 }
 
 export async function deleteGuide(id) {
-  if (!(await idb.get('guides', id))) return false;
+  const existing = await idb.get('guides', id);
+  if (!existing) return false;
   await idb.remove('guides', id);
-  await markDirty();
-  await queueGuideSheetPushIfOn();
+  await queueGuideSheetPushIfOn([{ kind: 'guide', id, before: existing }]);
   return true;
 }
 
@@ -236,8 +225,7 @@ export async function addVehicle(name) {
   const rows = await idb.getAll('vehicles');
   const order = rows.reduce((max, v) => Math.max(max, v.displayOrder || 0), 0) + 1;
   await idb.put('vehicles', { name, displayOrder: order, createdAt: now() });
-  await markDirty();
-  await queueSheetPushIfOn();
+  await queueSheetPushIfOn([{ kind: 'vehicle', id: name, before: null }]);
   return { name, itemCount: 0 };
 }
 
@@ -246,14 +234,19 @@ export async function deleteVehicle(name) {
   const exists = await idb.get('vehicles', name);
   const items = (await idb.getAll('inventory')).filter((i) => i.vehicleName === name);
   if (!exists && !items.length) return null;
+  const live = await quantityMap();
+  const changes = [];
+  if (exists) changes.push({ kind: 'vehicle', id: name, before: exists });
   for (const item of items) {
+    const q = live.get(qtyKey(name, item.partName));
+    changes.push({ kind: 'item', id: item.id,
+                   before: { ...item, quantity: q ? q.quantity : item.quantity } });
     await idb.remove('inventory', item.id);
     await idb.remove('quantities', qtyKey(name, item.partName));
     await enqueue({ type: 'quantity-delete', vehicleName: name, partName: item.partName });
   }
   if (exists) await idb.remove('vehicles', name);
-  await markDirty();
-  await queueSheetPushIfOn();
+  await queueSheetPushIfOn(changes);
   return { name, deletedItems: items.length };
 }
 
@@ -344,20 +337,22 @@ async function _addInventoryItem(vehicleName, partName, quantity = 0,
   };
   await idb.put('inventory', row);
   await setQuantity(vehicleName, partName, row.quantity, stamp);
+  const changes = [{ kind: 'item', id: row.id, before: null }];
 
   // 품목은 모든 차량 공용 — 다른 차량에도 수량 0 으로 함께 등록한다.
   for (const vehicle of await listVehicles()) {
     if (vehicle === vehicleName) continue;
     if (rows.some((r) => r.vehicleName === vehicle && r.partName === partName)) continue;
-    await idb.put('inventory', {
+    const sibling = {
       id: newId(), vehicleName: vehicle, partName,
       quantity: 0, minQuantity: row.minQuantity, updatedAt: stamp,
-    });
+    };
+    await idb.put('inventory', sibling);
     await setQuantity(vehicle, partName, 0, stamp);
+    changes.push({ kind: 'item', id: sibling.id, before: null });
   }
 
-  await markDirty();
-  await queueSheetPushIfOn();
+  await queueSheetPushIfOn(changes);
   return { ...row, pending: true };
 }
 
@@ -395,6 +390,7 @@ async function _updateInventoryItem(itemId, { delta, quantity, minQuantity,
   // 부품명·최소보유는 모든 차량 공용 — 같은 부품의 다른 차량 항목도 함께 바꾼다.
   const siblings = (await idb.getAll('inventory'))
     .filter((r) => r.partName === row.partName);
+  const changes = siblings.map((item) => ({ kind: 'item', id: item.id, before: item }));
   for (const item of siblings) {
     await idb.put('inventory', { ...item, partName: nextName, minQuantity: nextMin,
                                  updatedAt: stamp });
@@ -407,10 +403,7 @@ async function _updateInventoryItem(itemId, { delta, quantity, minQuantity,
                         old ? old.quantity : item.quantity, stamp);
     }
   }
-  if (nameChanged || minChanged) {
-    await markDirty();   // 이름·최소보유는 [업데이트] 대상
-    await queueSheetPushIfOn();
-  }
+  if (nameChanged || minChanged) await queueSheetPushIfOn(changes);
 
   if (nameChanged) {
     await idb.remove('quantities', qtyKey(row.vehicleName, row.partName));
@@ -432,14 +425,18 @@ async function _deleteInventoryItem(itemId) {
   // 품목은 모든 차량 공용 — 전 차량에서 함께 삭제한다.
   const siblings = (await idb.getAll('inventory'))
     .filter((r) => r.partName === row.partName);
+  const live = await quantityMap();
+  const changes = [];
   for (const item of siblings) {
+    const q = live.get(qtyKey(item.vehicleName, item.partName));
+    changes.push({ kind: 'item', id: item.id,
+                   before: { ...item, quantity: q ? q.quantity : item.quantity } });
     await idb.remove('inventory', item.id);
     await idb.remove('quantities', qtyKey(item.vehicleName, item.partName));
     await enqueue({ type: 'quantity-delete', vehicleName: item.vehicleName,
                     partName: item.partName });
   }
-  await markDirty();
-  await queueSheetPushIfOn();
+  await queueSheetPushIfOn(changes);
   return true;
 }
 
@@ -593,26 +590,27 @@ export async function saveField(payload, fieldId = null) {
     createdAt: existing ? existing.createdAt : now(),
   };
   await idb.put('fields', row);
-  await markDirty();
-  await queueFieldSheetPushIfOn();
+  await queueFieldSheetPushIfOn([{ kind: 'field', id: row.id, before: existing || null }]);
   return { ...row, isRequired: Boolean(row.isRequired) };
 }
 
 export async function deleteField(fieldId) {
-  if (!(await idb.get('fields', fieldId))) return false;
+  const existing = await idb.get('fields', fieldId);
+  if (!existing) return false;
   await idb.remove('fields', fieldId);
-  await markDirty();
-  await queueFieldSheetPushIfOn();
+  await queueFieldSheetPushIfOn([{ kind: 'field', id: fieldId, before: existing }]);
   return true;
 }
 
 export async function reorderFields(orderedIds) {
+  const changes = [];
   for (let i = 0; i < orderedIds.length; i += 1) {
     const row = await idb.get('fields', orderedIds[i]);
-    if (row) await idb.put('fields', { ...row, displayOrder: i + 1 });
+    if (!row) continue;
+    if (row.displayOrder !== i + 1) changes.push({ kind: 'field', id: row.id, before: row });
+    await idb.put('fields', { ...row, displayOrder: i + 1 });
   }
-  await markDirty();
-  await queueFieldSheetPushIfOn();
+  if (changes.length) await queueFieldSheetPushIfOn(changes);
   return listFields();
 }
 
@@ -668,7 +666,7 @@ export async function saveReport(payload, reportId = null) {
     createdAt: existing ? existing.createdAt : stamp,
     updatedAt: stamp,
   };
-  await idb.put('reports', row);        // 리포트는 기기 전용 — [업데이트] 대상 아님
+  await idb.put('reports', row);        // 리포트는 기기 전용 — 시트에 올릴 때만 밖으로 나간다
   return reportOut(row);
 }
 
@@ -773,9 +771,17 @@ export async function compactOutbox() {
   const lastPushByType = new Map();      // '*-push' 는 종류별 마지막 1건만
   const lastStatusByRow = new Map();     // 같은 줄의 상태는 마지막 것만
   const firstBefore = new Map();         // 되돌릴 값은 맨 처음 것
+  const mergedChanges = new Map();       // 종류별로 합친 changes
   for (const row of rows) {
     if (PUSH_TYPES.has(row.type)) {
       lastPushByType.set(row.type, row.id);
+      // 같은 것을 여러 번 고쳤으면 **맨 처음의 바꾸기 전 모습**을 남긴다.
+      const merged = mergedChanges.get(row.type) || new Map();
+      for (const c of row.changes || []) {
+        const k = c.kind + ':' + c.id;
+        if (!merged.has(k)) merged.set(k, c);
+      }
+      mergedChanges.set(row.type, merged);
       continue;
     }
     if (row.type === 'report-status') {
@@ -792,7 +798,11 @@ export async function compactOutbox() {
   }
   for (const row of rows) {
     if (PUSH_TYPES.has(row.type)) {
-      if (row.id !== lastPushByType.get(row.type)) await idb.remove('outbox', row.id);
+      if (row.id !== lastPushByType.get(row.type)) { await idb.remove('outbox', row.id); continue; }
+      const merged = [...(mergedChanges.get(row.type) || new Map()).values()];
+      if (merged.length !== (row.changes || []).length) {
+        await idb.put('outbox', { ...row, changes: merged });
+      }
       continue;
     }
     if (row.type === 'report-status') {
@@ -811,80 +821,6 @@ export async function compactOutbox() {
     const origin = firstBefore.get(key);
     if (row.before !== origin) await idb.put('outbox', { ...row, before: origin });
   }
-}
-
-// ------------------------------------------------- 서버 동기화 적용/추출
-
-/** 서버 공개본 스냅샷을 기기에 통째로 반영한다. */
-export async function applySnapshot(snapshot) {
-  // 재고를 구글 시트로 관리 중이면 시트가 원본이므로
-  // 서버 공개본의 차량·재고·수량으로 덮지 않는다.
-  const sheetInv = await sheetInventoryOn();
-  await idb.replaceStores({
-    guides: snapshot.guides || [],
-    fields: snapshot.fields || [],
-    ...(sheetInv ? {} : {
-      vehicles: snapshot.vehicles || [],
-      inventory: snapshot.inventory || [],
-    }),
-  });
-  if (!sheetInv) {
-    // 아직 서버로 보내지 못한 내 수량 변경은 덮지 않는다.
-    const pendingKeys = await pendingQuantityKeys();
-    const incoming = (snapshot.quantities || [])
-      .map((q) => ({ key: qtyKey(q.vehicleName, q.partName), ...q }))
-      .filter((q) => !pendingKeys.has(q.key));
-    await idb.putAll('quantities', incoming);
-  }
-
-  // 팀 공통 설정(시트 주소 등)을 기기에 반영해 오프라인에서도 쓸 수 있게 한다.
-  // 사무실 서버 주소(serverUrl)는 기기마다 다르므로 덮지 않는다.
-  const incomingSettings = snapshot.settings || {};
-  if (incomingSettings.sheetsWebappUrl !== undefined) {
-    await saveSettings({
-      sheetsWebappUrl: incomingSettings.sheetsWebappUrl,
-      sheetsSpreadsheetId: incomingSettings.sheetsSpreadsheetId,
-    });
-  }
-
-  await setMeta('baseRevision', snapshot.revision || 0);
-  await setMeta('publishedAt', snapshot.at || '');
-  await setMeta('publishedBy', snapshot.by || '');
-  await setMeta('lastPullAt', now());
-  await setMeta('dirty', false);
-  return snapshot.revision || 0;
-}
-
-/** [업데이트] 로 서버에 올릴 공유 데이터를 모은다 (리포트·사진 blob 제외). */
-export async function collectSnapshot() {
-  return {
-    guides: await idb.getAll('guides'),
-    vehicles: await idb.getAll('vehicles'),
-    inventory: await idb.getAll('inventory'),
-    fields: await idb.getAll('fields'),
-  };
-}
-
-/** 아직 서버에 없는(기기에만 있는) 가이드 사진 목록 */
-export async function localOnlyGuideMedia() {
-  const referenced = new Set();
-  for (const guide of await idb.getAll('guides')) {
-    for (const step of guide.steps || []) {
-      const url = step.imageUrl || '';
-      if (url.startsWith('/media/')) referenced.add(url.slice('/media/'.length));
-    }
-  }
-  return (await idb.getAll('media'))
-    .filter((m) => m.localOnly && referenced.has(m.filename));
-}
-
-export async function markMediaSynced(filename) {
-  const row = await idb.get('media', filename);
-  if (row) await idb.put('media', { ...row, localOnly: false });
-}
-
-export async function isEmpty() {
-  return (await idb.count('guides')) === 0 && (await idb.count('fields')) === 0;
 }
 
 // ------------------------------------------------------- 기본 리포트 항목

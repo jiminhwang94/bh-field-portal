@@ -241,7 +241,7 @@ export async function setStatus(sheetName, row, status) {
   } catch (err) {
     if (err && err.offline) {
       // 오프라인이면 기기 값을 그대로 두고, 연결될 때 시트에 올린다.
-      await store.enqueue({ type: 'report-status', sheetName, row, status });
+      await store.enqueue({ type: 'report-status', sheetName, row, status, before });
       return { queued: true, status };
     }
     // 시트에 못 쓴 값을 기기에 남겨 두면 다음에 열었을 때 거짓을 보여 준다.
@@ -256,6 +256,12 @@ async function cachedStatus(sheetName, row) {
   if (!cached) return null;
   const found = (cached.entries || []).find((e) => e.row === row);
   return found ? found.status : null;
+}
+
+/** [올릴 내용] 에서 상태 변경을 취소할 때 기기 사본을 되돌린다. */
+export async function restoreStatusCache(sheetName, row, status) {
+  if (status === null || status === undefined) return;
+  await patchCache(sheetName, row, status);
 }
 
 /** 기기 사본의 상태 값을 고친다 (화면이 곧바로 새 값을 보여 주도록). */

@@ -27,9 +27,10 @@ export async function inventoryView(view) {
     const low = item.minQuantity > 0 && item.quantity <= item.minQuantity;
     const name = h(item.partName);
     return `
-      <tr data-id="${item.id}">
+      <tr data-id="${item.id}" class="${low ? 'is-low-row' : ''}">
         <td>
           ${name}
+          ${low ? '<span class="tag--low">보충 필요</span>' : ''}
           ${item.pending ? '<span class="tag tag-neutral">반영 대기</span>' : ''}
         </td>
         <td class="tnum ${low ? 'is-low' : ''}" style="text-align:right">${item.quantity}</td>
@@ -60,16 +61,16 @@ export async function inventoryView(view) {
     const lowCount = items.filter((i) => i.minQuantity > 0 && i.quantity <= i.minQuantity).length;
 
     view.innerHTML = `
-      <div id="pageRoot" class="screen">
+      <div id="pageRoot">
         <div class="page-head">
           <h1 class="page-head__title">차량 재고</h1>
-          <span class="page-head__meta">수량은 [⬆ 업데이트] 없이 즉시 공유됩니다</span>
+          <span class="page-head__meta">수량을 바꾸면 바로 시트에 올라갑니다 — 따로 누를 것이 없습니다</span>
           <span class="page-head__spacer"></span>
           ${current ? `
             ${sheetMode ? `
               <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
-            <button class="btn btn-secondary ${lowOnly ? 'is-active' : ''}" data-act="toggle-low"
-                    type="button" aria-pressed="${lowOnly}">부족 항목만</button>
+            <button class="filter-toggle btn ${lowOnly ? 'is-on' : ''}" data-act="toggle-low"
+                    type="button" aria-pressed="${lowOnly}">부족 항목만${lowCount ? ` · ${lowCount}` : ''}</button>
             <button class="btn btn-primary" data-act="add-item" type="button">＋ 품목 추가</button>` : ''}
         </div>
 
@@ -295,7 +296,7 @@ export async function inventoryView(view) {
             <label>최소 보유 수량</label>
             <input class="input" id="invMin" type="number" min="0" inputmode="numeric" value="${item ? item.minQuantity : 0}" />
             <span class="hint">이 수량 이하가 되면 [보충 필요]로 표시됩니다.
-              (최소 보유 수량 변경은 [업데이트] 대상)</span>
+              (바꾸면 시트에 자동으로 올라갑니다)</span>
           </div>
         </div>
         <div class="form-actions">

@@ -192,7 +192,7 @@ check("이미 있는 탭의 머리를 고쳐 쓰지 않는다",
       and "// 항목 설정이 바뀐 경우 2행 헤더를 최신으로 유지" not in gs,
       "옛 줄이 새 머리 아래 놓여 통째로 어긋난다")
 check("항목이 바뀌면 다음 탭으로 간다", "baseName + ' (' + n + ')'" in gs)
-check("갈라진 탭도 월 목록에 나온다", "( \(\d+\))?$" in gs)
+check("갈라진 탭도 월 목록에 나온다", r"( \(\d+\))?$" in gs)
 
 print()
 print("사무실 서버 주소는 없앴다")
@@ -220,9 +220,17 @@ check("항목을 고치면 시트 반영이 예약된다",
       "queueFieldSheetPushIfOn" in store_js
       and "'fieldsheet-push'" in store_js)
 check("여러 번 고쳐도 한 건으로 합친다", "PUSH_TYPES" in store_js)
-check("업데이트가 항목을 올리고 받는다",
-      "fieldsheet.pushFields()" in sync_js
+check("자동 올리기가 항목을 올리고, 새로고침이 받아온다",
+      "fieldsheet.pushFields(" in sync_js
       and "fieldsheet.pullFields()" in read("web/js/syncnow.js"))
+check("탭을 통째로 쓰는 종류는 무엇을 바꿨는지(changes)를 함께 올린다",
+      "changesOf(guidePushOps)" in sync_js
+      and "changesOf(fieldPushOps)" in sync_js
+      and "changesOf(sheetPushOps)" in sync_js,
+      "이게 없으면 마지막에 올린 사람이 다른 사람 변경을 통째로 덮어쓴다")
+for rel in ["web/js/guidesheet.js", "web/js/fieldsheet.js", "web/js/invsheet.js"]:
+    check("%s — 올리기 전에 시트 것과 합친다" % os.path.basename(rel),
+          "async function mergeWithSheet(" in read(rel))
 check("안 올린 항목 변경이 있으면 덮어쓰지 않는다",
       "'fieldsheet-push'" in fieldsheet and "skipped: 'pending'" in fieldsheet,
       "시트 내용으로 덮으면 방금 고친 것이 사라진다")
