@@ -159,6 +159,73 @@ manifest = read("web/manifest.webmanifest")
 check("홈 화면 추가 색도 옛 남색이 아니다", "#0f172a" not in manifest)
 
 print()
+print("사진은 기기 안 파일에서 꺼낸다")
+
+# 사진은 기기 안(IndexedDB)에 있는데 주소는 `/media/<파일명>` 이라는 서버 경로다.
+# 브라우저는 서버가 내주니 우연히 보였지만, APK 는 화면 파일이 기기 안에 있어
+# 그 경로에 아무것도 없다 — 액박이 떴다.
+ui = read("web/js/ui.js")
+check("기기 안 사진을 꺼내는 도우미가 있다", "export async function hydrateMedia" in ui)
+check("기기에 없으면 서버 경로로 되돌아간다", "await sync.serverBase()" in ui)
+for rel in ["web/js/views/guides.js", "web/js/views/report.js"]:
+    src = read(rel)
+    name = os.path.basename(rel)
+    check("%s — 사진을 data-media 로 그린다" % name, 'data-media="${' in src)
+    check("%s — 그린 뒤 채워 넣는다" % name, "hydrateMedia(view)" in src)
+check("단계 사진은 높이가 묶여 있다",
+      re.search(r"\.step__img\s*\{[^}]*max-height:", css) is not None,
+      "폭만 막으면 4000px 사진이 화면 몇 개 높이로 늘어난다")
+
+print()
+print("리포트 항목은 고정이다")
+
+store_js = read("web/js/local/store.js")
+check("기본 항목이 앱 안에 있다", "export const DEFAULT_FIELDS" in store_js)
+check("비어 있을 때만 채운다",
+      "export async function ensureDefaultFields" in store_js
+      and "if ((await idb.count('fields')) > 0) return 0;" in store_js)
+check("첫 실행에 기본 항목을 넣는다", "store.ensureDefaultFields()" in read("web/js/net.js"))
+
+gs = read("google-apps-script.gs")
+check("이미 있는 탭의 머리를 고쳐 쓰지 않는다",
+      "function pickReportSheet" in gs
+      and "// 항목 설정이 바뀐 경우 2행 헤더를 최신으로 유지" not in gs,
+      "옛 줄이 새 머리 아래 놓여 통째로 어긋난다")
+check("항목이 바뀌면 다음 탭으로 간다", "baseName + ' (' + n + ')'" in gs)
+check("갈라진 탭도 월 목록에 나온다", "( \(\d+\))?$" in gs)
+
+print()
+print("사무실 서버 주소는 없앴다")
+
+settings = read("web/js/views/settings.js")
+check("설정에 서버 주소 칸이 없다", "sSiteUrl" not in settings)
+syncnow = read("web/js/syncnow.js")
+check("업데이트가 서버에 올리지 않는다", "api.publish(" not in syncnow)
+check("대기 건수를 두 번 세지 않는다",
+      "state.pending + (state.dirty ? 1 : 0)" not in syncnow
+      and "state.pending + (state.dirty ? 1 : 0)" not in settings,
+      "dirty 와 대기열이 같은 변경을 각각 세면 정체 모를 1건이 뜬다")
+net = read("web/js/net.js")
+check("서버 못 닿음 빨간 띠가 없다", "serverUnreachable()" not in net)
+
+print()
+print("올릴 내용 목록")
+
+pending = read("web/js/pending.js")
+check("목록 화면이 있다", "export async function openPendingList" in pending)
+check("상단 칩을 누르면 열린다", "openPendingList()" in syncnow)
+check("되돌리면 바꾸기 전 값으로 돌아간다",
+      "quantity: op.before" in pending
+      and "const before = prev ? prev.quantity : null;" in store_js,
+      "수량을 바꿀 때 바꾸기 전 값을 함께 적어 둬야 되돌릴 수 있다")
+check("여러 번 누른 것을 합쳐도 맨 처음 값을 잃지 않는다",
+      "firstBefore" in store_js,
+      "[+] 를 세 번 누른 뒤 취소하면 중간값이 아니라 원래 값으로 가야 한다")
+check("확인은 창을 겹치지 않고 줄 안에서 묻는다",
+      "undo-ask" in pending and "confirmDialog" not in pending,
+      "시트 위에 창을 또 띄우면 둘 다 사라진다")
+
+print()
 if fails:
     print("실패 %d건: %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)

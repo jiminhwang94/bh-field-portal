@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 아이콘 마크 — 허니컴 한 칸(정육각형 테두리).
-     상단바의 브랜드 마크와 같은 언어다: 코발트 바탕 위 흰 도형 하나.
+<!-- 아이콘 마크 — 허니컴 한 칸(정육각형) 안에 회사 X 로고.
 
-     적응형 아이콘은 108×108 중 가운데 지름 66 원 안쪽만 반드시 보인다
-     (런처가 원·둥근사각 등 어떤 모양으로 잘라낼지 모른다).
-     그래서 반지름 30 으로 넉넉히 안쪽에 둔다. -->
+     X 는 두 획이 서로 다르다. 왼위→오른아래는 **끊기지 않는 긴 획**이고,
+     오른위·왼아래는 그 획에 닿기 전에 멈추는 짧은 획이다. 원본 로고 그대로다.
+
+     X 는 육각형보다 **가늘다**. 같은 굵기로 두면 48dp 런처 아이콘에서
+     선끼리 붙어 한 덩어리로 뭉갠다.
+
+     적응형 아이콘은 108x108 중 가운데 지름 66 원 안쪽만 반드시 보인다
+     (런처가 원·둥근사각 등 어떤 모양으로 잘라낼지 모른다). 그래서 r=30. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -12,8 +16,20 @@
     android:viewportHeight="108">
   <path
       android:strokeColor="#FFFFFF"
-      android:strokeWidth="9.3"
+      android:strokeWidth="7.80"
       android:strokeLineJoin="round"
       android:fillColor="#00000000"
-      android:pathData="M79.98,69 L54,84 L28.02,69 L28.02,39 L54,24 L79.98,39 Z" />
+      android:pathData="M79.98,69.00 L54.00,84.00 L28.02,69.00 L28.02,39.00 L54.00,24.00 L79.98,39.00 Z" />
+  <path
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="4.37"
+      android:strokeLineCap="butt"
+      android:fillColor="#00000000"
+      android:pathData="M42.00,42.00 L66.00,66.00" />
+  <path
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="4.37"
+      android:strokeLineCap="butt"
+      android:fillColor="#00000000"
+      android:pathData="M66.00,42.00 L56.71,51.29 M42.00,66.00 L51.29,56.71" />
 </vector>

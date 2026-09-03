@@ -1,7 +1,8 @@
 // 현장 리포트 작성 (동적 폼) · 이력 · 상세 / 구글 시트 업로드
 import { api } from '../api.js';
 import {
-  $, closeModal, confirmDialog, copyText, h, loading, openSheet, toast, when,
+  $, closeModal, confirmDialog, copyText, h, hydrateMedia, loading, openSheet,
+  toast, when,
 } from '../ui.js';
 import { reportToText, shareReport } from '../share.js';
 import {
@@ -142,8 +143,8 @@ export async function reportFormView(view) {
     return `
       <div class="media-tile">
         ${isVideo
-          ? `<video src="${h(media.url)}" muted playsinline></video>`
-          : `<img src="${h(media.url)}" alt="${h(media.originalName || '첨부')}" loading="lazy" />`}
+          ? `<video data-media="${h(media.url)}" muted playsinline></video>`
+          : `<img data-media="${h(media.url)}" alt="${h(media.originalName || '첨부')}" loading="lazy" />`}
         <button class="media-tile__del" data-act="del-media" data-field="${fieldId}" data-idx="${idx}" type="button" aria-label="첨부 삭제">✕</button>
         <div class="media-tile__name">${h(media.originalName || media.filename)}</div>
       </div>`;
@@ -253,6 +254,7 @@ export async function reportFormView(view) {
 
     const root = $('#pageRoot');
     root.addEventListener('click', onClick);
+    hydrateMedia(view);        // 첨부 미리보기는 기기 안 파일에서 꺼낸다
     root.addEventListener('input', (ev) => {
       const id = ev.target.dataset.input;
       if (!id) return;

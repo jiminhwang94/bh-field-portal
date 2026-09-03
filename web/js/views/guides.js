@@ -1,7 +1,7 @@
 // 가이드 목록 / 상세 / 편집 (오류코드 · HW SOP · SW 명령어)
 import { api } from '../api.js';
 import {
-  $, $$, h, CATEGORY, confirmDialog, copyText, loading, toast, when,
+  $, $$, h, CATEGORY, confirmDialog, copyText, hydrateMedia, loading, toast, when,
 } from '../ui.js';
 
 const DONE_KEY = (id) => `bh_steps_done_${id}`;
@@ -136,6 +136,9 @@ export async function guideDetailView(view, guideId) {
     </div>
     </div>`;
 
+  // 단계 사진은 기기 안에 있다 — 그린 뒤에 채워 넣는다.
+  hydrateMedia(view);
+
   $('#pageRoot').addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
@@ -150,6 +153,11 @@ export async function guideDetailView(view, guideId) {
         ok ? 'ok' : 'err');
     }
     if (act === 'toggle-step') {
+      // 사진을 눌렀으면 단계 완료 체크가 아니라 사진을 크게 본다.
+      if (ev.target.classList.contains('step__img')) {
+        ev.target.classList.toggle('is-zoomed');
+        return;
+      }
       const el = btn.closest('.step');
       const idx = el.dataset.idx;
       if (done.has(idx)) { done.delete(idx); } else { done.add(idx); }
@@ -191,7 +199,8 @@ function stepHtml(step, idx, done) {
           <span class="step__meta">
             <span class="badge badge--metric">기준값 ${h(step.expectedMetric)}</span>
           </span>` : ''}
-        ${step.imageUrl ? `<img class="step__img" src="${h(step.imageUrl)}" alt="단계 ${idx + 1} 참고 이미지" loading="lazy" />` : ''}
+        ${step.imageUrl ? `<img class="step__img" data-media="${h(step.imageUrl)}"
+             alt="단계 ${idx + 1} 참고 사진" loading="lazy" />` : ''}
       </span>
       <span class="step__check" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
@@ -335,7 +344,8 @@ export async function guideEditView(view, guideId, categoryType) {
                 <div class="field" style="margin-bottom:0">
                   <label>참고 사진</label>
                   <input type="hidden" name="stepImage" value="${h(s.imageUrl)}" />
-                  ${s.imageUrl ? `<img class="step__img" src="${h(s.imageUrl)}" alt="참고 사진" style="max-height:200px" />` : ''}
+                  ${s.imageUrl ? `<img class="step__img step__img--edit"
+                       data-media="${h(s.imageUrl)}" alt="참고 사진" />` : ''}
                   <div class="row" style="margin-top:8px">
                     <button class="btn btn--ghost btn--sm" data-act="pick-image" data-idx="${i}" type="button">사진 첨부</button>
                     ${s.imageUrl ? `<button class="btn btn--danger btn--sm" data-act="clear-image" data-idx="${i}" type="button">사진 제거</button>` : ''}
@@ -356,6 +366,7 @@ export async function guideEditView(view, guideId, categoryType) {
     const form = $('#guideForm');
     form.addEventListener('submit', save);
     form.addEventListener('click', onClick);
+    hydrateMedia(view);
   }
 
   async function onClick(ev) {

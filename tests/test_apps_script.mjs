@@ -485,6 +485,55 @@ const finalLinks = splitLines(result.rows[0].cells[mediaCol]);
 check('뺀 첨부만 빠진다', finalLinks.length === 1 && finalLinks[0] === afterLinks[1],
       `${finalLinks.length}개`);
 
+// ────────────────────────────────────────────────────────────────────
+// 항목이 바뀌면 새 탭으로 — 옛 줄이 어긋나지 않아야 한다
+//
+// 예전에는 항목 설정이 바뀌면 그 달 탭의 2행 헤더를 최신으로 덮어썼다.
+// 아래 줄들은 옛 항목 순서 그대로인데 머리만 바뀌니, 열 이름과 값이
+// 통째로 어긋났다. 실제로 시트에서 그 일이 났다.
+// ────────────────────────────────────────────────────────────────────
+const H1 = ['작성일시', '작성자', '식당명', '오류 코드'];
+const H2 = ['작성일시', '작성자', '식당명', '오류 코드', '조치 내용'];
+
+call({ sheetName: '2099-01', headers: H1,
+       row: ['2099-01-05 10:00', '김현장', '옥동식', 'E-1'] });
+call({ sheetName: '2099-01', headers: H1,
+       row: ['2099-01-06 10:00', '김현장', '미트로', 'E-2'] });
+
+const tab1 = ss.getSheetByName('2099-01');
+check('같은 항목이면 같은 탭에 이어 붙인다', tab1.getLastRow() === 4,
+      `${tab1.getLastRow()}행`);
+
+const headerBefore = tab1.getRange(2, 1, 1, H1.length).getValues()[0].join('|');
+
+// 항목을 하나 더한 채로 올린다 → 새 탭으로 가야 한다
+const moved = call({ sheetName: '2099-01', headers: H2,
+                     row: ['2099-01-07 10:00', '김현장', '한솔', 'E-3', '패드 교체'] });
+
+check('항목이 바뀌면 옛 탭의 머리를 건드리지 않는다',
+      tab1.getRange(2, 1, 1, H1.length).getValues()[0].join('|') === headerBefore,
+      headerBefore);
+check('옛 탭에 줄이 늘지 않는다', tab1.getLastRow() === 4, `${tab1.getLastRow()}행`);
+
+const tab2 = ss.getSheetByName('2099-01 (2)');
+check('항목이 바뀌면 새 탭을 만든다', !!tab2,
+      ss.getSheets().map((x) => x.getName()).join(' | '));
+check('새 탭이 응답에 실린다', moved.sheetName === '2099-01 (2)', String(moved.sheetName));
+check('새 탭의 머리는 새 항목이다',
+      tab2.getRange(2, 1, 1, H2.length).getValues()[0].join('|') === H2.join('|'));
+
+// 다시 옛 항목으로 올리면 **옛 탭으로 되돌아간다**
+call({ sheetName: '2099-01', headers: H1,
+       row: ['2099-01-08 10:00', '김현장', '옥동식', 'E-4'] });
+check('옛 항목은 옛 탭으로 되돌아간다', tab1.getLastRow() === 5, `${tab1.getLastRow()}행`);
+check('그 사이 새 탭은 늘지 않는다', tab2.getLastRow() === 3, `${tab2.getLastRow()}행`);
+
+// 이력 화면이 갈라진 탭도 월 목록에서 본다
+const months = call({ reports: 'months' }).months || [];
+check('월 목록에 갈라진 탭도 나온다',
+      months.indexOf('2099-01') >= 0 && months.indexOf('2099-01 (2)') >= 0,
+      months.join(' | '));
+
 console.log('='.repeat(62));
 if (failures.length) {
   console.log(`❌ 실패 ${failures.length}건: ${failures.join(', ')}`);

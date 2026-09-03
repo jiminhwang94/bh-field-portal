@@ -292,13 +292,20 @@ export async function listInventory(vehicleName = null) {
 }
 
 async function setQuantity(vehicleName, partName, quantity, stamp) {
+  const key = qtyKey(vehicleName, partName);
   const value = Math.max(0, Number(quantity) || 0);
   const updatedAt = stamp || now();
+
+  // 바꾸기 **전** 값을 함께 적어 둔다. [올릴 내용] 목록에서 이 변경을 지우면
+  // 이 값으로 되돌린다 — 취소했는데 엉뚱한 수량이 남으면 안 된다.
+  const prev = await idb.get('quantities', key);
+  const before = prev ? prev.quantity : null;
+
   await idb.put('quantities', {
-    key: qtyKey(vehicleName, partName), vehicleName, partName,
-    quantity: value, updatedAt,
+    key, vehicleName, partName, quantity: value, updatedAt,
   });
-  await enqueue({ type: 'quantity', vehicleName, partName, quantity: value, updatedAt });
+  await enqueue({ type: 'quantity', vehicleName, partName,
+                  quantity: value, before, updatedAt });
   return value;
 }
 
@@ -752,6 +759,7 @@ export async function compactOutbox() {
   const lastByTarget = new Map();
   const lastPushByType = new Map();      // 'invsheet-push' | 'guidesheet-push'
   const lastStatusByRow = new Map();     // 같은 줄의 상태는 마지막 것만
+  const firstBefore = new Map();         // 되돌릴 값은 맨 처음 것
   for (const row of rows) {
     if (row.type === 'invsheet-push' || row.type === 'guidesheet-push') {
       lastPushByType.set(row.type, row.id);
@@ -762,7 +770,12 @@ export async function compactOutbox() {
       continue;
     }
     if (row.type !== 'quantity' && row.type !== 'quantity-delete') continue;
-    lastByTarget.set(qtyKey(row.vehicleName, row.partName), row.id);
+    const key = qtyKey(row.vehicleName, row.partName);
+    // 여러 번 눌러 쌓인 것은 **마지막 하나만** 시트로 보내면 된다.
+    // 다만 되돌릴 값(before)은 **맨 처음 것**을 이어받아야 한다.
+    // 안 그러면 [+]를 세 번 누른 뒤 취소했을 때 중간값으로 돌아간다.
+    if (!firstBefore.has(key)) firstBefore.set(key, row.before);
+    lastByTarget.set(key, row.id);
   }
   for (const row of rows) {
     if (row.type === 'invsheet-push' || row.type === 'guidesheet-push') {
@@ -776,9 +789,14 @@ export async function compactOutbox() {
       continue;
     }
     if (row.type !== 'quantity' && row.type !== 'quantity-delete') continue;
-    if (lastByTarget.get(qtyKey(row.vehicleName, row.partName)) !== row.id) {
+    const key = qtyKey(row.vehicleName, row.partName);
+    if (lastByTarget.get(key) !== row.id) {
       await idb.remove('outbox', row.id);
+      continue;
     }
+    // 남는 한 건이 맨 처음의 '바꾸기 전' 값을 이어받는다.
+    const origin = firstBefore.get(key);
+    if (row.before !== origin) await idb.put('outbox', { ...row, before: origin });
   }
 }
 
@@ -854,4 +872,47 @@ export async function markMediaSynced(filename) {
 
 export async function isEmpty() {
   return (await idb.count('guides')) === 0 && (await idb.count('fields')) === 0;
+}
+
+// ------------------------------------------------------- 기본 리포트 항목
+
+/**
+ * 리포트 항목은 **앱에 붙박이로 들어 있다.**
+ *
+ * 예전에는 기기가 비어 있으면 사무실 서버에서 받아왔다. 그런데 APK 로 새로
+ * 설치하면 서버 주소를 모르니 항목이 **하나도 없는 상태**로 시작했고,
+ * 급한 대로 항목을 하나 만들어 올리면 구글 시트의 열 순서가 통째로 바뀌어
+ * **이미 쌓여 있던 리포트가 어긋났다.**
+ *
+ * 그래서 기본 항목을 앱 안에 고정으로 넣는다. 어느 기기에서 설치해도 같은
+ * 순서, 같은 열이다. 항목을 바꾸고 싶으면 [설정 → 리포트 항목 설정] 에서
+ * 바꿀 수 있고, 그때는 시트도 **새 탭**에 새로 시작한다 (기존 탭은 그대로 둔다).
+ */
+export const DEFAULT_FIELDS = [
+  { fieldLabel: '방문 식당명', fieldType: 'TEXT', options: null, isRequired: true },
+  { fieldLabel: '로봇 시리얼', fieldType: 'TEXT', options: null, isRequired: true },
+  { fieldLabel: '오류 코드', fieldType: 'TEXT', options: null, isRequired: false },
+  { fieldLabel: '증상 요약', fieldType: 'TEXTAREA', options: null, isRequired: true },
+  { fieldLabel: '조치 내용', fieldType: 'TEXTAREA', options: null, isRequired: true },
+  { fieldLabel: '사용 부품', fieldType: 'TEXT', options: null, isRequired: false },
+  { fieldLabel: '소요 시간(분)', fieldType: 'NUMBER', options: null, isRequired: false },
+  { fieldLabel: '처리 결과', fieldType: 'DROPDOWN',
+    options: '완료,재방문 필요,부품 대기,모니터링', isRequired: true },
+  { fieldLabel: '현장 사진', fieldType: 'MEDIA', options: null, isRequired: false },
+];
+
+/** 항목이 하나도 없을 때만 기본값을 넣는다. 있으면 손대지 않는다. */
+export async function ensureDefaultFields() {
+  if ((await idb.count('fields')) > 0) return 0;
+  const stamp = now();
+  let order = 1;
+  for (const f of DEFAULT_FIELDS) {
+    await idb.put('fields', {
+      id: newId(), fieldLabel: f.fieldLabel, fieldType: f.fieldType,
+      options: f.options, isRequired: f.isRequired,
+      displayOrder: order, createdAt: stamp,
+    });
+    order += 1;
+  }
+  return DEFAULT_FIELDS.length;
 }

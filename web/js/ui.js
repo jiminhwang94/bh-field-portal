@@ -188,3 +188,46 @@ export function when(value, { time = true } = {}) {
     ? `${month}-${day}` : `${year.slice(2)}-${month}-${day}`;
   return (time && hh) ? `${date} ${hh}:${mm}` : date;
 }
+
+// ------------------------------------------------------- 기기 안 사진 보여주기
+
+/**
+ * 기기에 저장한 사진을 화면에 띄운다.
+ *
+ * 사진 파일은 **기기 안(IndexedDB)** 에 있는데, 저장할 때 받아 두는 주소는
+ * `/media/<파일명>` 이라는 **서버 경로**다. 브라우저로 접속했을 때는 서버가
+ * 그 경로로 파일을 내주니 우연히 보였지만, APK 로 설치한 앱은 화면 파일이
+ * 기기 안에 있어 그 경로에 아무것도 없다 — 그래서 **액박**이 떴다.
+ *
+ * 그러니 기기 안 파일을 직접 꺼내 보여 준다. 기기에 없으면(다른 사람이 올린
+ * 사진) 그때만 서버 경로로 되돌아간다.
+ *
+ * 쓰는 법: `<img data-media="/media/xxx.jpg" />` 로 그린 뒤 hydrateMedia(root).
+ */
+export async function hydrateMedia(root = document) {
+  const imgs = root.querySelectorAll('img[data-media]:not([data-media-done])');
+  if (!imgs.length) return;
+  const [store, sync] = await Promise.all([
+    import('./local/store.js'), import('./sync.js'),
+  ]);
+  for (const img of imgs) {
+    img.setAttribute('data-media-done', '1');
+    const raw = img.dataset.media || '';
+    const filename = raw.split('/').pop();
+    try {
+      const blob = await store.getMediaBlob(filename);
+      if (blob) { img.src = URL.createObjectURL(blob); continue; }
+    } catch { /* 아래에서 서버 경로로 시도한다 */ }
+    // 기기에 없다 — 서버에 있으면 거기서 받는다.
+    const base = await sync.serverBase();
+    if (base) img.src = base + raw;
+    else img.replaceWith(brokenNote());
+  }
+}
+
+function brokenNote() {
+  const el = document.createElement('div');
+  el.className = 'media-missing';
+  el.textContent = '사진을 찾을 수 없습니다 (이 기기에 없음)';
+  return el;
+}

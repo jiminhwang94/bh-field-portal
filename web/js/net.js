@@ -1,7 +1,7 @@
 // 연결 상태 표시 — 화면 위쪽 띠와 대기 작업 안내를 담당한다.
 import * as sync from './sync.js';
 import * as store from './local/store.js';
-import { closeModal, openSheet, toast } from './ui.js';
+import { toast } from './ui.js';
 
 /**
  * 상단 오프라인 띠와 동기화 칩을 현재 상태에 맞춘다.
@@ -12,18 +12,15 @@ async function paint() {
   const count = document.getElementById('queue-count');
   const pending = await store.outboxCount();
   const online = sync.isOnline();
-  const stuck = online && sync.serverUnreachable() && pending > 0;
-
+  // 인터넷이 되면 띠를 띄우지 않는다. 예전에는 '사무실 서버' 에 못 닿을 때도
+  // 빨간 띠를 띄웠는데, 그 서버는 이제 쓰지 않으므로 태블릿에서 늘 떠 있었다.
   if (count) count.textContent = String(pending);
   if (banner) {
-    banner.hidden = online && !stuck;
+    banner.hidden = online;
     if (!online) {
       banner.textContent = pending
         ? `📴 오프라인 — 기기에 저장하며 계속 사용할 수 있습니다 · 대기 중 ${pending}건`
         : '📴 오프라인 — 기기에 저장하며 계속 사용할 수 있습니다';
-    } else if (stuck) {
-      banner.textContent =
-        `⏳ 대기 ${pending}건 — 사무실 서버에 닿으면 자동으로 반영됩니다`;
     }
   }
   // 상단바 칩은 syncnow.js 가 그린다 (같은 사실을 두 곳에 적지 않는다).
@@ -31,57 +28,30 @@ async function paint() {
   syncnow.paint();
 }
 
-/** 처음 실행이면 서버에서 자료를 한 번 받아온다. */
+/** 처음 실행 준비 — 붙박이 항목을 넣고, 시트가 있으면 최신 자료를 받는다. */
 export async function ensureFirstData() {
-  if (await store.isEmpty()) {
-    // APK 첫 실행: 서버 주소를 아직 모르면 바로 안내한다.
-    if (!sync.isOnline() || !(await sync.serverBase())) { showEmptyGuide(); return; }
-    try {
-      await sync.pull();
-    } catch {
-      showEmptyGuide();
-      return;
-    }
+  // 리포트 항목은 앱에 붙박이로 들어 있다. 새로 설치한 기기도 곧바로
+  // 같은 항목으로 시작한다 — 예전에는 서버에서 받아와야 해서, APK 를 새로
+  // 깔면 항목이 하나도 없었다.
+  const added = await store.ensureDefaultFields();
+  if (added) {
+    toast(`리포트 항목 ${added}개를 준비했습니다.`, 'ok');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
   }
-  // 이전 버전(v2)에서 서버에 남아 있던 리포트를 기기로 옮긴다 (1회).
-  sync.importLegacy().then((added) => {
-    if (added) toast(`이전에 작성한 리포트 ${added}건을 기기로 가져왔습니다.`, 'ok');
-  }).catch(() => { /* 다음 실행에서 다시 시도 */ });
-}
 
-function showEmptyGuide() {
-  const body = openSheet('처음 실행 — 자료 받기', `
-    <p class="muted" style="margin:0 0 14px;line-height:1.7">
-      이 기기에 아직 가이드·재고 자료가 없습니다.
-      <strong>사무실 Wi-Fi 에 연결된 상태에서 한 번만</strong> 자료를 받으면,
-      그다음부터는 인터넷 없이도 모든 기능을 쓸 수 있습니다.
-    </p>
-    <div class="sub-card">
-      <p class="muted" style="margin:0;font-size:.9rem;line-height:1.6">
-        APK 로 설치한 경우 <strong>⚙️ 설정 → 사무실 서버 주소</strong>를 먼저 등록해 주세요.
-      </p>
-    </div>
-    <div class="form-actions">
-      <button class="btn btn--ghost" type="button" data-act="close">나중에</button>
-      <button class="btn btn--primary" type="button" data-act="pull-now">지금 받기</button>
-    </div>`);
-
-  body.addEventListener('click', async (ev) => {
-    const btn = ev.target.closest('[data-act="pull-now"]');
-    if (!btn) return;
-    btn.disabled = true;
-    btn.textContent = '받는 중…';
-    try {
-      const result = await sync.pull();
-      toast(`자료를 받았습니다. (버전 ${result.revision})`, 'ok');
-      closeModal();
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-    } catch (err) {
-      toast(err.message, 'err');
-      btn.disabled = false;
-      btn.textContent = '지금 받기';
-    }
-  });
+  // 가이드·재고는 구글 시트가 원본이다. 시트가 연결돼 있으면 조용히 받아온다.
+  if (!sync.isOnline()) return;
+  try {
+    if (!(await store.sheetInventoryOn())) return;
+    const [invsheet, guidesheet] = await Promise.all([
+      import('./invsheet.js'), import('./guidesheet.js'),
+    ]);
+    await invsheet.pullInventory().catch(() => {});
+    await guidesheet.pullGuides().catch(() => {});
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  } catch {
+    // 시트에 못 닿아도 앱은 기기 안 자료로 그대로 동작한다.
+  }
 }
 
 export function initNetStatus() {

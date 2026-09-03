@@ -9,7 +9,7 @@ import {
 } from '../install.js';
 import {
   deviceName, getSyncState, syncSummaryText, refreshState, runSync,
-  runTakeLatest, setDeviceName,
+  setDeviceName,
 } from '../syncnow.js';
 
 /**
@@ -36,7 +36,7 @@ export async function settingsView(view) {
   await refreshState();
   const state = getSyncState();
   const install = installStateLabel();
-  const waiting = state.pending + (state.dirty ? 1 : 0);
+  const waiting = state.pending;
 
   view.innerHTML = `
     <div id="pageRoot">
@@ -70,25 +70,11 @@ export async function settingsView(view) {
             </span>
           </div>
 
-          <div class="grid-2">
-            <div class="field">
-              <label>스프레드시트 ID / 링크</label>
-              <input class="input mono" id="sSheetId" value="${h(settings.sheets_spreadsheet_id)}"
-                     placeholder="링크를 붙여넣으면 ID만 자동 추출" />
-              <span class="hint">기록 위치 확인용입니다. 실제 기록은 위 웹 앱이 담당합니다.</span>
-            </div>
-            <div class="field">
-              <label>사무실 서버 주소</label>
-              <input class="input mono" id="sSiteUrl" value="${h(settings.server_url)}"
-                     placeholder="예) http://192.168.0.83:8787" autocapitalize="off"
-                     spellcheck="false" />
-              <span class="hint">
-                <strong>[⬆️ 업데이트] 동기화에만</strong> 쓰입니다.
-                브라우저로 접속했다면 비워 두세요(지금 주소 ${h(build.detectedUrl || '-')} 사용).
-                <strong>APK 로 설치한 앱은 반드시 입력</strong>해야 팀과 내용을 주고받습니다.
-                구글 시트 업로드는 이 주소와 무관하게 어디서나 됩니다.
-              </span>
-            </div>
+          <div class="field">
+            <label>스프레드시트 ID / 링크</label>
+            <input class="input mono" id="sSheetId" value="${h(settings.sheets_spreadsheet_id)}"
+                   placeholder="링크를 붙여넣으면 ID만 자동 추출" />
+            <span class="hint">기록 위치 확인용입니다. 실제 기록은 위 웹 앱이 담당합니다.</span>
           </div>
 
           <p class="muted" style="margin:0 0 14px;font-size:.9rem;line-height:1.65">
@@ -141,12 +127,8 @@ export async function settingsView(view) {
         </div>
         <p class="muted" style="margin:0 0 14px;font-size:.9rem">${h(syncSummaryText())}</p>
         <div class="row">
-          <button class="btn ${waiting ? 'btn--pending' : 'btn--ghost'}"
+          <button class="btn ${waiting ? 'btn--pending' : 'btn-primary'}"
                   data-act="do-publish" type="button">⬆ 지금 맞추기</button>
-          ${state.dirty ? `
-            <button class="btn btn--danger" data-act="take-latest" type="button">
-              내 가이드 변경 버리고 최신 받기
-            </button>` : ''}
         </div>
 
         <div class="divider"></div>
@@ -202,12 +184,9 @@ export async function settingsView(view) {
           <li>가이드 열람·검색·수정, 리포트 작성, 재고 수정은 <strong>인터넷 없이 전부</strong> 됩니다.</li>
           <li>오프라인에서 누른 시트 업로드와 재고 수량 변경은 <strong>대기열에 쌓였다가
               연결되면 자동 처리</strong>됩니다.</li>
-          <li><strong>[⬆️ 업데이트]</strong>(팀과 내용 주고받기)만 사무실 서버 연결이 필요합니다.</li>
+          <li><strong>[⬆️ 업데이트]</strong>(팀과 내용 주고받기)는 인터넷만 되면
+              <strong>어느 와이파이에서도</strong> 됩니다. 따로 등록할 주소는 없습니다.</li>
         </ul>
-        <div class="divider"></div>
-        <button class="btn btn-secondary" data-act="pull-now" type="button">
-          서버에서 최신 자료 받기
-        </button>
       </details>
       </div>
     </div>`;
@@ -235,12 +214,6 @@ export async function settingsView(view) {
       settingsView(view);
       return;
     }
-    if (act === 'take-latest' || act === 'pull-now') {
-      await runTakeLatest(act === 'pull-now');
-      settingsView(view);
-      return;
-    }
-
     if (act === 'sheets-test') {
       btn.disabled = true;
       btn.textContent = '테스트 중…';
@@ -277,7 +250,6 @@ export async function settingsView(view) {
       await api.saveSettings({
         sheets_webapp_url: $('#sWebapp').value.trim(),
         sheets_spreadsheet_id: $('#sSheetId').value.trim(),
-        site_url: $('#sSiteUrl').value.trim(),
         device_name: name,
       });
       toast('설정을 저장했습니다.', 'ok');

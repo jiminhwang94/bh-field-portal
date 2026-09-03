@@ -283,6 +283,10 @@ img { display: block; max-width: 100%; }
   padding: 7px 14px;
 }
 .sync__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-neutral-500); }
+/* 칩은 눌러서 [올릴 내용] 목록을 여는 버튼이다 — 눌리는 것처럼 보이게 한다 */
+.sync { font-family: inherit; cursor: pointer; }
+.sync:hover { border-color: var(--color-border-strong); }
+.sync:active { background: var(--color-surface-2); }
 .sync.is-dirty { background: var(--color-accent-tint); color: var(--color-accent); }
 .sync.is-dirty .sync__dot { background: var(--color-accent); }
 .sync.is-offline { background: var(--color-warn-tint); color: var(--color-warn); }
@@ -787,7 +791,24 @@ img { display: block; max-width: 100%; }
   width: 30px; flex: none; font-weight: 600; font-size: 15px;
   font-variant-numeric: tabular-nums; color: var(--color-neutral-500);
 }
-.step__img { max-width: 100%; border-radius: var(--radius-md); margin-top: var(--space-2); }
+/* 단계 참고 사진.
+   현장에서 찍은 사진은 4000px 짜리라, 폭만 제한하면 화면 몇 개 높이로 늘어나
+   그 아래 단계가 안 보인다. **높이를 묶어** 한눈에 들어오게 한다.
+   자세히 볼 일이 있으면 눌러서 원본을 연다. */
+.step__img {
+  display: block; max-width: 320px; max-height: 200px;
+  width: auto; height: auto; object-fit: contain; object-position: left center;
+  border: 1px solid var(--color-border); border-radius: var(--radius-md);
+  margin-top: var(--space-2); background: var(--color-surface-2);
+  cursor: zoom-in;
+}
+.step__img--edit { max-width: 200px; max-height: 130px; cursor: default; }
+.step__img.is-zoomed { max-width: 100%; max-height: none; cursor: zoom-out; }
+.media-missing {
+  padding: var(--space-3); margin-top: var(--space-2);
+  font-size: 13px; color: var(--color-muted);
+  border: 1px dashed var(--color-border); border-radius: var(--radius-md);
+}
 
 /* ── 이력: 못 받아 왔을 때의 안내 ───────────────────────────────────── */
 .hist-note {

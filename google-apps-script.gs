@@ -80,21 +80,18 @@ function doPost(e) {
     var lock = LockService.getScriptLock();
     lock.waitLock(30000);            // 동시에 여러 명이 올려도 줄이 섞이지 않게
     try {
-      var sheet = ss.getSheetByName(sheetName);
-      var created = false;
-
-      if (!sheet) {
-        sheet = ss.insertSheet(sheetName);
-        created = true;
-        // 1행은 공백으로 남기고 2행에 항목명
-        writeHeaders(sheet, headers);
-        // 새 시트는 최근 월이 앞에 오도록 맨 앞으로
-        ss.setActiveSheet(sheet);
-        ss.moveActiveSheet(1);
-      } else if (headers.length) {
-        // 항목 설정이 바뀐 경우 2행 헤더를 최신으로 유지
-        writeHeaders(sheet, headers);
-      }
+      // 이미 있는 탭의 **헤더는 절대 고쳐 쓰지 않는다.**
+      //
+      // 예전에는 항목 설정이 바뀌면 2행 헤더를 최신으로 덮어썼다. 그러면
+      // 그 아래 이미 쌓여 있던 줄들은 **옛 항목 순서로 적힌 채** 새 헤더를
+      // 뒤집어써서, 열 이름과 값이 통째로 어긋났다. 실제로 그런 일이 있었다.
+      //
+      // 항목이 달라졌으면 그 달의 **다음 탭**(2026-09 (2) …)에 새로 시작한다.
+      // 옛 탭은 옛 항목 그대로 남아 계속 읽을 수 있다.
+      var sheet = pickReportSheet(ss, sheetName, headers);
+      var created = sheet.created;
+      sheetName = sheet.name;
+      sheet = sheet.sheet;
 
       // 3행부터 채운다 (2행 헤더 아래)
       var lastRow = sheet.getLastRow();
@@ -177,6 +174,64 @@ function insertImages(sheet, images, rowIndex) {
     sheet.setRowHeight(rowIndex, IMAGE_HEIGHT + 12);
   }
   return count;
+}
+
+/**
+ * 이 리포트를 어느 탭에 적을지 고른다.
+ *
+ *  - 그 달 탭이 없으면 만든다
+ *  - 있고 **항목이 같으면** 그 탭에 이어 붙인다
+ *  - 있는데 **항목이 다르면** `2026-09 (2)`, `(3)` … 순으로 옮겨 간다
+ *    (같은 항목을 쓰는 탭이 이미 있으면 거기에 이어 붙인다)
+ *
+ * 반환: { sheet, name, created }
+ */
+function pickReportSheet(ss, baseName, headers) {
+  var want = headerKey(headers);
+  for (var n = 1; n <= 50; n++) {
+    var name = (n === 1) ? baseName : (baseName + ' (' + n + ')');
+    var sheet = ss.getSheetByName(name);
+
+    if (!sheet) {                       // 빈자리 — 여기에 새로 만든다
+      sheet = ss.insertSheet(name);
+      writeHeaders(sheet, headers);     // 1행은 비우고 2행에 항목명
+      ss.setActiveSheet(sheet);
+      ss.moveActiveSheet(1);            // 최근 것이 앞에 오도록
+      return { sheet: sheet, name: name, created: true };
+    }
+
+    var have = headerKey(readHeaderRow(sheet));
+    // 헤더가 아직 비어 있으면(사람이 손으로 만든 탭) 지금 것으로 채운다.
+    if (!have) {
+      writeHeaders(sheet, headers);
+      return { sheet: sheet, name: name, created: false };
+    }
+    if (!want || have === want) {
+      return { sheet: sheet, name: name, created: false };
+    }
+    // 항목이 다르다 — 다음 번호를 본다
+  }
+  throw new Error('같은 달에 탭이 너무 많습니다. 시트를 정리해 주세요.');
+}
+
+/** 2행(항목명)을 읽는다. 없으면 빈 배열. */
+function readHeaderRow(sheet) {
+  var lastCol = sheet.getLastColumn();
+  if (sheet.getLastRow() < 2 || lastCol < 1) return [];
+  var values = sheet.getRange(2, 1, 1, lastCol).getValues()[0];
+  while (values.length && String(values[values.length - 1]).trim() === '') values.pop();
+  return values;
+}
+
+/** 항목 목록을 비교하기 좋은 한 줄로 만든다. 빈 목록은 빈 문자열. */
+function headerKey(headers) {
+  if (!headers || !headers.length) return '';
+  var parts = [];
+  for (var i = 0; i < headers.length; i++) {
+    parts.push(String(headers[i]).trim());
+  }
+  while (parts.length && parts[parts.length - 1] === '') parts.pop();
+  return parts.join('');
 }
 
 function writeHeaders(sheet, headers) {
@@ -720,7 +775,8 @@ function driveSpace() {
 var STATUS_HEADER = '상태';
 var REPORT_HEADER_ROW = 2;
 var REPORT_DATA_ROW = 3;
-var MONTH_TAB = /^\d{4}-\d{2}$/;
+// 월 탭 이름. 항목이 바뀌어 갈라진 탭도 같은 달로 본다 — `2026-09`, `2026-09 (2)`
+var MONTH_TAB = /^\d{4}-\d{2}( \(\d+\))?$/;
 
 function handleReports(ss, body) {
   if (body.reports === 'months') {

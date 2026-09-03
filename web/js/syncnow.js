@@ -1,15 +1,13 @@
 // [⬆ 업데이트] — 밀린 것을 구글 시트에 올리고, 최신 시트 내용을 받아온다.
 //
-// v3.2 에서 뜻이 바뀌었다.
-//   예전: 내 화면 내용을 사무실 서버의 '공개본' 으로 만든다 (팀 공유의 중심이 서버였다)
-//   지금: 팀 공유의 중심은 **구글 시트**다. 서버는 가이드 보관소로만 남는다.
-//         그래서 이 버튼은 "지금 시트와 맞추기" 한 가지 일을 한다.
+// 팀이 함께 보는 원본은 **구글 시트 하나**다. 가이드·재고·리포트 이력이
+// 전부 거기 있고, 인터넷만 되면 어느 와이파이에서도 된다.
+// (예전에는 사무실 서버에도 따로 올렸는데, 시트로 이미 다 올라가고 있어
+//  하는 일이 없으면서 서버 주소를 안 넣은 기기에서는 실패만 했다. 뺐다.)
 //
 // 누르면 순서대로:
-//   1. 오프라인에서 쌓인 것을 전부 올린다 (리포트 → 시트, 재고 수량, 이력 상태, 가이드 탭)
-//   2. 내가 고친 가이드·항목 설정을 서버에 반영한다
-//   3. 서버에서 남이 바꾼 가이드를 받아온다
-//   4. 시트에서 재고와 리포트 이력을 다시 받아온다
+//   1. 오프라인에서 쌓인 것을 전부 올린다 (리포트 · 재고 수량 · 이력 상태 · 가이드)
+//   2. 시트에서 재고 · 가이드 · 리포트 이력을 다시 받아온다
 //
 // 그래서 현장에서 오프라인으로 일하다 인터넷이 되는 곳에서 한 번 누르면
 // 올릴 것은 올라가고 받을 것은 받아진다.
@@ -67,13 +65,6 @@ export function refreshState() {
 
 async function doRefreshState() {
   try {
-    // 서버 상태는 있으면 얹고, 없으면(오프라인) 기기 정보로만 표시한다.
-    try {
-      const info = await api.state();
-      state.published = info.published || state.published;
-      state.summary = info.summary || {};
-      if (!deviceName() && info.deviceName) setDeviceName(info.deviceName);
-    } catch { /* 오프라인 — 기기 정보만으로 충분하다 */ }
     await paint();
     return state;
   } catch {
@@ -86,8 +77,11 @@ async function doRefreshState() {
  * 서버를 부르지 않고 기기 안 값만 읽으므로 아무 때나 불러도 된다.
  */
 export async function paint() {
+  // 올릴 것은 전부 대기열에 들어 있다. 예전에는 여기에 'dirty' 표시를
+  // 하나 더 얹었는데, 가이드를 고치면 대기열에도 들어가고 dirty 도 서면서
+  // **같은 변경을 두 번 셌다.** 그게 정체 모를 "올릴 내용 1건" 이었다.
   state.pending = await store.outboxCount();
-  state.dirty = await store.isDirty();
+  state.dirty = false;
   state.offline = !sync.isOnline();
   state.lastSyncAt = (await store.getMeta(LAST_SYNC_KEY, '')) || '';
   paintNow();
@@ -97,7 +91,7 @@ function paintNow() {
   const chip = document.getElementById('sync-chip');
   const text = document.getElementById('sync-text');
   const btn = document.getElementById('btn-update');
-  const waiting = state.pending + (state.dirty ? 1 : 0);
+  const waiting = state.pending;
 
   if (chip) {
     chip.classList.toggle('is-offline', state.offline);
@@ -131,16 +125,14 @@ export async function runSync(btn) {
   }
 
   const before = await store.outboxCount();
-  const dirty = await store.isDirty();
   let name = deviceName();
-  if (dirty && !name) {
+  if (before && !name) {
     name = await ensureDeviceName();
     if (!name) return null;
   }
 
   if (btn) { btn.disabled = true; btn.textContent = '맞추는 중…'; }
-  const done = { uploaded: 0, published: false, pulled: false, sheet: false,
-                 guides: 0, guidesRemoved: 0 };
+  const done = { uploaded: 0, sheet: false, guides: 0, guidesRemoved: 0 };
   const problems = [];
 
   // 1. 밀린 것 올리기 (리포트·재고 수량·이력 상태·가이드 탭)
@@ -151,40 +143,10 @@ export async function runSync(btn) {
     problems.push(`대기분 전송: ${err.message}`);
   }
 
-  // 2·3. 가이드·항목 설정을 서버와 맞춘다
-  try {
-    if (await store.isDirty()) {
-      try {
-        await api.publish(name || '이름 없음');
-        done.published = true;
-      } catch (err) {
-        if (err.status !== 409) throw err;
-        // 내가 받아간 뒤 다른 사람이 먼저 올렸다.
-        // 그냥 올리면 그 사람의 가이드가 지워지므로 반드시 물어본다.
-        const ok = await confirmDialog(
-          '다른 사람이 먼저 업데이트했습니다',
-          [
-            err.message,
-            '',
-            '지금 올리면 내 화면의 가이드·항목 설정이 최종본이 되어',
-            '그 사람의 변경이 지워집니다.',
-            '',
-            '먼저 [내 변경 버리고 최신 받기] 로 확인해 보는 것을 권합니다.',
-          ].join('\n'),
-          '그래도 내 것으로 덮어쓰기', true);
-        if (ok) {
-          await api.publish(name || '이름 없음', { force: true });
-          done.published = true;
-        } else {
-          problems.push('가이드는 올리지 않았습니다 (다른 사람 변경 유지)');
-        }
-      }
-    } else {
-      done.pulled = await sync.autoPullIfClean();
-    }
-  } catch (err) {
-    problems.push(`가이드 동기화: ${err.message}`);
-  }
+  // 가이드·재고·리포트는 **모두 구글 시트가 원본**이다. 예전에는 여기서
+  // 사무실 서버에도 따로 올렸는데, 시트로 이미 다 올라가고 있어 하는 일이
+  // 없었다. 서버 주소를 안 넣은 태블릿에서는 그 단계가 매번 실패해
+  // 빨간 알림만 띄웠다. 그래서 뺐다.
 
   // 4. 시트에서 최신 자료 받기 (재고 · 가이드 · 리포트 이력)
   try {
@@ -209,6 +171,7 @@ export async function runSync(btn) {
     problems.push(`가이드 받기: ${err.message}`);
   }
 
+  await store.setMeta('dirty', false);   // 예전 버전이 남긴 표시를 지운다
   await store.setMeta(LAST_SYNC_KEY, store.now());
   await refreshState();
   if (btn) { btn.disabled = false; btn.textContent = '⬆ 업데이트'; }
@@ -218,7 +181,6 @@ export async function runSync(btn) {
 
   const parts = [];
   if (done.uploaded) parts.push(`${done.uploaded}건 올림`);
-  if (done.published) parts.push('가이드 반영');
   if (done.sheet) parts.push('시트 받음');
   if (done.guides) parts.push(`가이드 ${done.guides}건 갱신`);
   if (done.guidesRemoved) parts.push(`중복 가이드 ${done.guidesRemoved}건 정리`);
@@ -263,7 +225,7 @@ export async function runTakeLatest(quiet = false) {
 
 /** 설정 화면에 보여 줄 한 줄 요약 */
 export function syncSummaryText() {
-  const waiting = state.pending + (state.dirty ? 1 : 0);
+  const waiting = state.pending;
   if (state.offline) return `오프라인입니다. 올릴 것 ${waiting}건이 기다리고 있습니다.`;
   if (waiting) return `아직 올리지 않은 내용이 ${waiting}건 있습니다. [⬆ 업데이트] 를 누르세요.`;
   return state.lastSyncAt
@@ -274,6 +236,15 @@ export function syncSummaryText() {
 export function initSyncButton() {
   const btn = document.getElementById('btn-update');
   if (btn) btn.addEventListener('click', () => runSync(btn));
+
+  // 상단바의 [올릴 내용 N건] 을 누르면 무엇이 밀려 있는지 보여 준다.
+  const chip = document.getElementById('sync-chip');
+  if (chip) {
+    chip.addEventListener('click', async () => {
+      const pending = await import('./pending.js');
+      pending.openPendingList();
+    });
+  }
   refreshState();
   setInterval(refreshState, CHECK_INTERVAL_MS);
   document.addEventListener('visibilitychange', () => {
