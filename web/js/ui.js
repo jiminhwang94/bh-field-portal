@@ -242,6 +242,17 @@ export async function hydrateMedia(root = document) {
     if (!url) { el.replaceWith(brokenNote()); continue; }
     if (el.tagName === 'A') el.href = url;
     else el.src = url;
+
+    // 드라이브 썸네일은 파일이 공개돼 있을 때만 그림을 준다. 막혀 있으면
+    // Apps Script 로 바이트를 직접 받아 끼운다 (가이드 단계 사진도 마찬가지).
+    const driveId = raw.startsWith('http') ? driveFileId(raw) : '';
+    if (driveId && el.tagName === 'IMG') {
+      el.addEventListener('error', () => {
+        import('./drivemedia.js')
+          .then(({ reviveImage }) => reviveImage(el, driveId, 'thumb'))
+          .catch(() => { /* 못 받으면 그대로 둔다 */ });
+      }, { once: true });
+    }
   }
 }
 

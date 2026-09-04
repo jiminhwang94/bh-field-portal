@@ -516,6 +516,30 @@ const TRACK = [
 const trackOf = (value) => TRACK.find((t) => t.value === value) || TRACK[2];
 
 /**
+ * 드라이브 썸네일이 막힌 사진을 되살린다.
+ *
+ * `drive.google.com/thumbnail` 은 파일이 공개돼 있을 때만 그림을 준다.
+ * 공유 드라이브는 조직 정책으로 링크 공개가 막힐 수 있어서, 그런 현장에서는
+ * 사진이 전부 액박이 됐다. 그때는 Apps Script 로 바이트를 직접 받아 끼운다.
+ * 한 번 받은 것은 기기에 남아 다음부터는 즉시 뜬다.
+ */
+function reviveBrokenThumbs(root) {
+  const shots = [...root.querySelectorAll('img[data-drive]')]
+    .filter((el) => !el.dataset.driveDone);
+  if (!shots.length) return;
+  import('../drivemedia.js').then(({ reviveImage }) => {
+    for (const el of shots) {
+      el.dataset.driveDone = '1';
+      const size = el.dataset.driveSize === 'full' ? 'full' : 'thumb';
+      const tryRevive = () => reviveImage(el, el.dataset.drive, size);
+      // 이미 실패했으면 지금, 아직 받는 중이면 실패할 때.
+      if (el.complete && !el.naturalWidth) tryRevive();
+      else el.addEventListener('error', tryRevive, { once: true });
+    }
+  }).catch(() => { /* 못 불러와도 [드라이브에서 열기] 는 그대로 쓸 수 있다 */ });
+}
+
+/**
  * 시트 한 줄의 전체 내용 + 첨부를 모달로 보여 준다.
  * 이력 화면과 새 리포트의 [지난 방문] 이 같은 모달을 쓴다.
  */
@@ -540,6 +564,7 @@ export function showSheetEntry(entry) {
                     style="padding:0;cursor:zoom-in">
               ${l.id
                 ? `<img src="${h(thumbUrl(l.id, 300))}" alt="${h(l.label)}" loading="lazy"
+                        data-drive="${h(l.id)}"
                         onerror="this.classList.add('is-broken')" />`
                 : ''}
               <span class="media-tile__none">열어 보기</span>
@@ -557,6 +582,8 @@ export function showSheetEntry(entry) {
 
   // 어느 것이 영상인지 알아 와서 ▶ 를 붙인다. 모르면 사진으로 둔다.
   markVideos(entry.links, box);
+  // 드라이브 썸네일이 막힌 파일은 바이트를 직접 받아 그린다.
+  reviveBrokenThumbs(box);
   box.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
@@ -683,11 +710,13 @@ export function openViewer(links, start = 0) {
                        allow="autoplay; fullscreen" allowfullscreen
                        title="${h(l.label)}"></iframe>`
             : `<img class="viewer__img" src="${h(thumbUrl(l.id, 1600))}" alt="${h(l.label)}"
+                    data-drive="${h(l.id)}" data-drive-size="full"
                     onerror="this.classList.add('is-broken')" />
-               <div class="viewer__fallback">미리보기를 불러오지 못했습니다.<br />
-                 위의 [드라이브에서 열기] 로 원본을 볼 수 있습니다.</div>`}
+               <div class="viewer__fallback">사진을 불러오고 있습니다…<br />
+                 오래 걸리면 위의 [드라이브에서 열기] 로 원본을 볼 수 있습니다.</div>`}
         ${links.length > 1 ? '<button class="viewer__nav viewer__nav--next" data-act="next" type="button" aria-label="다음">›</button>' : ''}
       </div>`;
+    reviveBrokenThumbs(root);
   }
 
   root.addEventListener('click', (ev) => {

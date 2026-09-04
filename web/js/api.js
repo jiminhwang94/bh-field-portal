@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.12.0';
+export const APP_VERSION = '3.13.0';
 
 export const deviceId = sync.deviceId;
 
@@ -166,6 +166,17 @@ export const api = {
   },
 
   testSheets: () => testConnection(),
+
+  /**
+   * 이미 올라간 첨부를 다시 '링크가 있는 누구나' 로 만든다.
+   * 예전 버전이 공유 실패를 삼켜서 비공개로 남은 사진을 되살린다.
+   */
+  repairDriveSharing: async () => {
+    const { callAppsScript } = await import('./sheets.js');
+    const result = await callAppsScript({ drive: 'repair', limit: 300 }, 300000);
+    return { checked: result.checked || 0, fixed: result.fixed || 0,
+             failed: result.failed || 0 };
+  },
 
   /** 올릴 대기 건수 (홈 화면 요약용) */
   pendingCount: () => store.outboxCount(),

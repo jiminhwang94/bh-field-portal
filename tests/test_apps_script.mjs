@@ -76,6 +76,16 @@ class FakeRange {
     }
     return this;
   }
+  /**
+   * 서식 있는 값 — 주소를 **누를 수 있는 링크**로 넣을 때 쓴다.
+   * 가짜에 없으면 writeLinkCell 이 조용히 catch 로 떨어져, 칸이 검은
+   * 글씨로 남는데도 검사는 통과해 버린다.
+   */
+  setRichTextValue(value) {
+    this.sheet._set(this.row, this.col, value.getText());
+    this.sheet.links.set(`${this.row},${this.col}`, value.getLinks());
+    return this;
+  }
   setFontWeight() { return this; }
   setBackground() { return this; }
   setVerticalAlignment() { return this; }
@@ -84,7 +94,11 @@ class FakeRange {
 }
 
 class FakeSheet {
-  constructor(name) { this.name = name; this.cells = new Map(); }
+  constructor(name) {
+    this.name = name;
+    this.cells = new Map();
+    this.links = new Map();     // '행,열' → [{ start, end, url }]
+  }
   _key(r, c) { return `${r},${c}`; }
   _set(r, c, v) {
     if (v === '' || v === null || v === undefined) this.cells.delete(this._key(r, c));
@@ -159,6 +173,17 @@ function makeFolder(name, path) {
       folder.folders.set(child, made);
       return made;
     },
+    /** 실제 Folder 에 있는 훑기 메서드 — 사진 공개 복구가 이걸 쓴다. */
+    getFolders() {
+      const list = [...folder.folders.values()];
+      let at = 0;
+      return { hasNext: () => at < list.length, next: () => list[at++] };
+    },
+    getFiles() {
+      const list = [...folder.files];
+      let at = 0;
+      return { hasNext: () => at < list.length, next: () => list[at++] };
+    },
     createFile(blob) {
       const file = {
         // 진짜 드라이브 id 처럼 공백·슬래시 없는 문자열이어야 한다.
@@ -167,9 +192,27 @@ function makeFolder(name, path) {
         id: `f${allFiles.size}${path.replace(/[^A-Za-z0-9]/g, '')}`.slice(0, 33),
         name: blob.name, mime: blob.mime, path,
         getUrl() { return `https://drive.google.com/file/d/${file.id}/view`; },
+        getId: () => file.id,
         getName: () => blob.name,
         getMimeType: () => blob.mime,
-        setSharing() { return file; },
+        // 공유 드라이브에서는 이 호출이 조직 정책으로 **막힌다.**
+        // 예전 코드는 실패를 조용히 삼켜서 사진이 비공개로 남았고,
+        // 팀 전체가 액박을 봤다. 그 상황을 그대로 만들어 둔다.
+        setSharing() {
+          if (SHARED_DRIVE_BLOCKS_LINK_SHARING) {
+            throw new Error('Access denied: cannot change sharing setting');
+          }
+          file.access = 'anyone';
+          return file;
+        },
+        getSharingAccess: () => file.access || 'private',
+        getSize: () => (blob._bytes && blob._bytes.length) || 1024,
+        getBlob: () => blob,
+        getThumbnail: () => ({
+          _bytes: [1, 2, 3, 4], mime: 'image/png', name: `${blob.name}.thumb.png`,
+          getBytes: () => [1, 2, 3, 4],
+          getContentType: () => 'image/png',
+        }),
         getParents: () => ({ hasNext: () => false }),
       };
       folder.files.push(file);
@@ -181,6 +224,9 @@ function makeFolder(name, path) {
 }
 
 const allFiles = new Map();
+
+// 검사마다 켜고 끈다. true = 공유 드라이브가 링크 공개를 막는 현장.
+let SHARED_DRIVE_BLOCKS_LINK_SHARING = false;
 
 function makeDrive() {
   driveTree = makeFolder('공유 드라이브', '');
@@ -222,6 +268,17 @@ const sandbox = {
     getActiveSpreadsheet: () => ss,
     flush: () => {},
     MimeType: { JSON: 'application/json' },
+    /** 주소를 파란 링크로 넣을 때 쓰는 값 만들기 (실제 API 와 같은 모양) */
+    newRichTextValue: () => {
+      let text = '';
+      const links = [];
+      const builder = {
+        setText(value) { text = String(value); return builder; },
+        setLinkUrl(start, end, url) { links.push({ start, end, url }); return builder; },
+        build: () => ({ getText: () => text, getLinks: () => links }),
+      };
+      return builder;
+    },
   },
   LockService: {
     getScriptLock: () => ({ waitLock() {}, releaseLock() {} }),
@@ -232,8 +289,11 @@ const sandbox = {
   },
   DriveApp: makeDrive(),
   Utilities: {
-    base64Decode: (text) => ({ _b64: text }),
-    newBlob: (bytes, mime, name) => ({ _bytes: bytes, mime, name }),
+    base64Decode: (text) => ({ _b64: text, length: String(text).length }),
+    newBlob: (bytes, mime, name) => ({ _bytes: bytes, mime, name,
+                                       getBytes: () => bytes,
+                                       getContentType: () => mime }),
+    base64Encode: (bytes) => `b64(${(bytes && bytes.length) || 0})`,
   },
 };
 
@@ -621,6 +681,93 @@ const local = (call({ guides: 'pull' }).items || [])
   .find((g) => g.codeOrTitle === 'E-200 기기 전용 사진');
 check('기기 안 사진은 시트에 적지 않는다', !!local && !local.steps[0].imageUrl,
       local ? String(local.steps[0].imageUrl) : '가이드 없음');
+
+// ────────────────────────────────────────────────────────────────────
+// 첨부 사진이 **모든 사람 화면에 보이는가** (v3.13)
+//
+// 왜 이 검사가 있나 — 현장에서 리포트를 올리니 사진이 드라이브에는 들어갔는데
+// 앱에서는 전부 액박이 떴다. 원인은 두 가지가 겹친 것이었다.
+//   1. 공유 드라이브는 조직 정책으로 '링크가 있는 누구나' 를 막는다.
+//      그런데 예전 코드는 setSharing 실패를 조용히 삼켰다.
+//   2. drive.google.com/thumbnail 은 파일이 공개일 때만 그림을 준다.
+//      (구글 로그인 쿠키가 다른 사이트의 <img> 요청에 붙지 않는다)
+//   → 그래서 올린 본인 화면에서도 안 보였다.
+// 이제 실패를 감추지 않고, 바이트를 직접 내려주는 길을 둔다.
+// ────────────────────────────────────────────────────────────────────
+const PHOTO_FIELDS = ['작성일시', '작성자', '식당명', '증상', '현장 사진'];
+const NEWLINE = String.fromCharCode(10);   // .gs 가 칸 안에서 줄을 잇는 글자
+const shot = (name) => ({ filename: name, mimeType: 'image/jpeg',
+                          data: 'AAAABBBB', column: 5,
+                          storeName: '흥부골', dateText: '2099-03-01' });
+
+// ── 링크 공개가 되는 현장 (개인 드라이브) ────────────────────────────
+SHARED_DRIVE_BLOCKS_LINK_SHARING = false;
+const okShare = call({ sheetName: '2099-03', headers: PHOTO_FIELDS,
+  row: ['2099-03-01 10:00', 'ben', '흥부골', '현장 테스트', ''],
+  media: [shot('a.jpg'), shot('b.jpg')] });
+check('사진 2장이 올라간다', okShare.media === 2, `${okShare.media}장`);
+check('공개로 만들지 못한 사진이 없다', okShare.mediaPrivate === 0,
+      `비공개 ${okShare.mediaPrivate}장`);
+
+const photoTab = ss.getSheetByName('2099-03');
+const photoCell = String(photoTab.getRange(okShare.row, 5).getValue() || '');
+check('첨부 칸에 주소 2개가 적힌다', photoCell.split(NEWLINE).length === 2,
+      photoCell.replace(/\n/g, ' | '));
+
+// 여기가 핵심 — 검은 글씨가 아니라 **누를 수 있는 파란 링크**여야 한다
+const cellLinks = photoTab.links.get(`${okShare.row},5`) || [];
+check('첨부 칸이 눌러서 열 수 있는 링크다', cellLinks.length === 2,
+      `링크 ${cellLinks.length}개`);
+check('링크 주소가 드라이브 주소다',
+      cellLinks.every((l) => String(l.url).indexOf('drive.google.com') >= 0),
+      cellLinks.map((l) => l.url).join(' | '));
+check('링크가 줄마다 따로 걸린다',
+      cellLinks.length === 2 && cellLinks[0].end < cellLinks[1].start,
+      JSON.stringify(cellLinks.map((l) => [l.start, l.end])));
+
+// ── 링크 공개가 막힌 현장 (공유 드라이브 정책) ───────────────────────
+SHARED_DRIVE_BLOCKS_LINK_SHARING = true;
+const blocked = call({ sheetName: '2099-03', headers: PHOTO_FIELDS,
+  row: ['2099-03-02 10:00', 'ben', '흥부골', '정책 막힘', ''],
+  media: [shot('c.jpg')] });
+check('공개가 막혀도 사진은 올라간다', blocked.media === 1, `${blocked.media}장`);
+check('공개 실패를 감추지 않고 알려 준다', blocked.mediaPrivate === 1,
+      `비공개 ${blocked.mediaPrivate}장 (예전에는 0 으로 조용히 넘어갔다)`);
+
+// 비공개 파일도 앱은 볼 수 있어야 한다 — 바이트를 직접 받는 길
+const blockedCell = String(photoTab.getRange(blocked.row, 5).getValue() || '');
+const blockedId = (blockedCell.match(/\/d\/([-\w]+)/) || [])[1];
+check('막힌 사진의 파일 id 를 주소에서 뽑을 수 있다', !!blockedId, blockedCell);
+
+const bytes = call({ drive: 'bytes', ids: [blockedId], size: 'thumb' });
+const got = (bytes.files || [])[0];
+check('비공개 사진도 바이트로 내려받을 수 있다',
+      bytes.ok === true && got && !!got.data,
+      JSON.stringify(bytes).slice(0, 140));
+check('내려받은 것에 종류가 함께 온다', got && !!got.mimeType, got && got.mimeType);
+
+const full = call({ drive: 'bytes', ids: [blockedId], size: 'full' });
+check('크게 보기용 원본도 내려받는다', !!(full.files || [])[0].data,
+      JSON.stringify(full.files[0]).slice(0, 120));
+
+check('없는 파일을 물어도 터지지 않는다',
+      call({ drive: 'bytes', ids: ['없는id'] }).ok === true);
+check('한 번에 너무 많이 달라고 해도 잘라서 준다',
+      (call({ drive: 'bytes', ids: new Array(40).fill(blockedId) }).files || []).length <= 12);
+
+// ── 이미 올라간 사진 되살리기 ────────────────────────────────────────
+SHARED_DRIVE_BLOCKS_LINK_SHARING = true;
+const cannot = call({ drive: 'repair', limit: 200 });
+check('복구가 살펴본 파일 수를 알려 준다', cannot.checked > 0, `${cannot.checked}개`);
+check('정책으로 막히면 못 바꿨다고 정직하게 말한다', cannot.failed > 0,
+      `바꿈 ${cannot.fixed} · 못 바꿈 ${cannot.failed}`);
+
+SHARED_DRIVE_BLOCKS_LINK_SHARING = false;
+const canFix = call({ drive: 'repair', limit: 200 });
+check('정책이 풀리면 예전 사진을 공개로 바꾼다', canFix.fixed > 0,
+      `바꿈 ${canFix.fixed} · 못 바꿈 ${canFix.failed}`);
+check('두 번째 복구는 이미 공개인 것을 건드리지 않는다',
+      call({ drive: 'repair', limit: 200 }).fixed === 0);
 
 console.log('='.repeat(62));
 if (failures.length) {

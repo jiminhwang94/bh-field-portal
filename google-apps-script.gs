@@ -76,6 +76,16 @@ function doPost(e) {
       return handleDriveInfo(body);
     }
 
+    // 첨부 파일의 **내용**을 직접 내려준다 (공개가 막혀 있어도 보이게)
+    if (body.drive === 'bytes') {
+      return handleDriveBytes(body);
+    }
+
+    // 이미 올라간 첨부를 다시 공개로 만든다 (예전에 올린 사진 되살리기)
+    if (body.drive === 'repair') {
+      return handleDriveRepair(ss, body);
+    }
+
     var sheetName = String(body.sheetName || '').trim();
     var headers = body.headers || [];
     var row = body.row || [];
@@ -107,6 +117,12 @@ function doPost(e) {
         .setVerticalAlignment('top')
         .setWrap(true);
 
+      // 첨부 칸은 **눌러서 열 수 있는 링크**로 다시 적는다.
+      // 글자로만 넣으면 시트에서 검은 글씨로 보이고 눌러도 안 열린다.
+      for (var linkCol in saved.byColumn) {
+        writeLinkCell(sheet, target, Number(linkCol), saved.byColumn[linkCol]);
+      }
+
       // 예전 앱(빌드 9 이하)이 보낸 사진은 지금까지처럼 칸에 그림으로 삽입한다.
       var inserted = insertImages(sheet, body.images || [], target);
 
@@ -121,6 +137,8 @@ function doPost(e) {
         mediaSkipped: saved.skipped,
         // false 면 공유 드라이브에 못 닿아 개인 드라이브로 갔다는 뜻이다.
         mediaShared: saved.shared !== false,
+        // 0 보다 크면 링크 공개가 막혀 있다는 뜻 — 앱이 바이트를 직접 받아 그린다.
+        mediaPrivate: saved.privateCount || 0,
         spreadsheetUrl: ss.getUrl()
       });
     } finally {
@@ -871,6 +889,8 @@ function saveGuideMedia(ss, body) {
   var folder = guideMediaFolder(root.folder, body.categoryType, body.title);
   var links = [];
   var skipped = [];
+  var publicCount = 0;
+  var privateCount = 0;
   for (var i = 0; i < files.length; i++) {
     var item = files[i] || {};
     try {
@@ -879,16 +899,75 @@ function saveGuideMedia(ss, body) {
                                    item.mimeType || 'application/octet-stream',
                                    item.filename || ('사진' + (i + 1)));
       var file = folder.createFile(blob);
-      try {
-        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      } catch (shareErr) { /* 공유 드라이브 정책 — 무시 */ }
+      if (sharePublic(file)) publicCount++; else privateCount++;
       links.push(file.getUrl());
     } catch (err) {
       skipped.push({ filename: item.filename || '(이름 없음)',
                      reason: String(err).slice(0, 120) });
     }
   }
-  return { ok: true, links: links, skipped: skipped, shared: root.shared };
+  return { ok: true, links: links, skipped: skipped, shared: root.shared,
+           publicCount: publicCount, privateCount: privateCount };
+}
+
+/**
+ * 파일을 **링크가 있는 누구나 볼 수 있게** 만든다. 성공하면 true.
+ *
+ * 왜 이게 중요한가 — 앱은 사진을 `drive.google.com/thumbnail?id=...` 로 그린다.
+ * 이 주소는 파일이 공개돼 있을 때만 그림을 준다. 구글 로그인 쿠키는
+ * 다른 사이트의 <img> 요청에는 붙지 않기 때문이다(SameSite). 그래서 파일이
+ * 비공개면 **올린 본인 화면에서도** 액박이 뜬다.
+ *
+ * 예전에는 DriveApp.setSharing 한 번만 시도하고 실패를 조용히 삼켰다.
+ * 공유 드라이브에서는 이 호출이 거의 항상 실패한다 — 그래서 팀 전체가
+ * 사진을 못 봤다. 이제 고급 드라이브 서비스로 한 번 더 시도하고,
+ * 그래도 안 되면 **실패했다고 알려 준다**(앱이 바이트를 직접 받아 그린다).
+ */
+function sharePublic(file) {
+  var id = file.getId();
+  // 1) 고급 드라이브 서비스 — 공유 드라이브를 제대로 다룬다.
+  //    [서비스] 에서 'Drive API' 를 켜 두면 쓰인다. 없으면 조용히 넘어간다.
+  try {
+    if (typeof Drive !== 'undefined' && Drive.Permissions) {
+      Drive.Permissions.create({ role: 'reader', type: 'anyone' }, id,
+                               { supportsAllDrives: true });
+      return true;
+    }
+  } catch (advErr) { /* 정책으로 막혔거나 서비스가 꺼져 있다 */ }
+
+  // 2) 기본 DriveApp — 내 드라이브에서는 이것으로 충분하다.
+  try {
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return true;
+  } catch (basicErr) { /* 공유 드라이브 정책 — 아래에서 false 를 돌려준다 */ }
+
+  return false;
+}
+
+/**
+ * 시트 칸에 여러 줄의 주소를 **파란 링크로** 적는다.
+ *
+ * setValue 로 주소를 넣으면 시트가 글자로만 저장해서 검은색으로 보인다
+ * (여러 줄이면 자동 링크도 안 걸린다). 서식 있는 값으로 넣어야 눌러서
+ * 열 수 있는 링크가 된다.
+ */
+function writeLinkCell(sheet, rowIndex, column, urls) {
+  var list = urls || [];
+  if (!list.length) return;
+  var text = list.join(NEWLINE);
+  try {
+    var builder = SpreadsheetApp.newRichTextValue().setText(text);
+    var at = 0;
+    for (var i = 0; i < list.length; i++) {
+      var len = String(list[i]).length;
+      builder.setLinkUrl(at, at + len, list[i]);
+      at += len + 1;                       // 줄바꿈 한 글자
+    }
+    sheet.getRange(rowIndex, column).setRichTextValue(builder.build());
+  } catch (err) {
+    // 서식 있는 값이 안 되면 글자로라도 남긴다 — 주소는 잃지 않는다.
+    sheet.getRange(rowIndex, column).setValue(text);
+  }
 }
 
 /** 매장 → 날짜 → 사진/동영상 순으로 내려가며 폴더를 만든다. */
@@ -905,7 +984,7 @@ function mediaTargetFolder(root, mimeType, storeName, dateText) {
  *  반환 : { byColumn: { '9': ['https://...', ...] }, count, skipped }
  */
 function saveMediaToDrive(ss, media) {
-  var out = { byColumn: {}, count: 0, skipped: [] };
+  var out = { byColumn: {}, count: 0, skipped: [], publicCount: 0, privateCount: 0 };
   if (!media || !media.length) return out;
 
   // 용량이 모자라면 파일이 조용히 안 올라간다. 미리 재 보고 이유를 분명히 남긴다.
@@ -938,11 +1017,8 @@ function saveMediaToDrive(ss, media) {
       var folder = mediaTargetFolder(root.folder, item.mimeType,
                                      item.storeName, item.dateText);
       var file = folder.createFile(blob);
-      // 공유 드라이브는 조직 정책상 링크 공개가 막혀 있을 수 있다.
-      // 실패해도 팀원은 공유 드라이브 권한으로 볼 수 있으므로 그냥 넘어간다.
-      try {
-        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      } catch (shareErr) { /* 공유 드라이브 정책 — 무시 */ }
+      // 공개로 만들지 못하면 앱이 바이트를 직접 받아 그린다. 그래서 결과를 센다.
+      if (sharePublic(file)) out.publicCount++; else out.privateCount++;
 
       var column = String(item.column || 1);
       if (!out.byColumn[column]) out.byColumn[column] = [];
@@ -1136,6 +1212,102 @@ function handleDriveInfo(body) {
     }
   }
   return json({ ok: true, files: files });
+}
+
+/**
+ * 첨부 파일의 **내용을 직접** 내려준다.
+ *
+ * 왜 필요한가 — 공유 드라이브는 조직 정책으로 '링크가 있는 누구나' 를 막을 수
+ * 있다. 그러면 `drive.google.com/thumbnail?id=...` 이 그림을 주지 않아
+ * 앱에서 액박이 뜬다. 이 웹 앱은 시트 주인 권한으로 돌아가므로 파일을 읽을 수
+ * 있다. 그래서 여기서 바이트를 base64 로 실어 보내면 **누구 화면에서든** 보인다.
+ *
+ *   { drive: 'bytes', ids: ['...'], size: 'thumb' | 'full' }
+ *   → { files: [{ id, name, mimeType, isVideo, data, bytes }] }
+ *
+ * 'thumb' 는 드라이브가 만들어 둔 작은 미리보기라 가볍고 빠르다(목록용).
+ * 'full' 은 원본이다 — 너무 큰 파일은 미리보기로 대신한다.
+ */
+var BYTES_MAX = 12 * 1024 * 1024;      // 한 번에 실어 보낼 수 있는 한도
+
+function handleDriveBytes(body) {
+  var ids = body.ids || [];
+  var want = String(body.size || 'thumb');
+  var files = [];
+  for (var i = 0; i < ids.length && i < 12; i++) {
+    var id = String(ids[i] || '').trim();
+    if (!id) continue;
+    try {
+      var file = DriveApp.getFileById(id);
+      var mime = String(file.getMimeType() || '');
+      var isVideo = mime.indexOf('video/') === 0;
+      var blob = null;
+
+      if (want === 'full' && !isVideo && file.getSize() <= BYTES_MAX) {
+        blob = file.getBlob();
+      }
+      if (!blob) {
+        // 작은 미리보기. 영상도 대표 장면이 나온다.
+        try { blob = file.getThumbnail(); } catch (thumbErr) { blob = null; }
+      }
+      if (!blob && !isVideo && file.getSize() <= BYTES_MAX) {
+        blob = file.getBlob();
+      }
+      if (!blob) {
+        files.push({ id: id, name: file.getName(), mimeType: mime,
+                     isVideo: isVideo, data: '', reason: '미리보기를 만들 수 없습니다.' });
+        continue;
+      }
+      var bytes = blob.getBytes();
+      files.push({
+        id: id,
+        name: file.getName(),
+        mimeType: blob.getContentType() || mime,
+        isVideo: isVideo,
+        bytes: bytes.length,
+        data: Utilities.base64Encode(bytes)
+      });
+    } catch (err) {
+      files.push({ id: id, name: '', mimeType: '', isVideo: false, data: '',
+                   reason: String(err).slice(0, 120) });
+    }
+  }
+  return json({ ok: true, files: files });
+}
+
+/**
+ * 이미 올라간 첨부를 다시 '링크가 있는 누구나' 로 만든다.
+ *
+ * 예전 버전은 공유 실패를 조용히 삼켰다. 그래서 그때 올린 사진들이 비공개로
+ * 남아 있다. 설정 화면의 [사진 공개 복구] 가 이걸 부른다.
+ *
+ *   { drive: 'repair', limit: 300 }
+ *   → { ok, checked, fixed, failed }
+ */
+function handleDriveRepair(ss, body) {
+  var limit = Math.min(Number(body.limit) || 300, 600);
+  var root = mediaRoot(ss);
+  var checked = 0;
+  var fixed = 0;
+  var failed = 0;
+  var stack = [root.folder];
+
+  while (stack.length && checked < limit) {
+    var folder = stack.pop();
+    var subs = folder.getFolders();
+    while (subs.hasNext()) stack.push(subs.next());
+    var items = folder.getFiles();
+    while (items.hasNext() && checked < limit) {
+      var file = items.next();
+      checked++;
+      try {
+        if (file.getSharingAccess() === DriveApp.Access.ANYONE_WITH_LINK) continue;
+      } catch (readErr) { /* 공유 드라이브는 못 읽을 수 있다 — 그냥 다시 시도한다 */ }
+      if (sharePublic(file)) fixed++; else failed++;
+    }
+  }
+  return json({ ok: true, checked: checked, fixed: fixed, failed: failed,
+                shared: root.shared });
 }
 
 /** '상태' 열 번호를 찾는다. 없으면 create=true 일 때 헤더 맨 뒤에 만든다. */
