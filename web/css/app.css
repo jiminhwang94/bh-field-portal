@@ -20,36 +20,42 @@
 :root {
   color-scheme: light;              /* 시스템 다크모드를 따르지 않는다 */
 
-  /* 면 */
+  /* 면
+     태블릿을 밝은 현장에서 쓴다. 화면 시안에서 알맞아 보이던 아주 옅은 회색은
+     실제 태블릿에서 흰 바탕과 구분이 안 됐다("티가 잘 안 난다").
+     그래서 면·경계·보조 글자·부족 표시를 한 단계씩 진하게 잡는다.
+     코발트와 잉크는 잘 보이므로 그대로 둔다. */
   --color-bg: #ffffff;
-  --color-surface: #f7f8fa;         /* 레일 · 목록 hover */
-  --color-surface-2: #f4f6f9;       /* 세그먼트 트랙 · 눌린 면 */
+  --color-surface: #eef1f5;         /* 레일 · 목록 hover */
+  --color-surface-2: #e4e9f0;       /* 세그먼트 트랙 · 눌린 면 */
   --color-text: #16181d;
-  --color-muted: #6b7280;           /* 보조 텍스트 */
-  --color-faint: #8a919e;           /* 3차 텍스트 · 표 머리 */
-  --color-disabled: #aeb4bf;
-  --color-border: #e6e8ee;
-  --color-border-strong: #dfe3ea;
-  --color-hairline: #eef0f4;        /* 셸 구분선 */
+  --color-muted: #5a6270;           /* 보조 텍스트 */
+  --color-faint: #6f7784;           /* 3차 텍스트 · 표 머리 */
+  --color-disabled: #9aa2ae;
+  --color-border: #d2d8e1;
+  --color-border-strong: #b8c0cc;
+  --color-hairline: #dde2ea;        /* 셸 구분선 */
 
   /* 코발트 블루 — 브랜드 강조색 */
   --color-accent: #0047ab;
   --color-accent-hover: #003a8c;
   --color-accent-press: #002f73;
-  --color-accent-tint: #eef3ff;
-  --color-accent-tint-2: #dbe5ff;
+  /* 코발트 자체는 잘 보이지만, 옅은 코발트 면(처리 현황 타일 · 알약)은
+     흰 바탕 위에서 거의 안 갈라졌다. 면도 한 단계 진하게 잡는다. */
+  --color-accent-tint: #dfe8fc;
+  --color-accent-tint-2: #c3d4f7;
   --color-on-accent: #ffffff;
 
   /* 상태 */
   --color-ok: #0f7a45;
-  --color-ok-tint: #eaf6f0;
+  --color-ok-tint: #d9efe4;
   --color-warn: #b45309;
-  --color-warn-tint: #fff7ed;
+  --color-warn-tint: #fdeed8;
   --color-danger: #b4231f;
-  --color-danger-tint: #fdf7f6;     /* 부족 행 배경 */
-  --color-danger-tint-2: #f6e2df;   /* 부족 알약 */
-  --color-danger-border: #f0d9d6;
-  --color-danger-tint-hover: #fbf1ef;  /* 부족 행에 마우스를 올렸을 때 */
+  --color-danger-tint: #fbe9e7;     /* 부족 행 배경 */
+  --color-danger-tint-2: #f5cfca;   /* 부족 알약 */
+  --color-danger-border: #db958e;
+  --color-danger-tint-hover: #f7dcd8;  /* 부족 행에 마우스를 올렸을 때 */
 
   /* 서체 */
   --font-body: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -73,9 +79,9 @@
   --radius-xl: 16px;
   --radius-pill: 999px;
 
-  --shadow-sm: 0 1px 2px rgba(16, 18, 23, .05);
-  --shadow-raise: 0 1px 2px rgba(16, 18, 23, .1);
-  --shadow-md: 0 4px 16px rgba(16, 18, 23, .08);
+  --shadow-sm: 0 1px 2px rgba(16, 18, 23, .09);
+  --shadow-raise: 0 1px 3px rgba(16, 18, 23, .16);
+  --shadow-md: 0 4px 16px rgba(16, 18, 23, .12);
   --shadow-lg: 0 16px 40px rgba(16, 18, 23, .14);
   --shadow-accent: 0 1px 2px rgba(0, 71, 171, .3);
 

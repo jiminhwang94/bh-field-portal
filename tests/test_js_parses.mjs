@@ -12,10 +12,23 @@
  *
  * 실행: node tests/test_js_parses.mjs
  */
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+
+// 모듈 파싱에는 --experimental-vm-modules 가 필요하다. 그냥 실행하면
+// 모든 파일이 "vm.SourceTextModule is not a constructor" 로 떨어져
+// **진짜 깨진 파일과 구분이 안 된다.** 플래그가 없으면 스스로 다시 부른다.
+if (typeof vm.SourceTextModule !== 'function') {
+  const again = spawnSync(
+    process.execPath,
+    ['--experimental-vm-modules', fileURLToPath(import.meta.url)],
+    { stdio: 'inherit' },
+  );
+  process.exit(again.status === null ? 1 : again.status);
+}
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const JS_DIR = join(ROOT, 'web', 'js');
