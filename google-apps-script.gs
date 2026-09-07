@@ -1014,6 +1014,14 @@ function compareVersions(a, b) {
   return 0;
 }
 
+/** 시트가 날짜로 바꿔 둔 칸을 사람이 적은 모양(2026-09-07 16:51)으로 되돌린다. */
+function cellText(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+  }
+  return String(value === undefined || value === null ? '' : value);
+}
+
 /** '공개' 칸. 비어 있으면 공개로 본다. N · 아니오 · X · FALSE 면 숨긴다. */
 function isReleasePublic(value) {
   var t = String(value === undefined || value === null ? '' : value).trim().toUpperCase();
@@ -1069,7 +1077,7 @@ function handleReleaseLatest(ss) {
     var url = String(r[3] || '').trim();
     if (!v || !url || !isReleasePublic(r[6])) return;
     if (!best || compareVersions(v, best.version) > 0) {
-      best = { ok: true, version: v, build: String(r[1] || ''), publishedAt: String(r[2] || ''),
+      best = { ok: true, version: v, build: String(r[1] || ''), publishedAt: cellText(r[2]),
                url: url, sizeMb: Number(r[4]) || 0, notes: String(r[5] || '') };
     }
   });
