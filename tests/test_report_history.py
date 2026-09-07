@@ -107,6 +107,47 @@ for rel in ("google-apps-script.gs",
     check(f"{rel} 에 NUL 문자가 없다", b"\x00" not in raw,
           "" if b"\x00" not in raw else f"{raw.count(chr(0).encode())}개 발견")
 
+
+# ── 동영상 첨부 — 한도를 고르는 순간 알려 준다 (v3.15) ─────────────────
+#
+# 첨부는 시트 웹 앱에 한 번의 요청으로 실려 가서 파일당 20MB · 리포트 25MB 가
+# 기술 한계다. 예전에는 넘는 파일을 저장할 때 조용히 건너뛰어서, 현장에서 찍은
+# 동영상이 빠진 것을 사무실에서야 알았다. 시간(초) 기준 문구는 화질에 따라
+# 거짓이 되므로 용량 기준으로 적고 초 환산은 참고로만 붙인다.
+print()
+print("── 동영상 첨부")
+check("한도를 sheets.js 가 내보낸다 (화면과 전송이 같은 숫자를 쓴다)",
+      "export const MEDIA_FILE_LIMIT" in sheets_js
+      and "export const MEDIA_TOTAL_LIMIT" in sheets_js)
+check("화면이 한도를 sheets.js 에서 가져온다 (숫자를 두 곳에 적지 않는다)",
+      "import { MEDIA_FILE_LIMIT, MEDIA_TOTAL_LIMIT" in view_js
+      and "from '../sheets.js'" in view_js
+      and "20 * 1024 * 1024" not in view_js)
+check("[동영상 찍기] 버튼이 있다", 'data-act="record"' in view_js)
+check("동영상 촬영 입력은 카메라를 바로 연다",
+      'id="mediaRecord" accept="video/*" capture="environment"' in view_js)
+check("고르는 순간 크기를 확인한다 (저장 때 조용히 빼지 않는다)",
+      "function tooBigReason(file)" in view_js
+      and "const reason = tooBigReason(file);" in view_js
+      and "if (reason) { toast(reason, 'err'); continue; }" in view_js)
+check("사진은 줄인 뒤 크기로 판단한다",
+      view_js.index("const file = await shrinkImage(original);")
+      < view_js.index("const reason = tooBigReason(file);"))
+check("리포트 전체 한도도 고르는 순간 확인한다",
+      "attachedBytes() + file.size > MEDIA_TOTAL_LIMIT" in view_js)
+check("붙인 첨부에 크기를 남긴다 (전체 한도 계산용)",
+      "originalName: media.originalName, size: media.size," in view_js)
+check("안내 문구가 용량 기준이고 초는 참고로만 적는다",
+      "동영상은 파일당 <strong>${MEDIA_FILE_LIMIT_TEXT}</strong> 까지" in view_js
+      and "약 15~20초" in view_js)
+check("Apps Script 가 공개 실패 수를 알려 준다", "mediaPrivate: saved.privateCount || 0" in gs)
+check("전송이 공개 실패 수와 동영상 수를 화면에 넘긴다",
+      "mediaPrivate: Number(result.mediaPrivate || 0)" in sheets_js
+      and "mediaVideos: payload.media.filter" in sheets_js)
+check("동영상이 비공개로 남으면 화면이 알린다 (사진과 달리 우회가 없다)",
+      "function warnPrivateVideo(result)" in view_js
+      and view_js.count("warnPrivateVideo(result);") == 2)
+
 print("=" * 62)
 if failures:
     print(f"❌ 실패 {len(failures)}건: {', '.join(failures)}")

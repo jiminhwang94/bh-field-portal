@@ -1,5 +1,6 @@
 // 현장 리포트 작성 (동적 폼) · 이력 · 상세 / 구글 시트 업로드
 import { api } from '../api.js';
+import { MEDIA_FILE_LIMIT, MEDIA_TOTAL_LIMIT, MEDIA_FILE_LIMIT_TEXT, MEDIA_TOTAL_LIMIT_TEXT } from '../sheets.js';
 import {
   $, closeModal, confirmDialog, copyText, h, hydrateMedia, loading, openSheet,
   toast, when,
@@ -174,10 +175,16 @@ export async function reportFormView(view) {
         <div class="field field--wide" data-field-id="${field.id}">
           ${label}
           <div class="row">
-            <button class="btn btn--ghost" data-act="capture" data-field="${field.id}" type="button">촬영</button>
+            <button class="btn btn--ghost" data-act="capture" data-field="${field.id}" type="button">사진 촬영</button>
+            <button class="btn btn--ghost" data-act="record" data-field="${field.id}" type="button">동영상 찍기</button>
             <button class="btn btn--ghost" data-act="pick" data-field="${field.id}" type="button">앨범 · 파일</button>
             <span class="badge">${state.kept.length + state.media.length}개 첨부</span>
           </div>
+          <p class="hint" style="margin:6px 0 0">
+            사진은 자동으로 줄여 올립니다 ·
+            동영상은 파일당 <strong>${MEDIA_FILE_LIMIT_TEXT}</strong> 까지
+            (휴대폰 기본 화질로 약 15~20초) · 리포트 전체 ${MEDIA_TOTAL_LIMIT_TEXT}
+          </p>
           ${state.kept.length || state.media.length ? `
             <div class="media-grid">
               ${state.kept.map((l, i) => keptTile(field.id, l, i)).join('')}
@@ -249,6 +256,7 @@ export async function reportFormView(view) {
         </form>
 
         <input type="file" id="mediaCapture" accept="image/*" capture="environment" style="display:none" />
+        <input type="file" id="mediaRecord" accept="video/*" capture="environment" style="display:none" />
         <input type="file" id="mediaPick" accept="image/*,video/*,application/pdf" multiple style="display:none" />
       </div>`;
 
@@ -367,25 +375,59 @@ export async function reportFormView(view) {
     }
   }
 
+  /** 이 리포트에 이미 붙어 있는(아직 안 올린) 첨부의 합계 바이트 */
+  function attachedBytes() {
+    let total = 0;
+    for (const state of Object.values(values)) {
+      for (const m of state.media || []) total += Number(m.size) || 0;
+    }
+    return total;
+  }
+
+  const mb = (n) => `${Math.round(n / 1048576)}MB`;
+
+  /**
+   * 파일이 시트로 올라갈 수 있는 크기인지 **고르는 순간** 확인한다.
+   * 넘으면 이유를 돌려준다. 예전에는 저장할 때 조용히 건너뛰어서, 현장에서
+   * 찍은 동영상이 빠진 것을 사무실에서야 알았다.
+   */
+  function tooBigReason(file) {
+    const isVideo = (file.type || '').startsWith('video/');
+    const what = isVideo ? '이 동영상은' : '이 파일은';
+    if (file.size > MEDIA_FILE_LIMIT) {
+      return `${what} ${mb(file.size)} 라 올릴 수 없습니다 (파일당 ${MEDIA_FILE_LIMIT_TEXT} 까지).`
+        + (isVideo ? ' 짧게 다시 찍거나 낮은 화질로 찍어 주세요.' : '');
+    }
+    if (attachedBytes() + file.size > MEDIA_TOTAL_LIMIT) {
+      return `${what} 더하면 리포트 전체가 ${MEDIA_TOTAL_LIMIT_TEXT} 를 넘습니다`
+        + ` (지금 ${mb(attachedBytes())} + ${mb(file.size)}). 첨부를 하나 빼거나 리포트를 나눠 주세요.`;
+    }
+    return '';
+  }
+
   async function uploadFiles(fieldId, fileList) {
     const files = Array.from(fileList || []);
     if (!files.length) return;
-    toast(`${files.length}개 파일 업로드 중…`);
+    let added = 0;
     for (const original of files) {
       try {
+        // 사진은 먼저 줄인다 — 줄인 뒤 크기로 판단해야 공정하다.
         const file = await shrinkImage(original);
+        const reason = tooBigReason(file);
+        if (reason) { toast(reason, 'err'); continue; }
         const media = await api.uploadMedia(file);
         values[fieldId].media.push({
           id: media.id, filename: media.filename, url: media.url,
-          mime: media.mime, originalName: media.originalName,
+          mime: media.mime, originalName: media.originalName, size: media.size,
         });
+        added += 1;
       } catch (err) {
         toast(`${original.name}: ${err.message}`, 'err');
       }
     }
     saveDraft();
     render();
-    toast('업로드를 완료했습니다.', 'ok');
+    if (added) toast(`첨부 ${added}개를 붙였습니다.`, 'ok');
   }
 
   async function onClick(ev) {
@@ -393,8 +435,8 @@ export async function reportFormView(view) {
     if (!btn) return;
     const act = btn.dataset.act;
 
-    if (act === 'capture' || act === 'pick') {
-      const input = $(act === 'capture' ? '#mediaCapture' : '#mediaPick');
+    if (act === 'capture' || act === 'record' || act === 'pick') {
+      const input = $({ capture: '#mediaCapture', record: '#mediaRecord', pick: '#mediaPick' }[act]);
       input.value = '';
       input.onchange = () => uploadFiles(btn.dataset.field, input.files);
       input.click();
@@ -484,6 +526,7 @@ export async function reportFormView(view) {
         }
         (result.mediaSkipped || []).forEach((s) =>
           toast(`첨부 제외: ${s.filename} (${s.reason})`, 'err'));
+        warnPrivateVideo(result);
       }
       location.hash = `#/reports/${saved.id}`;
     } catch (err) {
@@ -514,6 +557,19 @@ const TRACK = [
   { value: '교체 예정',    short: '교체 예정', cls: 'swap' },
 ];
 const trackOf = (value) => TRACK.find((t) => t.value === value) || TRACK[2];
+
+/**
+ * 동영상이 비공개로 남았으면 알린다.
+ *
+ * 사진은 공개가 막혀도 앱이 시트를 거쳐 바이트를 받아 그린다. 동영상은 너무
+ * 커서 그 길을 못 쓰고 드라이브 재생기로만 본다. 드라이브 재생기는 파일이
+ * 공개거나 보는 사람이 로그인돼 있어야 한다. 그래서 이 경우만 따로 말해 준다.
+ */
+function warnPrivateVideo(result) {
+  if (!result || !result.mediaVideos || !result.mediaPrivate) return;
+  toast('동영상이 다른 사람 화면에서 재생되지 않을 수 있습니다 — 드라이브 링크 공개가 '
+        + '막혀 있습니다. 설정 → [사진 공개 복구] 를 눌러 보고, 안 되면 관리자에게 알려 주세요.', 'err');
+}
 
 /**
  * 드라이브 썸네일이 막힌 사진을 되살린다.
@@ -1135,6 +1191,7 @@ export async function reportDetailView(view, reportId) {
             + (result.media ? ` (첨부 ${result.media}개 드라이브 저장)` : ''), 'ok');
           (result.mediaSkipped || []).forEach((s) =>
             toast(`첨부 제외: ${s.filename} (${s.reason})`, 'err'));
+          warnPrivateVideo(result);
         }
         reportDetailView(view, report.id);
       } catch (err) {

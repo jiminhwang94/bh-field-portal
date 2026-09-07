@@ -7,9 +7,18 @@ import { isOnline, OfflineError } from './sync.js';
 
 const META_HEADERS = ['작성일시', '작성자'];
 
-/** 첨부는 드라이브에 저장한다 — 한 건당 20MB, 리포트 하나당 25MB 까지. */
-const MEDIA_FILE_LIMIT = 20 * 1024 * 1024;
-const MEDIA_TOTAL_LIMIT = 25 * 1024 * 1024;
+/**
+ * 첨부는 드라이브에 저장한다 — 한 건당 20MB, 리포트 하나당 25MB 까지.
+ *
+ * 이 숫자는 기술 한계에 가깝다. 첨부는 구글 시트 웹 앱에 **한 번의 요청**으로
+ * 실려 가는데, 구글이 한 요청에 받는 양이 약 50MB 이고 전송 중 base64 로
+ * 1.33배 불어난다. 사진은 올리기 전에 줄이므로 거의 안 걸리고, 동영상이 걸린다.
+ * 20MB 는 휴대폰 기본 화질(1080p)로 약 15~20초다. 화질에 따라 크게 다르다.
+ */
+export const MEDIA_FILE_LIMIT = 20 * 1024 * 1024;
+export const MEDIA_TOTAL_LIMIT = 25 * 1024 * 1024;
+export const MEDIA_FILE_LIMIT_TEXT = '20MB';
+export const MEDIA_TOTAL_LIMIT_TEXT = '25MB';
 
 /**
  * 이력 화면의 추적 상태 — 시트 맨 뒤 '상태' 열에 기록된다.
@@ -280,6 +289,11 @@ export async function uploadReport(report) {
     mediaSkipped: [...payload.mediaSkipped, ...(result.mediaSkipped || [])],
     // 공유 드라이브에 못 닿으면 개인 드라이브로 간다 — 그대로 두면 안 되므로 알린다.
     mediaShared: result.mediaShared !== false,
+    // 링크 공개가 막혀 비공개로 남은 첨부 수. 사진은 앱이 바이트를 직접 받아
+    // 그리지만 **동영상은 그렇게 못 한다**(너무 크다). 그래서 동영상이 섞여 있고
+    // 비공개가 있으면 화면에서 알려 준다.
+    mediaPrivate: Number(result.mediaPrivate || 0),
+    mediaVideos: payload.media.filter((m) => String(m.mimeType || '').startsWith('video/')).length,
     spreadsheetUrl: spreadsheetUrl(await store.getSettings()),
   };
 }
