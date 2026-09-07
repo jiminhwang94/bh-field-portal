@@ -157,39 +157,61 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 촬영 / 앨범 선택을 함께 띄운다. */
+    /** 웹의 첨부 한도와 같은 값. 카메라 앱이 이 크기에서 녹화를 멈춘다(지원 기기). */
+    private static final long VIDEO_SIZE_LIMIT = 20L * 1024 * 1024;
+
     private boolean openPicker(WebChromeClient.FileChooserParams params) {
-        Intent contentIntent = new Intent(Intent.ACTION_GET_CONTENT);
-        contentIntent.addCategory(Intent.CATEGORY_OPENABLE);
-        contentIntent.setType("*/*");
         String[] accept = params.getAcceptTypes();
+        String type = "*/*";
         if (accept != null && accept.length > 0 && accept[0] != null
                 && !accept[0].isEmpty()) {
-            contentIntent.setType(accept[0]);
+            type = accept[0];
         }
+        // 웹이 video/* 를 요청했으면 동영상 카메라를 연다.
+        // 예전에는 요청 종류를 보지 않고 늘 사진 카메라만 붙여서,
+        // [동영상 찍기]를 눌러도 사진 촬영 화면이 떴다.
+        boolean wantVideo = type.startsWith("video/");
+        Intent cameraIntent = buildCameraIntent(wantVideo);
 
-        Intent chooser = Intent.createChooser(contentIntent, "사진 선택");
-        Intent cameraIntent = buildCameraIntent();
-        if (cameraIntent != null) {
-            chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cameraIntent});
-        }
         try {
+            // capture 속성이 있는 요청([사진 촬영]·[동영상 찍기])은 선택 창을 거치지
+            // 않고 카메라를 바로 연다. 현장에서 한 번 덜 누른다.
+            if (params.isCaptureEnabled() && cameraIntent != null) {
+                filePicker.launch(cameraIntent);
+                return true;
+            }
+
+            Intent contentIntent = new Intent(Intent.ACTION_GET_CONTENT);
+            contentIntent.addCategory(Intent.CATEGORY_OPENABLE);
+            contentIntent.setType(type);
+            Intent chooser = Intent.createChooser(contentIntent, "첨부 선택");
+            if (cameraIntent != null) {
+                chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, new Intent[]{cameraIntent});
+            }
             filePicker.launch(chooser);
             return true;
         } catch (Exception exc) {
             filePathCallback = null;
-            Toast.makeText(this, "사진을 열 수 없습니다.", Toast.LENGTH_SHORT).show();
+            cameraOutputUri = null;
+            Toast.makeText(this, "카메라나 파일을 열 수 없습니다.", Toast.LENGTH_SHORT).show();
             return false;
         }
     }
 
-    private Intent buildCameraIntent() {
+    /**
+     * 카메라 인텐트. video 가 true 면 동영상, 아니면 사진.
+     * 촬영 결과는 앱 캐시 폴더에 담고 그 주소를 웹뷰에 넘긴다.
+     */
+    private Intent buildCameraIntent(boolean video) {
         if (checkSelfPermission(android.Manifest.permission.CAMERA)
                 != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{android.Manifest.permission.CAMERA},
                     REQUEST_CAMERA_PERMISSION);
             return null;        // 이번에는 앨범만, 다음 촬영부터 카메라 사용 가능
         }
-        Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        Intent intent = new Intent(video
+                ? MediaStore.ACTION_VIDEO_CAPTURE
+                : MediaStore.ACTION_IMAGE_CAPTURE);
         if (intent.resolveActivity(getPackageManager()) == null) {
             return null;
         }
@@ -200,11 +222,18 @@ public class MainActivity extends AppCompatActivity {
             }
             String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.KOREA)
                     .format(new Date());
-            File photo = new File(dir, "photo-" + stamp + ".jpg");
+            File out = new File(dir, video ? "video-" + stamp + ".mp4"
+                                           : "photo-" + stamp + ".jpg");
             cameraOutputUri = FileProvider.getUriForFile(
-                    this, getPackageName() + ".fileprovider", photo);
+                    this, getPackageName() + ".fileprovider", out);
             intent.putExtra(MediaStore.EXTRA_OUTPUT, cameraOutputUri);
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            if (video) {
+                // 웹 첨부 한도와 같은 크기에서 녹화가 멈추게 부탁한다.
+                // 모든 카메라 앱이 지키지는 않으므로 웹 쪽 확인은 그대로 남아 있다.
+                intent.putExtra(MediaStore.EXTRA_SIZE_LIMIT, VIDEO_SIZE_LIMIT);
+                intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1);   // 고화질 (저화질은 너무 작다)
+            }
             return intent;
         } catch (Exception exc) {
             cameraOutputUri = null;
