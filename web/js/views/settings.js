@@ -326,6 +326,14 @@ function openSheetsGuide(settings) {
         스프레드시트 <strong>편집 권한</strong>만 있으면 됩니다. 관리자 권한이나 API 키는 필요 없습니다.
       </p>
     </div>
+    <div class="sub-card" style="margin-top:10px">
+      <strong style="font-size:.92rem">사진을 더 빨리 보려면 (선택)</strong>
+      <p class="muted" style="margin:6px 0 0;font-size:.88rem;line-height:1.65">
+        Apps Script 화면 왼쪽 <strong>[서비스]</strong> → <strong>Drive API</strong> 를 추가해 두면,
+        올린 사진을 '링크가 있는 누구나' 로 만들 수 있어 구글이 직접 그림을 보내 줍니다.
+        추가하지 않아도 사진은 보입니다 — 시트를 거쳐 받아오므로 처음 한 번만 조금 느립니다.
+      </p>
+    </div>
     <div class="form-actions">
       <button class="btn btn--primary" type="button" data-act="close">확인</button>
     </div>`);
