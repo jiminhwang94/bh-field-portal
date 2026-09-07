@@ -78,8 +78,8 @@ export async function settingsView(view) {
                    placeholder="https://script.google.com/macros/s/.../exec"
                    autocapitalize="off" spellcheck="false" />
             <span class="hint">
-              스프레드시트에 붙인 Apps Script 를 <strong>웹 앱</strong>으로 배포한 URL 입니다.
-              아래 [설치 방법]을 참고하세요. (구글 계정·토큰을 앱에 넣지 않습니다)
+              팀 공용 주소가 <strong>미리 들어 있습니다.</strong> 새 태블릿도 바로 연결됩니다.
+              다른 스프레드시트로 옮길 때만 바꾸세요. (구글 계정·토큰을 앱에 넣지 않습니다)
             </span>
           </div>
 

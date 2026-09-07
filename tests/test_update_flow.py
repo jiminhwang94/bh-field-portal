@@ -85,6 +85,19 @@ check("수신기를 종료 때 푼다", "unregisterReceiver(updateReceiver)" in 
 check("다운로드 관리자가 없으면 브라우저로라도 받는다", "openInBrowser(httpsUrl)" in java)
 
 print()
+print("== 5. 웹 앱 URL 이 앱에 붙박이로 들어 있다")
+store_js = read("web", "js", "local", "store.js")
+check("팀 공용 URL 이 기본값이다", "sheetsWebappUrl: TEAM_WEBAPP_URL" in store_js)
+check("URL 이 실제 배포 주소다 (/exec 로 끝나는 script.google.com)",
+      "https://script.google.com/macros/s/" in store_js
+      and "/exec';" in store_js.split("TEAM_WEBAPP_URL = ")[1][:200])
+check("빈 값·예전 기본값이면 지금 기본값을 따라간다",
+      "PAST_WEBAPP_URLS.includes(url)) merged.sheetsWebappUrl = TEAM_WEBAPP_URL" in store_js)
+check("설정 화면이 '미리 들어 있다' 고 말한다", "미리 들어 있습니다" in settings)
+check("빌드가 기록하는 시트 주소와 앱 기본값이 같은 배포다",
+      "AKfycbzYFUuzAiKQGTo1QhHw2VvdJD3fs4n0Ab37-ucY_9e3WLecAsSTX8PH1OYS62KK0zAnBg" in store_js)
+
+print()
 if fails:
     print("실패 %d건: %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)

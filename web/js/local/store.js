@@ -76,8 +76,25 @@ async function queueFieldSheetPushIfOn(changes = []) {
 
 // ---------------------------------------------------------------- 설정
 
+/**
+ * 팀 공용 Apps Script 웹 앱 URL — 앱에 붙박이로 들어 있다.
+ *
+ * 새 태블릿·재설치·앱 데이터 삭제 뒤에도 설정을 열지 않고 바로 연결된다.
+ * 예전에는 비어 있어서 기기마다 사람이 이 긴 주소를 넣어야 했고, 설정이
+ * 사라질 때마다 다시 넣어야 했다.
+ *
+ * 이 주소는 '배포' 에 붙어 있어 자동 배포(버전 갱신)로는 바뀌지 않는다.
+ * 누가 [새 배포] 를 만들 때만 바뀐다. 그때는 여기를 새 주소로 고치고, 옛 주소는
+ * PAST_WEBAPP_URLS 에 옮겨 둔다 — 그러면 옛 기본값을 쓰던 기기가 새 앱을 깔 때
+ * 스스로 따라온다.
+ */
+export const TEAM_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzYFUuzAiKQGTo1QhHw2VvdJD3fs4n0Ab37-ucY_9e3WLecAsSTX8PH1OYS62KK0zAnBg/exec';
+
+/** 예전에 기본값이었던 주소들. 저장된 값이 이 중 하나면 새 기본값을 따라간다. */
+const PAST_WEBAPP_URLS = [];
+
 const SETTING_DEFAULTS = {
-  sheetsWebappUrl: '',
+  sheetsWebappUrl: TEAM_WEBAPP_URL,
   sheetsSpreadsheetId: '1ywec2wKj0thmI0uPZeqNwCGpbD75TJ9s7Yc20iP_0z4',
   deviceName: '',
 };
@@ -90,7 +107,12 @@ export async function sheetInventoryOn() {
 
 export async function getSettings() {
   const stored = (await getMeta('settings', {})) || {};
-  return { ...SETTING_DEFAULTS, ...stored };
+  const merged = { ...SETTING_DEFAULTS, ...stored };
+  // 비어 있거나 **예전 기본값 그대로**면 지금 기본값을 쓴다.
+  // 사람이 설정에서 직접 다른 주소로 바꾼 기기는 그대로 둔다.
+  const url = String(merged.sheetsWebappUrl || '').trim();
+  if (!url || PAST_WEBAPP_URLS.includes(url)) merged.sheetsWebappUrl = TEAM_WEBAPP_URL;
+  return merged;
 }
 
 export async function saveSettings(values) {
