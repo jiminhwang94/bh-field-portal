@@ -128,8 +128,14 @@ jobs:
           DESC="${NOTE:-자동 배포 $(date +%Y-%m-%d)}"
           # 활성 배포 전부를 같은 새 버전으로 올린다 (URL 유지).
           # @HEAD 는 개발용이라 건드리지 않는다.
-          clasp deployments | tail -n +2 | awk '{print $2}' | while read -r ID; do
-            [ -z "$ID" ] && continue
+          # @HEAD 는 읽기 전용이라 갱신하면 "Read-only deployments may not be
+          # modified" 로 멈춘다 (실제로 그랬다). 반드시 걸러낸다.
+          LIST=$(clasp deployments | tail -n +2 | grep -v '@HEAD' | awk '{print $2}')
+          if [ -z "$LIST" ]; then
+            echo "::error::갱신할 웹 앱 배포가 없습니다. Apps Script → [배포] → [새 배포] 를 한 번 만들어 주세요."
+            exit 1
+          fi
+          for ID in $LIST; do
             echo "갱신: $ID"
             clasp deploy --deploymentId "$ID" --description "$DESC"
           done
