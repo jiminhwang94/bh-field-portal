@@ -216,11 +216,20 @@ jobs:
           fi
           # 폴더는 영문으로 — Dropbox-API-Arg 헤더는 ASCII 만 받는다
           DEST="/FieldPortal/apk/$FILE"
-          curl -sf https://content.dropboxapi.com/2/files/upload \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Dropbox-API-Arg: {\"path\":\"$DEST\",\"mode\":\"overwrite\",\"mute\":true}" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary @"$FILE" > /dev/null
+          # 업로드. -f 를 쓰지 않고 응답을 본다 — 권한(files.content.write)이 토큰에
+          # 없거나 팀 정책에 막히면 Dropbox 가 error_summary 로 이유를 말해 준다.
+          UP=$(curl -s https://content.dropboxapi.com/2/files/upload \
+                 -H "Authorization: Bearer $TOKEN" \
+                 -H "Dropbox-API-Arg: {\"path\":\"$DEST\",\"mode\":\"overwrite\",\"mute\":true}" \
+                 -H "Content-Type: application/octet-stream" \
+                 --data-binary @"$FILE")
+          if ! printf '%s' "$UP" | jq -e '.path_display' > /dev/null 2>&1; then
+            echo "Dropbox 응답: $UP"
+            WHY=$(printf '%s' "$UP" | jq -r '.error_summary // .error // .' 2>/dev/null | head -c 200)
+            echo "::error::Dropbox 업로드 실패 — $WHY"
+            echo "::error::토큰을 만든 뒤 [Permissions] 를 바꿨다면 토큰을 다시 발급해야 합니다 (권한은 토큰에 박힙니다)."
+            exit 1
+          fi
           echo "Dropbox 저장: $DEST"
 
           # 공유 링크 — 이미 있으면 그것을 쓴다
