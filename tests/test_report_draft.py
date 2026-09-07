@@ -146,7 +146,7 @@ check(
 )
 check(
     "재고: 그린 뒤에 시트를 받아 다시 그린다",
-    "try { await pullInventory(); } catch { return; }" in inventory,
+    "const pulled = await pullInventory().catch(() => null);" in inventory,
 )
 check(
     "재고: 창이 열려 있으면 다시 그리지 않는다 (적던 내용이 날아간다)",
@@ -159,6 +159,66 @@ check(
 check(
     "이력: 최신본 받기가 화면 전환을 붙잡지 않는다",
     re.search(r"\(async \(\) => \{\s*\n\s*try \{ await load\(\{ refresh: true \}\); \}", report) is not None,
+)
+
+
+# ── 3. 앱을 열 때 시트를 기다리지 않는다 (v3.14) ──────────────────────
+#
+# 예전에는 부팅에서 `await ensureFirstData()` 가 끝날 때까지 첫 화면을 그리지
+# 않았고, 그 안에서 시트를 **세 번 차례로** 불렀다. 왕복 1.2초 회선에서 3.7초,
+# LTE(2.5초)에서는 7.5초 동안 빈 화면이었다. 웹 페이지를 새로고침하거나 앱을
+# 켤 때마다 그랬다. 재봐서 3,658ms -> 41ms 가 됐다.
+print()
+print("== 3. 앱을 열 때 시트를 기다리지 않는가")
+
+app = read("web/js/app.js")
+net = read("web/js/net.js")
+store_js = read("web/js/local/store.js")
+invsheet = read("web/js/invsheet.js")
+
+boot_prep = net.split("export async function catchUpFromSheet")[0]
+
+check(
+    "부팅: 화면을 먼저 그린다",
+    "const added = await ensureFirstData();" in app
+    and app.index("render();") > app.index("await ensureFirstData()"),
+)
+check(
+    "부팅: 시트 받기를 기다리지 않는다",
+    "catchUpFromSheet();" in app and "await catchUpFromSheet()" not in app,
+)
+check(
+    "부팅 준비에는 시트 호출이 없다",
+    "pullFields" not in boot_prep and "pullInventory" not in boot_prep,
+)
+check(
+    "시트 받기 세 가지를 동시에 부른다 (차례로 부르면 왕복이 3배)",
+    "fieldsheet.pullFields().catch(() => null)," in net
+    and "await Promise.all([" in net,
+)
+check(
+    "달라진 것이 있을 때만 다시 그린다",
+    "changedSomething(fields)" in net and "function changedSomething" in net,
+)
+check(
+    "재고 받기가 바뀐 게 있는지 알려 준다",
+    "return store.applyInventorySheet(result);" in invsheet,
+)
+check(
+    "시트 내용이 그대로면 저장소를 다시 쓰지 않는다",
+    "sheetInventorySignature" in store_js and "changed: false" in store_js,
+)
+check(
+    "재고: 방금 받았으면 다시 받지 않는다",
+    "store.pulledWithin('sheetInventoryPulledAt', 60)" in inventory,
+)
+check(
+    "이력: 방금 받았으면 다시 받지 않는다",
+    "if (age < 60000) return;" in report,
+)
+check(
+    "이력: 목록이 그대로면 다시 그리지 않는다",
+    "listSignature(data.entries) === before" in report,
 )
 
 print()

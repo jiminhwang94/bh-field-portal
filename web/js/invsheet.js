@@ -14,11 +14,21 @@ export const isEnabled = () => store.sheetInventoryOn();
  * 시트 내용을 받아 기기에 반영한다.
  * 시트에 '차량재고' 탭이 아직 없으면 기기 재고로 탭을 만들어 채운다(최초 1회).
  */
+/**
+ * 시트의 차량 재고를 기기에 반영한다.
+ *
+ * 반환: { vehicles, items, changed } — `changed` 가 false 면 시트 내용이
+ * 지난번과 똑같아서 아무것도 건드리지 않았다는 뜻이다. 부르는 쪽은 이걸 보고
+ * **화면을 다시 그릴지** 정한다. 예전에는 이 함수가 Apps Script 응답을 그대로
+ * 돌려줘서 바뀐 게 있는지 알 수 없었고, 그래서 늘 다시 그렸다.
+ */
 export async function pullInventory() {
   const result = await callAppsScript({ inventory: 'pull' }, 30000);
-  if (result.exists === false) return pushInventory();
-  await store.applyInventorySheet(result);
-  return result;
+  if (result.exists === false) {
+    await pushInventory();
+    return { vehicles: 0, items: 0, changed: false };
+  }
+  return store.applyInventorySheet(result);
 }
 
 /**

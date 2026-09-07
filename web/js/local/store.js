@@ -544,13 +544,53 @@ export async function applyInventorySheet(state) {
     }
   }
 
+  // 시트 내용이 지난번과 **똑같으면 아무것도 하지 않는다.**
+  //
+  // 예전에는 받아올 때마다 저장소 세 개를 통째로 다시 쓰고, 화면도 무조건
+  // 다시 그렸다. 대부분은 바뀐 게 없는데도 그랬다. 그래서 화면에 들어간 뒤
+  // 1~2초 있다가 내용이 한 번 덜컥 다시 그려지는 것처럼 보였다.
+  const signature = inventorySignature(vehicleRows, inventoryRows, quantityRows);
+  if (signature === (await getMeta('sheetInventorySignature', ''))) {
+    await setMeta('sheetInventoryPulledAt', stamp);
+    return { vehicles: names.length, items: inventoryRows.length, changed: false };
+  }
+
   await idb.replaceStores({
     vehicles: vehicleRows,
     inventory: inventoryRows,
     quantities: quantityRows,
   });
+  await setMeta('sheetInventorySignature', signature);
   await setMeta('sheetInventoryPulledAt', stamp);
-  return { vehicles: names.length, items: inventoryRows.length };
+  return { vehicles: names.length, items: inventoryRows.length, changed: true };
+}
+
+/**
+ * 재고 상태를 짧은 글자로 요약한다 — 지난번과 같은지 비교하는 데만 쓴다.
+ *
+ * 시각(updatedAt)은 넣지 않는다. 시트에서 받을 때마다 새 시각이 붙어
+ * 내용이 같아도 늘 "달라졌다" 가 되기 때문이다.
+ */
+function inventorySignature(vehicles, items, quantities) {
+  const qty = new Map(quantities.map((q) => [q.key, q.quantity]));
+  const lines = items
+    .map((r) => [r.vehicleName, r.partName, qty.get(qtyKey(r.vehicleName, r.partName)),
+                 r.minQuantity].join('|'))
+    .sort();
+  return [vehicles.map((v) => v.name).sort().join(','), ...lines].join(String.fromCharCode(10));
+}
+
+/**
+ * 이 자료를 방금(초 단위) 받아 왔는가.
+ *
+ * 화면을 옮길 때마다 시트를 다시 부르면, 현장 LTE 에서는 왕복이 1~3초라
+ * 들어간 화면이 잠시 뒤 한 번 더 그려진다. 방금 받은 것은 다시 받지 않는다.
+ */
+export async function pulledWithin(key, seconds) {
+  const at = await getMeta(key, '');
+  if (!at) return false;
+  const gap = Date.now() - new Date(at).getTime();
+  return gap >= 0 && gap < seconds * 1000;
 }
 
 // -------------------------------------------------- 리포트 입력 항목 설정

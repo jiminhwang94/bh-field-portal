@@ -8,7 +8,7 @@ import { reportFormView, reportListView, reportDetailView } from './views/report
 import { settingsView } from './views/settings.js';
 import { initSyncButton } from './syncnow.js';
 import { initInstallBanner } from './install.js';
-import { initNetStatus, ensureFirstData } from './net.js';
+import { initNetStatus, ensureFirstData, catchUpFromSheet } from './net.js';
 
 const view = $('#view');
 const HEX = '[0-9a-f]{6,}';
@@ -252,9 +252,14 @@ $('#backBtn').addEventListener('click', () => {
 
 window.addEventListener('hashchange', render);
 
+// 화면을 **먼저** 띄운다. 시트에서 받아오는 일은 뒤에서 한다.
+// 예전에는 시트 왕복 세 번이 끝나기를 기다렸다가 그려서, 앱을 열거나
+// 웹 페이지를 새로고침하면 3~8초 동안 빈 화면이었다.
 (async () => {
-  await ensureFirstData();     // 붙박이 항목을 넣고, 시트가 있으면 최신 자료를 받는다
+  const added = await ensureFirstData();   // 기기 안에서 끝나는 준비 (수십 ms)
   render();
+  if (added) render();                     // 붙박이 항목이 방금 들어왔으면 한 번 더
+  catchUpFromSheet();                      // 시트 최신본은 뒤에서 조용히
 })();
 registerServiceWorker();       // 오프라인에서 앱이 열리도록
 initNetStatus();               //  오프라인 표시 + 대기 작업 자동 처리

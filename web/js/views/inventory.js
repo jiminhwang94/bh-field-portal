@@ -2,6 +2,7 @@
 import { api } from '../api.js';
 import { isOnline } from '../sync.js';
 import { isEnabled as sheetInvEnabled, pullInventory } from '../invsheet.js';
+import * as store from '../local/store.js';
 import {
   $, h, closeModal, confirmDialog, loading, openSheet, toast,
 } from '../ui.js';
@@ -335,9 +336,14 @@ export async function inventoryView(view) {
 
   // 화면이 이미 보이는 상태에서 시트를 받아온다. 받고 나서 달라진 게 있으면
   // 그때 다시 그린다. 사용자는 기다리지 않는다.
-  if (sheetMode && isOnline()) {
+  //
+  // 방금 받은 것은 다시 받지 않는다. 화면을 옮길 때마다 부르면 현장 LTE 에서
+  // 왕복이 1~3초라, 들어간 화면이 잠시 뒤 한 번 더 그려져 덜컥거린다.
+  if (sheetMode && isOnline() && !(await store.pulledWithin('sheetInventoryPulledAt', 60))) {
     (async () => {
-      try { await pullInventory(); } catch { return; }   // 못 닿으면 기기 내용 그대로
+      const pulled = await pullInventory().catch(() => null);
+      if (!pulled) return;                              // 못 닿으면 기기 내용 그대로
+      if (pulled.changed === false) return;              // 시트가 그대로면 손대지 않는다
       const fresh = (await api.listVehicles()).items;
       if (!fresh.some((v) => v.name === current)) {
         current = fresh.length ? fresh[0].name : null;

@@ -1029,14 +1029,31 @@ export async function reportListView(view) {
   paint();
 
   // 그런 다음 조용히 최신본을 받아 온다. 화면 전환을 여기서 붙잡지 않는다.
+  //
+  // 방금 받은 것은 다시 받지 않는다. 화면을 옮길 때마다 부르면 현장 LTE 에서
+  // 왕복이 1~3초라, 들어간 화면이 잠시 뒤 한 번 더 그려져 덜컥거린다.
   const openedAt = month;
+  const age = data.fetchedAt ? Date.now() - new Date(data.fetchedAt).getTime() : Infinity;
+  if (age < 60000) return;
+
+  const before = listSignature(data.entries);
   (async () => {
     try { await load({ refresh: true }); } catch { return; }
     // 그 사이 다른 화면으로 넘어갔거나 다른 달을 골랐으면 손대지 않는다.
     if (!view.querySelector('#histQ') || month !== openedAt) return;
+    // 시트 내용이 그대로면 다시 그리지 않는다 — 괜히 화면이 깜빡인다.
+    if (listSignature(data.entries) === before) return;
     paintMonths();
     paint();
   })();
+}
+
+/** 목록이 지난번과 같은지 비교할 때만 쓰는 짧은 요약. */
+function listSignature(entries) {
+  return (entries || [])
+    .map((e) => [e.sheetName, e.row, e.status, e.store, e.createdAt,
+                 (e.links || []).length].join('|'))
+    .join(String.fromCharCode(10));
 }
 
 // ------------------------------------------------------------ 상세 화면
