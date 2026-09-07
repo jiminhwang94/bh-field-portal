@@ -94,9 +94,14 @@ jobs:
           SRC=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
           # 파일 이름은 영문으로 짓는다. Releases 는 한글을 지워 버려서
           # "현장포털-v3.0.0-빌드6.apk" 가 "-v3.0.0-.6.apk" 로 올라간다.
-          NAME="FieldPortal-v3.15.1-build${{ github.run_number }}.apk"
+          # 버전은 build.gradle 한 곳에서만 읽는다 (여기 따로 적으면 어긋난다)
+          VER=$(grep -oP 'appVersionName = "\K[^"]+' android/app/build.gradle)
+          NAME="FieldPortal-v${VER}-build${{ github.run_number }}.apk"
           cp "$SRC" "$NAME"
+          SIZE_MB=$(awk "BEGIN { printf \"%.1f\", $(stat -c %s "$NAME") / 1048576 }")
           echo "path=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "size_mb=$SIZE_MB" >> "$GITHUB_OUTPUT"
           ls -lh "$NAME"
 
       # ⚠️ 여기(Artifacts/유물)에서 받은 파일은 GitHub 규칙상 무조건 zip 으로
@@ -125,16 +130,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: 현장 포털 v3.15.1 (빌드 ${{ github.run_number }})
+          name: 현장 포털 v${{ steps.apk.outputs.version }} (빌드 ${{ github.run_number }})
           files: ${{ steps.apk.outputs.path }}
           body: |
-            ## ⚠️ 먼저 — 흰 페이지가 뜬다면
-
-            이 저장소는 **비공개**입니다. 보는 기기가 GitHub 에 **로그인돼 있지 않으면**
-            `.apk` 를 눌러도 파일 대신 `Not Found` 아홉 글자만 와서 **흰 페이지**로 보입니다.
-            로그인 후 다시 누르거나, 로그인된 PC 에서 받아 **USB 로** 태블릿에 옮기세요.
-
             ## 태블릿에 설치하는 방법
+
+            이미 앱을 쓰고 있다면 앱 상단의 **[업데이트]** 띠를 누르는 것이 가장 쉽습니다.
+            (새 버전이 있을 때만 나타납니다. 5분마다 확인합니다.)
+
 
             1. **태블릿 크롬**으로 이 페이지를 열고 아래 `.apk` 파일을 누릅니다.
             2. "출처를 알 수 없는 앱" 경고가 나오면 → [설정] → **이 출처 허용** (최초 1회만)
@@ -148,3 +151,119 @@ jobs:
             ${{ steps.signing.outputs.signed == 'debug' && '⚠️ 임시 키로 서명되었습니다. 기존 앱을 지우고 설치해야 하며, 기기에 저장된(아직 시트에 올리지 않은) 리포트가 사라집니다. README 12장의 서명 키 등록을 먼저 하세요.' || '기존 앱 위에 그대로 덮어 설치됩니다. 데이터는 유지됩니다.' }}
 
             ${{ github.event.inputs.note }}
+
+      # ── Dropbox 에 APK 보관 + 시트 '앱 버전' 탭에 기록 (앱 안 [업데이트] 띠용) ──
+      #
+      # 태블릿은 시트를 받아올 때 '앱 버전' 탭을 함께 보고, 지금 버전보다 높으면
+      # 상단에 [업데이트] 띠를 띄운다. 누르면 Dropbox 에서 APK 를 받아 설치한다.
+      #
+      # ▣ 한 번만 (사장님 Dropbox 계정으로)
+      #  1. https://www.dropbox.com/developers/apps → [Create app]
+      #       Scoped access · Full Dropbox · 이름 예: 현장포털-빌드
+      #  2. [Permissions] 탭에서 켜기:  files.content.write · sharing.write · sharing.read
+      #     → [Submit]
+      #  3. [Settings] 탭의 App key · App secret 을 GitHub 비밀값으로:
+      #       DROPBOX_APP_KEY · DROPBOX_APP_SECRET
+      #  4. 갱신 토큰(만료 없음) 발급 — 브라우저에서 (APP_KEY 자리에 실제 키):
+      #       https://www.dropbox.com/oauth2/authorize?client_id=APP_KEY&response_type=code&token_access_type=offline
+      #     [허용] 뒤 화면의 코드를 복사하고, 터미널에서:
+      #       curl https://api.dropbox.com/oauth2/token -d code=복사한코드 -d grant_type=authorization_code -u APP_KEY:APP_SECRET
+      #     응답의 "refresh_token" 값을 GitHub 비밀값으로:  DROPBOX_REFRESH_TOKEN
+      #  5. 저장소 변수 SHEETS_WEBAPP_URL = 팀 공용 Apps Script 웹 앱 URL (이미 등록됨)
+      #
+      #  비밀값이 없으면 이 부분은 **조용히 건너뛴다** (APK 빌드·Releases 는 그대로).
+      - name: Dropbox 인증이 있는지 확인
+        id: dbx
+        env:
+          KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          REFRESH: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+        run: |
+          if [ -n "$KEY" ] && [ -n "$SECRET" ] && [ -n "$REFRESH" ]; then
+            echo "ready=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::DROPBOX_APP_KEY / DROPBOX_APP_SECRET / DROPBOX_REFRESH_TOKEN 이 없어 Dropbox 보관과 앱 업데이트 안내를 건너뜁니다. 워크플로 파일의 ▣ 안내를 참고하세요."
+          fi
+
+      - name: Dropbox 에 올리고 공유 링크 만들기
+        id: upload
+        if: steps.dbx.outputs.ready == 'yes'
+        env:
+          KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          REFRESH: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+          FILE: ${{ steps.apk.outputs.path }}
+        run: |
+          set -o pipefail
+          # 갱신 토큰 → 4시간짜리 접근 토큰
+          TOKEN=$(curl -sf https://api.dropbox.com/oauth2/token \
+                    -d grant_type=refresh_token -d refresh_token="$REFRESH" \
+                    -u "$KEY:$SECRET" | jq -r '.access_token // empty')
+          if [ -z "$TOKEN" ]; then
+            echo "::error::Dropbox 접근 토큰을 받지 못했습니다. DROPBOX_REFRESH_TOKEN 이 맞는지 확인하세요."
+            exit 1
+          fi
+          # 폴더는 영문으로 — Dropbox-API-Arg 헤더는 ASCII 만 받는다
+          DEST="/FieldPortal/apk/$FILE"
+          curl -sf https://content.dropboxapi.com/2/files/upload \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Dropbox-API-Arg: {\"path\":\"$DEST\",\"mode\":\"overwrite\",\"mute\":true}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary @"$FILE" > /dev/null
+          echo "Dropbox 저장: $DEST"
+
+          # 공유 링크 — 이미 있으면 그것을 쓴다
+          LINK=$(curl -s https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings \
+                   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                   -d "{\"path\":\"$DEST\",\"settings\":{\"requested_visibility\":\"public\"}}" \
+                 | jq -r '.url // empty')
+          if [ -z "$LINK" ]; then
+            LINK=$(curl -s https://api.dropboxapi.com/2/sharing/list_shared_links \
+                     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+                     -d "{\"path\":\"$DEST\",\"direct_only\":true}" \
+                   | jq -r '.links[0].url // empty')
+          fi
+          if [ -z "$LINK" ]; then
+            echo "::error::Dropbox 공유 링크를 만들지 못했습니다. 앱 권한(sharing.write)과 팀 정책(공개 링크 허용)을 확인하세요."
+            exit 1
+          fi
+          # 브라우저 미리보기(dl=0) 대신 바로 내려받기(dl=1). rlkey 등 다른 인자는 그대로 둔다.
+          if echo "$LINK" | grep -q 'dl=0'; then
+            DIRECT=$(echo "$LINK" | sed 's/dl=0/dl=1/')
+          elif echo "$LINK" | grep -q '?'; then
+            DIRECT="$LINK&dl=1"
+          else
+            DIRECT="$LINK?dl=1"
+          fi
+          echo "url=$DIRECT" >> "$GITHUB_OUTPUT"
+          echo "다운로드 링크: $DIRECT"
+
+      - name: 시트 '앱 버전' 탭에 기록
+        if: steps.dbx.outputs.ready == 'yes'
+        env:
+          WEBAPP: ${{ vars.SHEETS_WEBAPP_URL }}
+          VERSION: ${{ steps.apk.outputs.version }}
+          SIZE_MB: ${{ steps.apk.outputs.size_mb }}
+          URL: ${{ steps.upload.outputs.url }}
+          NOTE: ${{ github.event.inputs.note }}
+        run: |
+          if [ -z "$WEBAPP" ]; then
+            echo "::error::저장소 변수 SHEETS_WEBAPP_URL 이 없습니다."
+            exit 1
+          fi
+          NOTES="${NOTE:-$(git log -1 --pretty=%s)}"
+          BODY=$(jq -n --arg v "$VERSION" --arg b "${{ github.run_number }}" --arg u "$URL" \
+                       --arg n "$NOTES" --argjson s "${SIZE_MB:-0}" \
+                       '{release:"publish", version:$v, build:$b, url:$u, notes:$n, sizeMb:$s}')
+          RES=$(curl -sL -H 'Content-Type: text/plain;charset=utf-8' --data "$BODY" "$WEBAPP")
+          echo "$RES"
+          echo "$RES" | jq -e '.ok == true' > /dev/null || { echo "::error::시트 기록 실패"; exit 1; }
+          {
+            echo ""
+            echo "## 앱 업데이트 안내 등록"
+            echo ""
+            echo "- 버전 **v$VERSION** (빌드 ${{ github.run_number }}) · ${SIZE_MB}MB"
+            echo "- Dropbox: $URL"
+            echo "- 태블릿은 5분 안에 상단 [업데이트] 띠를 봅니다. 막으려면 시트 '앱 버전' 탭의 공개 칸을 N 으로."
+          } >> "$GITHUB_STEP_SUMMARY"

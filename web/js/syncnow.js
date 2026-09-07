@@ -172,6 +172,14 @@ export async function runRefresh(btn, { quiet = false } = {}) {
     } catch (err) { problems.push(`가이드 받기: ${err.message}`); }
   }
 
+  // 새 버전이 나왔는지 (사람이 누른 새로고침이면 4분 규칙을 건너뛴다)
+  if (onSheet) {
+    try {
+      const update = await import('./update.js');
+      await update.checkForUpdate({ force: !quiet });
+    } catch { /* 안내는 있으면 좋은 것 — 없어도 새로고침은 끝난다 */ }
+  }
+
   await store.setMeta('dirty', false);   // 예전 버전이 남긴 표시를 지운다
   await store.setMeta(LAST_SYNC_KEY, store.now());
   await refreshState();

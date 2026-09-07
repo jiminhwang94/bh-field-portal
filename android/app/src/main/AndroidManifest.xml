@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 현장 사진 촬영 -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 앱 안 [업데이트]: 내려받은 새 APK 의 설치 화면을 연다 (처음 한 번 사용자가 허용) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- 카메라가 없는 기기(일부 태블릿)에서도 설치되게 한다 -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />

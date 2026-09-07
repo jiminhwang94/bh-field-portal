@@ -9,6 +9,7 @@ import { settingsView } from './views/settings.js';
 import { initSyncButton } from './syncnow.js';
 import { initInstallBanner } from './install.js';
 import { initNetStatus, ensureFirstData, catchUpFromSheet } from './net.js';
+import { initUpdateBanner } from './update.js';
 
 const view = $('#view');
 const HEX = '[0-9a-f]{6,}';
@@ -262,6 +263,7 @@ window.addEventListener('hashchange', render);
   catchUpFromSheet();                      // 시트 최신본은 뒤에서 조용히
 })();
 registerServiceWorker();       // 오프라인에서 앱이 열리도록
+initUpdateBanner();            // 새 버전 안내 띠 (지난번 받아 둔 정보로 먼저 그린다)
 initNetStatus();               //  오프라인 표시 + 대기 작업 자동 처리
 initSyncButton();
 initInstallBanner();

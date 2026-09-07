@@ -173,13 +173,14 @@ img { display: block; max-width: 100%; }
   height: 100%;
   display: grid;
   grid-template-columns: var(--rail-w) minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   overflow: hidden;
   background: var(--color-bg);
 }
 .topbar         { grid-column: 2; grid-row: 1; }
 .offline-banner { grid-column: 2; grid-row: 2; }
-.screen         { grid-column: 2; grid-row: 3; }
+.update-banner  { grid-column: 2; grid-row: 3; }
+.screen         { grid-column: 2; grid-row: 4; }
 .tabbar         { grid-column: 1; grid-row: 1 / -1; }
 
 /* ── 레일 ─────────────────────────────────────────────────────────── */
@@ -268,6 +269,17 @@ img { display: block; max-width: 100%; }
   0%, 100% { box-shadow: var(--shadow-accent); }
   50% { box-shadow: 0 0 0 6px var(--color-accent-tint); }
 }
+
+.update-banner {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-6);
+  background: var(--color-accent-tint);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-accent-press);
+  font-size: 14px;
+}
+.update-banner__text { flex: 1; min-width: 0; }
+.update-banner__notes { color: var(--color-muted); }
 
 .offline-banner {
   padding: var(--space-3) var(--space-6);

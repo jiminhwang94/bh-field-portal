@@ -50,3 +50,6 @@ jobs:
 
       - name: 화면 서버 검사 (화면 파일만 내주는지)
         run: python tests/test_static_host.py
+
+      - name: 앱 업데이트 흐름 검사 (CI · 시트 · 화면 · 안드로이드)
+        run: python tests/test_update_flow.py

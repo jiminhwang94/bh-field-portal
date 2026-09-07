@@ -86,6 +86,14 @@ function doPost(e) {
       return handleDriveRepair(ss, body);
     }
 
+    // 앱 버전 — 빌드 자동화가 적고(publish), 태블릿이 읽는다(latest)
+    if (body.release === 'publish') {
+      return handleReleasePublish(ss, body);
+    }
+    if (body.release === 'latest') {
+      return handleReleaseLatest(ss);
+    }
+
     var sheetName = String(body.sheetName || '').trim();
     var headers = body.headers || [];
     var row = body.row || [];
@@ -968,6 +976,104 @@ function writeLinkCell(sheet, rowIndex, column, urls) {
     // 서식 있는 값이 안 되면 글자로라도 남긴다 — 주소는 잃지 않는다.
     sheet.getRange(rowIndex, column).setValue(text);
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 앱 버전 — 태블릿이 "새 버전이 있나" 를 물어보는 곳
+//
+// 빌드 자동화(GitHub Actions)가 APK 를 Dropbox 에 올린 뒤 여기에 한 줄 적는다.
+// 태블릿은 시트를 받아올 때 함께 물어보고, 지금 버전보다 높으면 [업데이트]
+// 띠를 띄운다. 사람이 개입할 지점이 **이 탭**이다 — '공개' 칸을 N 으로 바꾸면
+// 그 버전 안내가 멈추고, 줄을 지우면 없던 일이 된다.
+// ═══════════════════════════════════════════════════════════════════
+var RELEASE_SHEET = '앱 버전';
+var RELEASE_HEADER = ['버전', '빌드', '배포일시', '다운로드 링크', '크기(MB)', '변경 요약', '공개'];
+
+function releaseSheet(ss, create) {
+  var sheet = ss.getSheetByName(RELEASE_SHEET);
+  if (!sheet && create) {
+    sheet = ss.insertSheet(RELEASE_SHEET);
+    sheet.getRange(1, 1, 1, RELEASE_HEADER.length).setValues([RELEASE_HEADER]);
+    sheet.getRange(1, 1, 1, RELEASE_HEADER.length).setFontWeight('bold').setBackground('#eef1f5');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+/** '3.16.0' 같은 버전을 숫자 배열로. 비교는 compareVersions 로 한다. */
+function versionParts(v) {
+  return String(v || '').trim().split('.').map(function (x) { return parseInt(x, 10) || 0; });
+}
+function compareVersions(a, b) {
+  var pa = versionParts(a);
+  var pb = versionParts(b);
+  for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
+    var d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+/** '공개' 칸. 비어 있으면 공개로 본다. N · 아니오 · X · FALSE 면 숨긴다. */
+function isReleasePublic(value) {
+  var t = String(value === undefined || value === null ? '' : value).trim().toUpperCase();
+  if (!t) return true;
+  return !(t === 'N' || t === 'NO' || t === '아니오' || t === 'X' || t === 'FALSE' || t === '비공개');
+}
+
+/**
+ * 빌드 자동화가 부른다.
+ *   { release: 'publish', version: '3.16.0', build: '29', url: 'https://...?dl=1',
+ *     sizeMb: 4.8, notes: '동영상 첨부' }
+ *   → { ok, row, version }
+ */
+function handleReleasePublish(ss, body) {
+  var version = String(body.version || '').trim();
+  var url = String(body.url || '').trim();
+  if (!/^\d+\.\d+(\.\d+)?$/.test(version)) {
+    return json({ ok: false, error: 'version 은 3.16.0 모양이어야 합니다: ' + version });
+  }
+  if (!/^https:\/\//.test(url)) {
+    return json({ ok: false, error: 'url 은 https 로 시작해야 합니다.' });
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sheet = releaseSheet(ss, true);
+    var at = sheet.getLastRow() + 1;
+    var when = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+    var row = [version, String(body.build || ''), when, url,
+               body.sizeMb ? Math.round(Number(body.sizeMb) * 10) / 10 : '',
+               String(body.notes || '').slice(0, 500), 'Y'];
+    sheet.getRange(at, 1, 1, row.length).setValues([row]);
+    writeLinkCell(sheet, at, 4, [url]);      // 눌러서 열 수 있는 링크로
+    return json({ ok: true, row: at, version: version });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 태블릿이 부른다. '공개' 인 것 중 가장 높은 버전 하나.
+ *   { release: 'latest' } → { ok, version, build, url, sizeMb, notes, publishedAt }
+ * 탭이 없거나 비어 있으면 version 이 빈 문자열이다 — 오류가 아니다.
+ */
+function handleReleaseLatest(ss) {
+  var empty = { ok: true, version: '', build: '', url: '', sizeMb: 0, notes: '', publishedAt: '' };
+  var sheet = releaseSheet(ss, false);
+  if (!sheet || sheet.getLastRow() < 2) return json(empty);
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, RELEASE_HEADER.length).getValues();
+  var best = null;
+  rows.forEach(function (r) {
+    var v = String(r[0] || '').trim();
+    var url = String(r[3] || '').trim();
+    if (!v || !url || !isReleasePublic(r[6])) return;
+    if (!best || compareVersions(v, best.version) > 0) {
+      best = { ok: true, version: v, build: String(r[1] || ''), publishedAt: String(r[2] || ''),
+               url: url, sizeMb: Number(r[4]) || 0, notes: String(r[5] || '') };
+    }
+  });
+  return json(best || empty);
 }
 
 /** 매장 → 날짜 → 사진/동영상 순으로 내려가며 폴더를 만든다. */

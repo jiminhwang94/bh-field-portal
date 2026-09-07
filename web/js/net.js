@@ -68,6 +68,8 @@ export async function catchUpFromSheet() {
         || changedSomething(guides)) {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     }
+    // 새 버전이 있는지도 함께 (띠만 바뀌고 화면은 건드리지 않는다)
+    import('./update.js').then((u) => u.checkForUpdate()).catch(() => {});
   } catch {
     // 시트에 못 닿아도 앱은 기기 안 자료로 그대로 동작한다.
   }

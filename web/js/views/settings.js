@@ -1,5 +1,6 @@
 // 설정 — 구글 시트 연결 · 업데이트(공개본) · 앱 설치
 import { api, APP_VERSION } from '../api.js';
+import { settingsLine as updateSettingsLine, startUpdate, checkForUpdate } from '../update.js';
 import { $, h, confirmDialog, copyText, loading, openSheet, toast } from '../ui.js';
 import { isOnline } from '../sync.js';
 import { formatBytes } from '../sheets.js';
@@ -31,6 +32,12 @@ function driveLine(drive) {
 }
 
 export async function settingsView(view) {
+  const updateLine = updateSettingsLine();
+  // 설정을 열었다는 건 "지금 상태를 보고 싶다" 는 뜻 — 4분 규칙을 건너뛰고 묻는다.
+  checkForUpdate({ force: true }).then(() => {
+    const line = document.getElementById('appUpdateLine');
+    if (line) line.innerHTML = updateSettingsLine();
+  }).catch(() => {});
   loading(view);
   const [settings, build] = await Promise.all([api.getSettings(), api.version()]);
   await refreshState();
@@ -49,6 +56,7 @@ export async function settingsView(view) {
         <h1 class="page-head__title">설정</h1>
         <span class="page-head__meta">
           기기 ${h(deviceName() || '이름 없음')} · 앱 <span class="tnum">v${APP_VERSION}</span>
+          <span id="appUpdateLine">${updateLine}</span>
         </span>
       </div>
 
@@ -225,6 +233,7 @@ export async function settingsView(view) {
       settingsView(view);
       return;
     }
+    if (act === 'app-update') { startUpdate(); return; }
     if (act === 'sheets-test') {
       btn.disabled = true;
       btn.textContent = '테스트 중…';

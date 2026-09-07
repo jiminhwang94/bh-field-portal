@@ -2,7 +2,13 @@ package com.beyondhoneycomb.fieldportal;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.DownloadManager;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.database.Cursor;
+import android.os.Environment;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -20,6 +26,7 @@ import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import androidx.webkit.WebViewAssetLoader;
 
@@ -84,6 +91,10 @@ public class MainActivity extends AppCompatActivity {
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
+        // 웹 코드가 "APK 안에서 돌고 있다" 를 알 수 있게 표식을 붙인다.
+        // [업데이트] 를 눌렀을 때 브라우저로 여는 대신 아래 startApkDownload 로 온다.
+        settings.setUserAgentString(settings.getUserAgentString()
+                + " FieldPortalAPK/" + appVersionName());
         settings.setDomStorageEnabled(true);          // localStorage / IndexedDB
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setAllowFileAccess(false);
@@ -106,6 +117,11 @@ public class MainActivity extends AppCompatActivity {
                 String host = url.getHost();
                 if (host != null && host.equals("appassets.androidplatform.net")) {
                     return false;                     // 앱 내부 화면
+                }
+                // 앱 안 [업데이트]: 웹이 bhupdate:<APK 주소> 로 부른다.
+                if ("bhupdate".equals(url.getScheme())) {
+                    startApkDownload(Uri.decode(url.getSchemeSpecificPart()));
+                    return true;
                 }
                 // 구글 시트 열기 등 외부 링크는 기본 브라우저로 넘긴다.
                 try {
@@ -157,6 +173,125 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /** 촬영 / 앨범 선택을 함께 띄운다. */
+    // ───────────────────────────────────────────── 앱 안 [업데이트]
+
+    private static final String UPDATE_FILE = "FieldPortal-update.apk";
+    private long updateDownloadId = -1;
+    private BroadcastReceiver updateReceiver;
+
+    /** 설치된 앱 버전 이름 (예: 3.16.0). 모르면 빈 문자열. */
+    private String appVersionName() {
+        try {
+            String v = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return v == null ? "" : v;
+        } catch (Exception exc) {
+            return "";
+        }
+    }
+
+    /**
+     * 새 APK 를 내려받아 설치 화면을 연다.
+     *
+     * 시스템 다운로드 관리자에 맡기고(알림에 진행률이 보인다), 끝나면 설치
+     * 화면을 띄운다. 처음 한 번은 안드로이드가 "이 앱에서 설치 허용" 을 묻는다.
+     * 예전 파일이 남아 있으면 지우고 받는다 — 같은 이름으로 덧붙이면 설치가 깨진다.
+     */
+    private void startApkDownload(String httpsUrl) {
+        if (httpsUrl == null || !httpsUrl.startsWith("https://")) {
+            Toast.makeText(this, "업데이트 주소가 올바르지 않습니다.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        if (dm == null) {
+            openInBrowser(httpsUrl);
+            return;
+        }
+        try {
+            File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            if (dir != null) {
+                File old = new File(dir, UPDATE_FILE);
+                if (old.exists() && !old.delete()) {
+                    // 못 지우면 이름을 바꿔 받는다
+                }
+            }
+            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(httpsUrl));
+            req.setTitle("현장 포털 업데이트");
+            req.setDescription("새 버전을 내려받고 있습니다");
+            req.setMimeType("application/vnd.android.package-archive");
+            req.setNotificationVisibility(
+                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            req.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, UPDATE_FILE);
+            registerUpdateReceiver();
+            updateDownloadId = dm.enqueue(req);
+            Toast.makeText(this, "내려받기를 시작했습니다. 끝나면 설치 화면이 열립니다.",
+                    Toast.LENGTH_LONG).show();
+        } catch (Exception exc) {
+            // 다운로드 관리자가 막혀 있는 기기 — 브라우저로라도 받게 한다.
+            openInBrowser(httpsUrl);
+        }
+    }
+
+    private void openInBrowser(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception exc) {
+            Toast.makeText(this, "링크를 열 수 없습니다.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void registerUpdateReceiver() {
+        if (updateReceiver != null) return;
+        updateReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                if (id != updateDownloadId) return;
+                DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                if (dm == null) return;
+                int status = DownloadManager.STATUS_FAILED;
+                Cursor c = dm.query(new DownloadManager.Query().setFilterById(id));
+                if (c != null) {
+                    if (c.moveToFirst()) {
+                        status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+                    }
+                    c.close();
+                }
+                if (status != DownloadManager.STATUS_SUCCESSFUL) {
+                    Toast.makeText(MainActivity.this,
+                            "내려받기에 실패했습니다. 인터넷을 확인하고 다시 눌러 주세요.",
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+                Uri file = dm.getUriForDownloadedFile(id);
+                if (file == null) return;
+                Intent install = new Intent(Intent.ACTION_VIEW);
+                install.setDataAndType(file, "application/vnd.android.package-archive");
+                install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        | Intent.FLAG_ACTIVITY_NEW_TASK);
+                try {
+                    startActivity(install);
+                } catch (Exception exc) {
+                    Toast.makeText(MainActivity.this,
+                            "설치 화면을 열 수 없습니다. 알림에서 내려받은 파일을 눌러 설치해 주세요.",
+                            Toast.LENGTH_LONG).show();
+                }
+            }
+        };
+        // 시스템이 보내는 방송이라 EXPORTED 로 받아야 한다 (안드로이드 14 필수).
+        ContextCompat.registerReceiver(this, updateReceiver,
+                new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                ContextCompat.RECEIVER_EXPORTED);
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (updateReceiver != null) {
+            try { unregisterReceiver(updateReceiver); } catch (Exception ignored) { }
+            updateReceiver = null;
+        }
+        super.onDestroy();
+    }
+
     /** 웹의 첨부 한도와 같은 값. 카메라 앱이 이 크기에서 녹화를 멈춘다(지원 기기). */
     private static final long VIDEO_SIZE_LIMIT = 20L * 1024 * 1024;
 

@@ -294,6 +294,7 @@ const sandbox = {
                                        getBytes: () => bytes,
                                        getContentType: () => mime }),
     base64Encode: (bytes) => `b64(${(bytes && bytes.length) || 0})`,
+    formatDate: (d) => '2099-01-01 09:00',
   },
 };
 
@@ -301,7 +302,9 @@ const sandbox = {
 const wrapper = `
   ${source}
   return { doPost: doPost, readGuideSheet: readGuideSheet,
-           GUIDE_HEADER: GUIDE_HEADER, GUIDE_SHEETS: GUIDE_SHEETS };
+           GUIDE_HEADER: GUIDE_HEADER, GUIDE_SHEETS: GUIDE_SHEETS,
+           RELEASE_HEADER: RELEASE_HEADER, compareVersions: compareVersions,
+           isReleasePublic: isReleasePublic };
 `;
 const factory = new Function(...Object.keys(sandbox), wrapper);
 const gs = factory(...Object.values(sandbox));
@@ -768,6 +771,50 @@ check('정책이 풀리면 예전 사진을 공개로 바꾼다', canFix.fixed >
       `바꿈 ${canFix.fixed} · 못 바꿈 ${canFix.failed}`);
 check('두 번째 복구는 이미 공개인 것을 건드리지 않는다',
       call({ drive: 'repair', limit: 200 }).fixed === 0);
+
+// ────────────────────────────────────────────────────────────────────
+// 앱 버전 탭 — 빌드 자동화가 적고, 태블릿이 읽는다 (v3.16)
+// ────────────────────────────────────────────────────────────────────
+const noTab = call({ release: 'latest' });
+check('앱 버전 탭이 없으면 빈 버전을 돌려준다 (오류 아님)', noTab.ok === true && noTab.version === '',
+      JSON.stringify(noTab));
+
+const pub1 = call({ release: 'publish', version: '3.16.0', build: '29',
+                    url: 'https://www.dropbox.com/scl/fi/abc/FieldPortal-v3.16.0.apk?rlkey=x&dl=1',
+                    sizeMb: 4.83, notes: '동영상 첨부 · 업데이트 띠' });
+check('빌드 자동화가 버전을 적을 수 있다', pub1.ok === true && pub1.version === '3.16.0',
+      JSON.stringify(pub1));
+const relTab = ss.getSheetByName('앱 버전');
+check('앱 버전 탭이 생기고 머리줄이 있다', !!relTab
+      && relTab.getRange(1, 1, 1, 7).getValues()[0].join('|') === gs.RELEASE_HEADER.join('|'));
+check('링크 칸이 눌러서 열 수 있는 링크다', (relTab.links.get(`${pub1.row},4`) || []).length === 1);
+check('공개 칸은 기본 Y 다', relTab.getRange(pub1.row, 7).getValue() === 'Y');
+
+const bad = call({ release: 'publish', version: 'v3.16', url: 'http://x' });
+check('버전·주소 모양이 틀리면 거절한다', bad.ok === false, JSON.stringify(bad));
+
+let latest = call({ release: 'latest' });
+check('가장 높은 버전 하나를 돌려준다', latest.version === '3.16.0' && latest.build === '29'
+      && latest.url.indexOf('dl=1') > 0 && latest.sizeMb === 4.8,
+      JSON.stringify(latest));
+
+// 더 높은 버전을 올리고, 그 뒤 낮은 버전을 올려도 높은 것이 이긴다
+call({ release: 'publish', version: '3.17.0', build: '31', url: 'https://dl.example/3.17.0.apk' });
+call({ release: 'publish', version: '3.16.5', build: '30', url: 'https://dl.example/3.16.5.apk' });
+latest = call({ release: 'latest' });
+check('줄 순서가 아니라 버전 숫자로 고른다', latest.version === '3.17.0', latest.version);
+check('3.9 보다 3.17 이 크다 (글자 비교가 아니다)',
+      gs.compareVersions('3.17.0', '3.9.0') > 0 && gs.compareVersions('3.9.0', '3.17.0') < 0);
+
+// 사람이 개입하는 지점 — 공개를 N 으로 바꾸면 그 버전 안내가 멈춘다
+const rows = relTab.getLastRow();
+for (let r = 2; r <= rows; r += 1) {
+  if (relTab.getRange(r, 1).getValue() === '3.17.0') relTab.getRange(r, 7).setValue('N');
+}
+latest = call({ release: 'latest' });
+check("공개 칸을 N 으로 바꾸면 그 버전은 건너뛴다", latest.version === '3.16.5', latest.version);
+check("공개 칸이 비어 있으면 공개로 본다", gs.isReleasePublic('') === true
+      && gs.isReleasePublic('아니오') === false && gs.isReleasePublic('X') === false);
 
 console.log('='.repeat(62));
 if (failures.length) {
