@@ -60,6 +60,41 @@ jobs:
         with:
           node-version: '20'
 
+      # clasp 는 인증이 잘못돼도 "Could not read API credentials" 한 줄만 준다.
+      # 값은 절대 찍지 않고 **모양만** 확인해 무엇이 잘못됐는지 알려 준다.
+      - name: 등록된 값의 모양 점검
+        if: steps.guard.outputs.ready == 'yes'
+        env:
+          CREDS: ${{ secrets.CLASP_CREDENTIALS }}
+          SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
+        run: |
+          node - <<'JS'
+          const creds = process.env.CREDS || '';
+          const id = process.env.SCRIPT_ID || '';
+          const problems = [];
+          console.log(`CLASP_CREDENTIALS 길이: ${creds.length}자`);
+          console.log(`APPS_SCRIPT_ID 길이: ${id.length}자`);
+          let parsed = null;
+          try { parsed = JSON.parse(creds.replace(/^﻿/, '')); }
+          catch { problems.push('CLASP_CREDENTIALS 가 JSON 이 아닙니다. .clasprc.json 파일 내용 전체({ 로 시작해서 } 로 끝남)를 넣어야 합니다.'); }
+          if (parsed) {
+            console.log(`CLASP_CREDENTIALS 최상위 키: ${Object.keys(parsed).join(', ')}`);
+            if (!parsed.token || !parsed.token.refresh_token) {
+              problems.push('CLASP_CREDENTIALS 에 token.refresh_token 이 없습니다. clasp 2.4.2 로 로그인한 파일이어야 합니다 (npx.cmd @google/clasp@2.4.2 login).');
+            }
+          }
+          if (!/^[A-Za-z0-9_-]{20,}$/.test(id.trim())) {
+            problems.push(id.trim().startsWith('{')
+              ? 'APPS_SCRIPT_ID 자리에 JSON 이 들어 있습니다. 두 값이 서로 바뀐 것 같습니다.'
+              : 'APPS_SCRIPT_ID 가 스크립트 ID 모양이 아닙니다. Apps Script → 프로젝트 설정 → "스크립트 ID" 를 그대로 넣어야 합니다 (영문·숫자·-·_ 만, 공백 없이).');
+          }
+          if (problems.length) {
+            for (const p of problems) console.log(`::error::${p}`);
+            process.exit(1);
+          }
+          console.log('두 값 모두 모양이 맞습니다.');
+          JS
+
       - name: clasp 준비
         if: steps.guard.outputs.ready == 'yes'
         env:
