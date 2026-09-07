@@ -108,9 +108,14 @@ jobs:
           # Drive 고급 서비스를 여기서 켠다. 편집기에서 손으로 켜 두어도 이 파일이
           # 덮어쓰므로, 여기에 없으면 배포할 때마다 꺼진다.
           # sharePublic() 이 이걸로 공유 드라이브 사진을 '링크가 있는 누구나' 로 만든다.
+          #
+          # ⚠️ webapp 항목이 빠지면 배포가 웹 앱이 아니게 되어 /exec 주소가 404 가 된다.
+          #    실제로 그렇게 됐다 — 태블릿 전부가 시트에 닿지 못했다.
+          #    executeAs USER_DEPLOYING = "나", access ANYONE_ANONYMOUS = "모든 사용자".
           cat > build/appsscript.json <<'JSON'
           { "timeZone": "Asia/Seoul", "exceptionLogging": "STACKDRIVER",
             "runtimeVersion": "V8",
+            "webapp": { "executeAs": "USER_DEPLOYING", "access": "ANYONE_ANONYMOUS" },
             "dependencies": { "enabledAdvancedServices": [
               { "userSymbol": "Drive", "serviceId": "drive", "version": "v3" } ] } }
           JSON
