@@ -137,9 +137,14 @@ check("리포트 전체 한도도 고르는 순간 확인한다",
       "attachedBytes() + file.size > MEDIA_TOTAL_LIMIT" in view_js)
 check("붙인 첨부에 크기를 남긴다 (전체 한도 계산용)",
       "originalName: media.originalName, size: media.size," in view_js)
-check("안내 문구가 용량 기준이고 초는 참고로만 적는다",
-      "동영상은 파일당 <strong>${MEDIA_FILE_LIMIT_TEXT}</strong> 까지" in view_js
-      and "약 15~20초" in view_js)
+# 20초는 카메라가 실제로 멈추는 한도다(MainActivity 의 EXTRA_DURATION_LIMIT).
+# 그래서 시간 안내를 써도 거짓이 아니다. 용량 한도는 그대로 함께 적는다.
+check("안내 문구에 진짜 한도 둘(최대 20초 · 파일당 20MB)이 함께 있다",
+      "동영상은 <strong>최대 20초</strong> · 파일당 ${MEDIA_FILE_LIMIT_TEXT} 까지" in view_js
+      and "EXTRA_DURATION_LIMIT, VIDEO_SECONDS_LIMIT" in read("android", "app", "src", "main", "java",
+          "com", "beyondhoneycomb", "fieldportal", "MainActivity.java")
+      and "VIDEO_SECONDS_LIMIT = 20" in read("android", "app", "src", "main", "java",
+          "com", "beyondhoneycomb", "fieldportal", "MainActivity.java"))
 check("Apps Script 가 공개 실패 수를 알려 준다", "mediaPrivate: saved.privateCount || 0" in gs)
 check("전송이 공개 실패 수와 동영상 수를 화면에 넘긴다",
       "mediaPrivate: Number(result.mediaPrivate || 0)" in sheets_js

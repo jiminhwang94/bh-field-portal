@@ -294,6 +294,8 @@ public class MainActivity extends AppCompatActivity {
 
     /** 웹의 첨부 한도와 같은 값. 카메라 앱이 이 크기에서 녹화를 멈춘다(지원 기기). */
     private static final long VIDEO_SIZE_LIMIT = 20L * 1024 * 1024;
+    /** 동영상 최대 길이(초). 현장 확인용은 이 정도면 충분하고, 저화질이면 20MB 안에 넉넉히 든다. */
+    private static final int VIDEO_SECONDS_LIMIT = 20;
 
     private boolean openPicker(WebChromeClient.FileChooserParams params) {
         String[] accept = params.getAcceptTypes();
@@ -367,7 +369,12 @@ public class MainActivity extends AppCompatActivity {
                 // 웹 첨부 한도와 같은 크기에서 녹화가 멈추게 부탁한다.
                 // 모든 카메라 앱이 지키지는 않으므로 웹 쪽 확인은 그대로 남아 있다.
                 intent.putExtra(MediaStore.EXTRA_SIZE_LIMIT, VIDEO_SIZE_LIMIT);
-                intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1);   // 고화질 (저화질은 너무 작다)
+                // 저화질(0). 고화질(1)로 두니 태블릿이 초당 6.7MB 로 찍어 20MB 가 3초에
+                // 찼다. 카메라 앱이 이 값을 어느 해상도로 받는지는 기기마다 다르다
+                // (720p 도, 480p 도 있다). 너무 낮으면 앱 안 녹화로 바꾼다.
+                intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 0);
+                // 길이도 함께 막는다 — "동영상은 최대 20초" 안내와 맞춘다.
+                intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, VIDEO_SECONDS_LIMIT);
             }
             return intent;
         } catch (Exception exc) {

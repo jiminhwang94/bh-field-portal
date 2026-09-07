@@ -182,8 +182,8 @@ export async function reportFormView(view) {
           </div>
           <p class="hint" style="margin:6px 0 0">
             사진은 자동으로 줄여 올립니다 ·
-            동영상은 파일당 <strong>${MEDIA_FILE_LIMIT_TEXT}</strong> 까지
-            (휴대폰 기본 화질로 약 15~20초) · 리포트 전체 ${MEDIA_TOTAL_LIMIT_TEXT}
+            동영상은 <strong>최대 20초</strong> · 파일당 ${MEDIA_FILE_LIMIT_TEXT} 까지
+            · 리포트 전체 ${MEDIA_TOTAL_LIMIT_TEXT}
           </p>
           ${state.kept.length || state.media.length ? `
             <div class="media-grid">
