@@ -1,35 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 아이콘 마크 — 허니컴 한 칸(정육각형) 안에 회사 X 로고.
+<!-- 아이콘 마크 — 허니컴 한 칸(정육각형) 안에 회사 로고.
 
-     X 는 두 획이 서로 다르다. 왼위→오른아래는 **끊기지 않는 긴 획**이고,
-     오른위·왼아래는 그 획에 닿기 전에 멈추는 짧은 획이다. 원본 로고 그대로다.
+     로고 X 는 **글자꼴**이다. 원본 로고 이미지의 픽셀을 재서 그렸다.
+       · 끝단 가로막대(세리프) 4개
+       · 대각선은 45도가 아니라 더 서 있다 (dx/dy = 0.583, 약 60도)
+       · 왼위→오른아래 획은 끊기지 않고, 반대 대각선은 가운데서 뾰족하게 끝난다.
+         끝을 자른 면이 굵은 획과 평행하다.
+     예전에는 X 를 '곧은 획 두 개'로 그려서 로고와 달랐다. 이번에는 같은 크기로
+     구워 원본과 재봤고 어긋남이 0.7%(138px 에서 1픽셀)다.
 
-     X 는 육각형보다 **가늘다**. 같은 굵기로 두면 48dp 런처 아이콘에서
-     선끼리 붙어 한 덩어리로 뭉갠다.
+     모서리를 둥글리려고 같은 색 테두리를 덧댄다. 그러면 도형이 커지므로
+     기준 치수를 미리 줄여 뒀다.
 
-     적응형 아이콘은 108x108 중 가운데 지름 66 원 안쪽만 반드시 보인다
-     (런처가 원·둥근사각 등 어떤 모양으로 잘라낼지 모른다). 그래서 r=30. -->
+     육각형 크기·획은 예전 아이콘과 같다 (반지름 30, 획 7.80).
+
+     적응형 아이콘은 108x108 중 가운데 지름 66 원 안쪽만 반드시 보인다.
+     육각형 바깥 끝은 62.8% 로 예전과 같아서, 원형 런처에서 위아래 꼭지가
+     아주 살짝 걸린다 (예전 아이콘도 그랬다). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+  <!-- 허니컴 한 칸 — 기존 앱과 같은 크기(반지름 30, 획 7.80) -->
   <path
       android:strokeColor="#FFFFFF"
       android:strokeWidth="7.80"
       android:strokeLineJoin="round"
       android:fillColor="#00000000"
-      android:pathData="M79.98,69.00 L54.00,84.00 L28.02,69.00 L28.02,39.00 L54.00,24.00 L79.98,39.00 Z" />
+      android:pathData="M79.98,39.00 L54.00,24.00 L28.02,39.00 L28.02,69.00 L54.00,84.00 L79.98,69.00 Z" />
+  <!-- 로고: 굵은 대각선 + 왼위·오른아래 세리프 -->
   <path
+      android:fillColor="#FFFFFF"
       android:strokeColor="#FFFFFF"
-      android:strokeWidth="4.37"
-      android:strokeLineCap="butt"
-      android:fillColor="#00000000"
-      android:pathData="M42.00,42.00 L66.00,66.00" />
+      android:strokeWidth="0.40"
+      android:strokeLineJoin="round"
+      android:strokeLineCap="round"
+      android:pathData="M39.07,38.67 L47.28,38.67 L63.02,65.68 L68.93,65.68 L68.93,69.33 L60.72,69.33 L44.98,42.32 L39.07,42.32 Z" />
+  <!-- 로고: 오른위 세리프 + 가운데서 뾰족하게 끝나는 획 -->
   <path
+      android:fillColor="#FFFFFF"
       android:strokeColor="#FFFFFF"
-      android:strokeWidth="4.37"
-      android:strokeLineCap="butt"
-      android:fillColor="#00000000"
-      android:pathData="M66.00,42.00 L56.71,51.29 M42.00,66.00 L51.29,56.71" />
+      android:strokeWidth="0.40"
+      android:strokeLineJoin="round"
+      android:strokeLineCap="round"
+      android:pathData="M60.72,38.67 L68.93,38.67 L68.93,42.32 L63.02,42.32 L57.87,51.15 L55.66,47.36 Z" />
+  <!-- 로고: 왼아래 (위 도형을 180도 돌린 것) -->
+  <path
+      android:fillColor="#FFFFFF"
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="0.40"
+      android:strokeLineJoin="round"
+      android:strokeLineCap="round"
+      android:pathData="M47.28,69.33 L39.07,69.33 L39.07,65.68 L44.98,65.68 L50.13,56.85 L52.34,60.64 Z" />
 </vector>
