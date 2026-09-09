@@ -98,6 +98,17 @@ check("빌드가 기록하는 시트 주소와 앱 기본값이 같은 배포다
       "AKfycbzYFUuzAiKQGTo1QhHw2VvdJD3fs4n0Ab37-ucY_9e3WLecAsSTX8PH1OYS62KK0zAnBg" in store_js)
 
 print()
+print("== 6. 내 이름 등록")
+# 예전에는 이름 칸에 버튼이 없어서, 적어도 [새로고침] 이나 시트 카드의 [저장] 을
+# 누르지 않으면 등록되지 않았다. 적고 화면을 나가면 그대로 사라졌다.
+check("이름 칸에 [등록] 버튼이 있다", 'data-act="save-name"' in settings)
+check("버튼이 이름을 저장한다", "setDeviceName(name);" in settings.split("'save-name'")[1][:600])
+check("빈 칸이면 저장하지 않고 알려 준다",
+      "이름을 먼저 입력해 주세요" in settings)
+check("등록 뒤 지금 이름을 그 자리에서 보여 준다", 'id="nameHint"' in settings)
+check("엔터로도 등록된다", "ev.key !== 'Enter'" in settings)
+
+print()
 if fails:
     print("실패 %d건: %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)

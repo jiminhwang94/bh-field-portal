@@ -153,9 +153,16 @@ export async function settingsView(view) {
         <div class="divider"></div>
         <div class="field" style="margin-bottom:0">
           <label>내 이름 / 기기 이름</label>
-          <input class="input" id="sDevice" value="${h(deviceName() || settings.device_name)}"
-                 placeholder="예) 황지민" />
-          <span class="hint">한 번 등록하면 계속 사용됩니다. 리포트에 작성자로 들어갑니다.</span>
+          <div class="row" style="gap:8px">
+            <input class="input" id="sDevice" value="${h(deviceName() || settings.device_name)}"
+                   placeholder="예) 황지민" style="flex:1" />
+            <button class="btn btn--primary" data-act="save-name" type="button">등록</button>
+          </div>
+          <span class="hint" id="nameHint">
+            ${deviceName()
+              ? `지금 <strong>${h(deviceName())}</strong> 로 등록되어 있습니다. 리포트에 작성자로 들어갑니다.`
+              : '아직 등록되지 않았습니다. 이름을 넣고 [등록]을 누르세요. 리포트에 작성자로 들어갑니다.'}
+          </span>
         </div>
       </div>
 
@@ -227,6 +234,25 @@ export async function settingsView(view) {
       return;
     }
 
+    if (act === 'save-name') {
+      // 예전에는 이 칸에 버튼이 없어서, 이름을 적어도 [새로고침] 이나 시트 카드의
+      // [저장] 을 누르지 않으면 등록되지 않았다. 적고 화면을 나가면 사라졌다.
+      const name = $('#sDevice').value.trim();
+      if (!name) {
+        toast('이름을 먼저 입력해 주세요.', 'err');
+        $('#sDevice').focus();
+        return;
+      }
+      setDeviceName(name);
+      const hint = $('#nameHint');
+      if (hint) hint.innerHTML = `지금 <strong>${h(name)}</strong> 로 등록되어 있습니다.`;
+      // 화면 머리의 "기기 …" 표시도 함께 맞춘다 (다시 그리지 않고 그 부분만).
+      const head = document.querySelector('.page-head__meta');
+      if (head) head.innerHTML = head.innerHTML.replace(/기기 [^·]*·/, `기기 ${h(name)} ·`);
+      toast(`'${name}' 으로 등록했습니다.`, 'ok');
+      return;
+    }
+
     if (act === 'do-publish') {
       $('#sDevice').value.trim() && setDeviceName($('#sDevice').value.trim());
       await runSync(btn);
@@ -289,6 +315,13 @@ export async function settingsView(view) {
       btn.disabled = false;
       btn.textContent = '사진 공개 복구';
     }
+  });
+
+  // 이름 칸에서 엔터를 눌러도 등록된다 (현장에서 키보드만으로 끝낼 수 있게).
+  $('#sDevice').addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    document.querySelector('[data-act="save-name"]').click();
   });
 
   $('#sheetsForm').addEventListener('submit', async (ev) => {
