@@ -181,8 +181,13 @@ print("== 10. 사람에게 보내는 설치 링크 — 주소가 바뀌지 않�
 # Dropbox 주소는 버전마다 파일 이름이 달라 매번 바뀐다. 한 번 보낸 주소가
 # 계속 쓸모 있으려면 드라이브 파일 **하나**의 내용만 갈아 끼워야 한다.
 check("빌드 자동화가 release:install 로 부른다", 'release:"install"' in ci)
-check("Dropbox 에 올린 그 주소를 넘긴다",
-      "steps.upload.outputs.url" in ci and ci.count("steps.upload.outputs.url") >= 2)
+# 주소만 넘겨 Apps Script 가 받아 오게 하면 UrlFetchApp 권한이 필요하고,
+# 그 권한을 새로 넣는 순간 재승인 전까지 태블릿 전체가 시트에 못 닿는다.
+check("APK 를 바이트로 직접 보낸다 (새 권한이 필요 없게)",
+      'base64 -w0 "$FILE"' in ci and "--rawfile d apk.b64" in ci
+      and 'data:$d' in ci)
+check(".gs 도 바이트를 받을 수 있다", "if (body.data) {" in gs
+      and "Utilities.base64Decode(String(body.data))" in gs)
 check("링크 갱신이 실패해도 빌드를 무너뜨리지 않는다",
       "::warning::구글 드라이브 설치 링크를 갱신하지" in ci)
 check("주소가 바뀌면 요약에서 알려 준다", "jq -r '.linkChanged'" in ci)

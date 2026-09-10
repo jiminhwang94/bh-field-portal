@@ -300,11 +300,22 @@ jobs:
         env:
           WEBAPP: ${{ vars.SHEETS_WEBAPP_URL }}
           VERSION: ${{ steps.apk.outputs.version }}
-          URL: ${{ steps.upload.outputs.url }}
+          FILE: ${{ steps.apk.outputs.path }}
         run: |
-          BODY=$(jq -n --arg v "$VERSION" --arg b "${{ github.run_number }}" --arg u "$URL" \
-                       '{release:"install", version:$v, build:$b, url:$u}')
-          RES=$(curl -sL -H 'Content-Type: text/plain;charset=utf-8' --data "$BODY" "$WEBAPP")
+          # APK 를 **바이트로 직접** 보낸다.
+          #
+          # 주소만 넘겨 Apps Script 가 받아 오게 하면 UrlFetchApp 권한
+          # (script.external_request)이 필요하다. 그 권한을 새로 넣으면 배포한
+          # 사람이 다시 승인해야 하고, 승인 전까지 **태블릿 전체가 시트에 못
+          # 닿는다.** 사진·동영상이 이미 이 길(base64)로 올라가므로 이대로 쓴다.
+          base64 -w0 "$FILE" | tr -d '\n' > apk.b64
+          jq -n --arg v "$VERSION" --arg b "${{ github.run_number }}" \
+                --rawfile d apk.b64 \
+                '{release:"install", version:$v, build:$b, data:$d}' > install.json
+          echo "보내는 크기: $(du -h install.json | cut -f1)"
+          RES=$(curl -sL -H 'Content-Type: text/plain;charset=utf-8' \
+                     --data-binary @install.json "$WEBAPP")
+          rm -f apk.b64 install.json
           echo "$RES"
           if [ "$(echo "$RES" | jq -r '.ok')" != "true" ]; then
             WHY=$(echo "$RES" | jq -r '.error // "응답을 읽지 못했습니다"')
