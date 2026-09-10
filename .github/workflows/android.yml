@@ -286,3 +286,54 @@ jobs:
             echo "- Dropbox: $URL"
             echo "- 태블릿은 5분 안에 상단 [업데이트] 띠를 봅니다. 막으려면 시트 '앱 버전' 탭의 공개 칸을 N 으로."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # ── 사람에게 보내 주는 **고정** 설치 링크 (구글 드라이브) ──────────────
+      #
+      # Dropbox 주소는 버전마다 파일 이름이 달라져 매번 바뀐다. 카톡으로 한 번
+      # 보낸 주소가 계속 쓸모 있으려면 주소가 그대로여야 한다. 그래서 드라이브에
+      # 파일 하나를 두고 **내용만** 갈아 끼운다 (파일 ID = 주소가 유지된다).
+      #
+      # 주소는 시트 '앱 설치 링크' 탭과 아래 요약에 적힌다.
+      # 실패해도 빌드를 무너뜨리지 않는다 — APK 와 앱 안 [업데이트] 는 이미 끝났다.
+      - name: 구글 드라이브 설치 링크 갱신
+        if: steps.dbx.outputs.ready == 'yes'
+        env:
+          WEBAPP: ${{ vars.SHEETS_WEBAPP_URL }}
+          VERSION: ${{ steps.apk.outputs.version }}
+          URL: ${{ steps.upload.outputs.url }}
+        run: |
+          BODY=$(jq -n --arg v "$VERSION" --arg b "${{ github.run_number }}" --arg u "$URL" \
+                       '{release:"install", version:$v, build:$b, url:$u}')
+          RES=$(curl -sL -H 'Content-Type: text/plain;charset=utf-8' --data "$BODY" "$WEBAPP")
+          echo "$RES"
+          if [ "$(echo "$RES" | jq -r '.ok')" != "true" ]; then
+            WHY=$(echo "$RES" | jq -r '.error // "응답을 읽지 못했습니다"')
+            echo "::warning::구글 드라이브 설치 링크를 갱신하지 못했습니다 — $WHY"
+            {
+              echo ""
+              echo "### ❗ 구글 드라이브 설치 링크 갱신 실패"
+              echo ""
+              echo "- 이유: $WHY"
+              echo "- **예전에 보낸 링크는 옛 버전을 줍니다.** Apps Script 배포 상태를 확인하세요."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          LINK=$(echo "$RES" | jq -r '.installUrl')
+          DIRECT=$(echo "$RES" | jq -r '.downloadUrl')
+          {
+            echo ""
+            echo "## 사람에게 보내는 설치 링크 (바뀌지 않음)"
+            echo ""
+            echo "- 설치 링크: $LINK"
+            echo "- 바로 내려받기: $DIRECT"
+            if [ "$(echo "$RES" | jq -r '.created')" = "true" ]; then
+              echo "- 이번에 **처음 만들었습니다.** 이 주소를 팀에 알려 주세요 — 다음 버전부터는 그대로입니다."
+            elif [ "$(echo "$RES" | jq -r '.linkChanged')" = "true" ]; then
+              echo "- ❗ **주소가 바뀌었습니다.** 예전 파일을 고치지 못해 새로 만들었습니다 — 새 주소를 다시 알려 주세요."
+            else
+              echo "- 주소는 그대로이고 내용만 새 버전으로 바뀌었습니다."
+            fi
+            if [ "$(echo "$RES" | jq -r '.shared')" != "true" ]; then
+              echo "- ❗ 링크 공개에 실패했습니다 — 받는 사람이 권한 요청 화면을 봅니다. 공유 드라이브 정책을 확인하세요."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

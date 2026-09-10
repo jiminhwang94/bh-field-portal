@@ -93,6 +93,10 @@ function doPost(e) {
     if (body.release === 'latest') {
       return handleReleaseLatest(ss);
     }
+    // 사람에게 보내 주는 **바뀌지 않는** 설치 주소를 갱신한다
+    if (body.release === 'install') {
+      return handleReleaseInstall(ss, body);
+    }
 
     var sheetName = String(body.sheetName || '').trim();
     var headers = body.headers || [];
@@ -1070,7 +1074,9 @@ function handleReleasePublish(ss, body) {
  * 탭이 없거나 비어 있으면 version 이 빈 문자열이다 — 오류가 아니다.
  */
 function handleReleaseLatest(ss) {
-  var empty = { ok: true, version: '', build: '', url: '', sizeMb: 0, notes: '', publishedAt: '' };
+  var link = installLinkRow(ss);
+  var empty = { ok: true, version: '', build: '', url: '', sizeMb: 0, notes: '', publishedAt: '',
+                installUrl: link.installUrl, downloadUrl: link.downloadUrl };
   var sheet = releaseSheet(ss, false);
   if (!sheet || sheet.getLastRow() < 2) return json(empty);
   var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, RELEASE_HEADER.length).getValues();
@@ -1081,10 +1087,204 @@ function handleReleaseLatest(ss) {
     if (!v || !url || !isReleasePublic(r[6])) return;
     if (!best || compareVersions(v, best.version) > 0) {
       best = { ok: true, version: v, build: String(r[1] || ''), publishedAt: cellText(r[2]),
-               url: url, sizeMb: Number(r[4]) || 0, notes: String(r[5] || '') };
+               url: url, sizeMb: Number(r[4]) || 0, notes: String(r[5] || ''),
+               installUrl: link.installUrl, downloadUrl: link.downloadUrl };
     }
   });
   return json(best || empty);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 앱 설치 링크 — 사람에게 보내 주는 **바뀌지 않는** 주소
+//
+// 왜 따로 두나 — 앱 안 [업데이트] 는 Dropbox 주소를 쓴다. 그 주소는 버전마다
+// 파일 이름이 달라져서 매번 바뀐다. 사람에게 카톡으로 보내 주는 주소가 매번
+// 바뀌면 예전에 보낸 주소를 받은 사람은 옛 버전을 받는다.
+//
+// 그래서 드라이브에 파일 **하나**를 두고 그 **내용만** 갈아 끼운다. 드라이브
+// 파일은 내용을 바꿔도 ID 가 그대로라, 아래 주소가 영원히 같은 자리를 가리키며
+// 언제 눌러도 그때의 최신 APK 를 준다.
+//
+//   https://drive.google.com/file/d/<파일ID>/view?usp=drive_link
+//
+// 어디에 있나 — <공유 드라이브>/앱 설치 파일/현장포털-설치.apk
+// 주소는 시트 '앱 설치 링크' 탭에 적어 둔다 (사람이 눈으로 찾는 자리).
+// ═══════════════════════════════════════════════════════════════════
+var APK_FOLDER_NAME = '앱 설치 파일';
+var APK_FILE_NAME = '현장포털-설치.apk';
+var APK_MIME = 'application/vnd.android.package-archive';
+var APK_ID_PROP = 'APK_FILE_ID';
+var INSTALL_SHEET = '앱 설치 링크';
+var INSTALL_HEADER = ['설치 링크 (사람에게 보내는 주소)', '바로 내려받기',
+                      '드라이브 파일 ID', '마지막 갱신', '버전'];
+
+function driveViewUrl(id) {
+  return 'https://drive.google.com/file/d/' + id + '/view?usp=drive_link';
+}
+function driveDownloadUrl(id) {
+  return 'https://drive.google.com/uc?export=download&id=' + id;
+}
+
+/** 파일 ID 를 스크립트 속성에도 남긴다 — 시트 탭을 지워도 링크가 안 바뀐다. */
+function savedApkId() {
+  try {
+    return String(PropertiesService.getScriptProperties().getProperty(APK_ID_PROP) || '').trim();
+  } catch (err) {
+    return '';
+  }
+}
+function rememberApkId(id) {
+  try {
+    PropertiesService.getScriptProperties().setProperty(APK_ID_PROP, String(id));
+  } catch (err) { /* 속성을 못 써도 시트에 적어 두므로 잃지 않는다 */ }
+}
+
+function installSheet(ss, create) {
+  var sheet = ss.getSheetByName(INSTALL_SHEET);
+  if (!sheet && create) {
+    sheet = ss.insertSheet(INSTALL_SHEET);
+    sheet.getRange(1, 1, 1, INSTALL_HEADER.length).setValues([INSTALL_HEADER]);
+    sheet.getRange(1, 1, 1, INSTALL_HEADER.length).setFontWeight('bold').setBackground('#eef1f5');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+/** 지금 쓰이는 설치 주소. 아직 만든 적이 없으면 빈 문자열이다 (오류가 아니다). */
+function installLinkRow(ss) {
+  var out = { installUrl: '', downloadUrl: '', fileId: '' };
+  var sheet = installSheet(ss, false);
+  var id = '';
+  if (sheet && sheet.getLastRow() >= 2) {
+    var r = sheet.getRange(2, 1, 1, INSTALL_HEADER.length).getValues()[0];
+    id = String(r[2] || '').trim();
+    out.installUrl = String(r[0] || '').trim();
+    out.downloadUrl = String(r[1] || '').trim();
+  }
+  if (!id) id = savedApkId();
+  out.fileId = id;
+  if (id && !out.installUrl) out.installUrl = driveViewUrl(id);
+  if (id && !out.downloadUrl) out.downloadUrl = driveDownloadUrl(id);
+  return out;
+}
+
+/** <공유 드라이브>/앱 설치 파일/ */
+function apkFolder(ss) {
+  return folderByName(mediaRoot(ss).folder, APK_FOLDER_NAME);
+}
+
+/**
+ * 갈아 끼울 파일을 찾는다.
+ *  1) 기억해 둔 ID  2) 시트에 적힌 ID  3) 폴더에서 같은 이름
+ * 셋 다 없으면 null — 그러면 새로 만든다(그때 한 번 주소가 정해진다).
+ */
+function findApkFile(ss) {
+  var known = installLinkRow(ss).fileId;
+  if (known) {
+    try {
+      var file = DriveApp.getFileById(known);
+      if (!file.isTrashed || !file.isTrashed()) return file;
+    } catch (err) { /* 지워졌다 — 아래에서 다시 찾는다 */ }
+  }
+  try {
+    var it = apkFolder(ss).getFiles();
+    while (it.hasNext()) {
+      var f = it.next();
+      if (f.getName() === APK_FILE_NAME) return f;
+    }
+  } catch (err) { /* 폴더에 못 닿았다 */ }
+  return null;
+}
+
+/**
+ * 파일 **ID 를 그대로 둔 채** 내용만 바꾼다.
+ * 고급 드라이브 서비스만 할 수 있다 (DriveApp 에는 방법이 없다).
+ */
+function replaceApkBytes(file, blob) {
+  try {
+    if (typeof Drive !== 'undefined' && Drive.Files && Drive.Files.update) {
+      Drive.Files.update({ name: APK_FILE_NAME }, file.getId(), blob,
+                         { supportsAllDrives: true });
+      return true;
+    }
+  } catch (err) { /* 아래에서 false — 부르는 쪽이 새로 만든다 */ }
+  return false;
+}
+
+/**
+ * 빌드 자동화가 부른다. Dropbox 에 올려 둔 APK 를 드라이브의 고정 파일에 옮긴다.
+ *   { release: 'install', version: '3.20.0', build: '42',
+ *     url: 'https://...dl=1' }   또는   { data: '<base64>' }
+ *   → { ok, installUrl, downloadUrl, fileId, replaced, created, linkChanged,
+ *       shared, sizeMb }
+ *
+ * replaced=true 면 주소가 그대로다. false 면 파일을 새로 만든 것이라
+ * **주소가 바뀌었다** — 예전에 보낸 주소는 옛 APK 를 준다.
+ */
+function handleReleaseInstall(ss, body) {
+  var version = String(body.version || '').trim();
+  var blob;
+  if (body.data) {
+    blob = Utilities.newBlob(Utilities.base64Decode(String(body.data)), APK_MIME, APK_FILE_NAME);
+  } else {
+    var url = String(body.url || '').trim();
+    if (!/^https:\/\//.test(url)) {
+      return json({ ok: false, error: 'url 은 https 로 시작해야 합니다 (또는 data 로 보내세요).' });
+    }
+    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+    var code = resp.getResponseCode();
+    if (code !== 200) {
+      return json({ ok: false, error: 'APK 를 받아오지 못했습니다 (' + code + ') — ' + url });
+    }
+    blob = resp.getBlob().setName(APK_FILE_NAME);
+  }
+  try { blob.setContentType(APK_MIME); } catch (err) { /* 형이 없어도 올라간다 */ }
+
+  var bytes = 0;
+  try { bytes = (blob.getBytes() || []).length; } catch (err) { bytes = 0; }
+  if (bytes && bytes < 100000) {
+    // dl=1 이 아니라 미리보기 HTML 을 받아 온 적이 있다. 그러면 몇 KB 짜리
+    // 파일이 APK 인 척 올라가고, 받은 사람은 설치 실패만 본다.
+    return json({ ok: false,
+                  error: 'APK 가 너무 작습니다 (' + bytes + '바이트). 주소가 파일이 아니라 '
+                       + '미리보기 페이지를 가리키는지 확인하세요 (Dropbox 는 dl=1).' });
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var file = findApkFile(ss);
+    var hadFile = Boolean(file);
+    var replaced = false;
+    if (file) replaced = replaceApkBytes(file, blob);
+    if (!replaced) {
+      // 처음이거나 갈아 끼우지 못했다 — 새 파일을 만든다(주소가 새로 정해진다).
+      if (file && !replaced) { try { file.setTrashed(true); } catch (err2) { /* 남겨 둔다 */ } }
+      file = apkFolder(ss).createFile(blob);
+      try { file.setName(APK_FILE_NAME); } catch (err3) { /* 이름은 blob 것으로 */ }
+    }
+    var id = file.getId();
+    var shared = sharePublic(file);
+    rememberApkId(id);
+
+    var sheet = installSheet(ss, true);
+    var when = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+    var row = [driveViewUrl(id), driveDownloadUrl(id), id, when, version];
+    sheet.getRange(2, 1, 1, row.length).setValues([row]);
+    writeLinkCell(sheet, 2, 1, [row[0]]);      // 눌러서 열 수 있는 파란 링크로
+    writeLinkCell(sheet, 2, 2, [row[1]]);
+
+    return json({ ok: true, fileId: id, installUrl: driveViewUrl(id),
+                  downloadUrl: driveDownloadUrl(id), replaced: replaced,
+                  // created  = 이번에 처음 만들었다 (주소가 지금 정해졌다)
+                  // linkChanged = 있던 파일을 못 고쳐서 새로 만들었다
+                  //               → 예전에 보낸 주소는 **옛 APK** 를 준다
+                  created: !hadFile, linkChanged: hadFile && !replaced,
+                  shared: shared, version: version,
+                  sizeMb: bytes ? Math.round(bytes / 104857.6) / 10 : 0 });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** 매장 → 날짜 → 사진/동영상 순으로 내려가며 폴더를 만든다. */

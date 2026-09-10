@@ -13,11 +13,15 @@ import { isOnline } from './sync.js';
 import { h, toast } from './ui.js';
 
 const META_KEY = 'latestRelease';
+// 사람에게 보내 주는 고정 설치 주소. 버전 정보와 따로 담는다 — 버전 줄이
+// 비어 있어도(아직 안 적었어도) 주소는 알고 있어야 한다.
+const LINK_KEY = 'installLink';
 const SKIP_KEY = (v) => `bh_update_skip_${v}`;
 const CHECK_GAP_MS = 4 * 60 * 1000;      // 5분 주기 새로고침보다 조금 짧게
 
 let lastCheckAt = 0;
 let current = null;
+let installLink = null;
 
 /** '3.16.0' 과 '3.15.1' 을 숫자로 비교한다. 양수면 a 가 더 새롭다. */
 export function compareVersions(a, b) {
@@ -55,6 +59,13 @@ export async function checkForUpdate({ force = false } = {}) {
           publishedAt: String(r.publishedAt || ''), checkedAt: new Date().toISOString() }
       : null;
     await store.setMeta(META_KEY, current);
+    // 주소가 온 경우에만 갈아 끼운다. 예전 Apps Script 는 이 값을 안 주는데,
+    // 그때 null 로 덮으면 알고 있던 주소를 잃는다.
+    if (r && r.installUrl) {
+      installLink = { installUrl: String(r.installUrl),
+                      downloadUrl: String(r.downloadUrl || '') };
+      await store.setMeta(LINK_KEY, installLink);
+    }
     paintBanner();
   } catch {
     // 예전 Apps Script 이거나 잠시 안 닿음 — 다음 번에 다시 묻는다.
@@ -108,6 +119,22 @@ export async function initUpdateBanner() {
       el.hidden = true;
     }
   });
+}
+
+/**
+ * 팀원에게 보내 주는 설치 주소 — 없으면 null.
+ *
+ * 이 주소는 드라이브 파일 하나를 가리킨다. 새 버전이 나오면 그 파일의
+ * **내용만** 바뀌므로, 한 번 보낸 주소가 계속 최신 APK 를 준다.
+ */
+export function getInstallLink() {
+  return installLink;
+}
+
+/** 기기에 담아 둔 설치 주소를 꺼낸다 (화면을 그리기 전에 한 번). */
+export async function loadInstallLink() {
+  if (!installLink) installLink = (await store.getMeta(LINK_KEY, null)) || null;
+  return installLink;
 }
 
 /** 설정 화면 한 줄: "최신 v3.16.0 [업데이트]" 또는 "최신입니다". */

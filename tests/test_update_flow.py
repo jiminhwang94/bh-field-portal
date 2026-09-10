@@ -160,6 +160,71 @@ check("아래 알약이 '보인 것 / 전체' 를 보여 준다",
       "function countText()" in inv and 'id="invCount"' in inv)
 
 print()
+print("== 9. 차량 재고 — [보충 필요] 는 '적을 때만'")
+# 최소보유와 딱 같은 수량은 모자란 것이 아니다. 예전 '이하'(<=) 기준으로는
+# 정확히 채워 둔 부품까지 빨갛게 떠서 현장에서 헷갈렸다.
+check("'적을 때만' 으로 판정한다", "i.quantity < i.minQuantity" in inv)
+check("'이하' 판정이 남아 있지 않다", "quantity <= i.minQuantity" not in inv)
+# 예전에는 같은 비교가 세 군데 흩어져 있어 한 곳만 고치면 어긋났다.
+check("판정이 한 곳(isLow)에만 있다",
+      inv.count("i.quantity < i.minQuantity") == 1
+      and inv.count("isLow(item)") == 2 and "items.filter(isLow)" in inv
+      and "!isLow(i)" in inv)
+check("최소보유 0 은 판정하지 않는다 (안 쓰는 부품)", "i.minQuantity > 0 &&" in inv)
+check("화면 안내도 '적으면' 이라고 적는다",
+      "최소보유보다 적으면 강조 표시됩니다" in inv)
+check("품목 수정 칸이 '같으면 표시하지 않습니다' 를 알려 준다",
+      "(같으면 표시하지 않습니다)" in inv)
+
+print()
+print("== 10. 사람에게 보내는 설치 링크 — 주소가 바뀌지 않는다")
+# Dropbox 주소는 버전마다 파일 이름이 달라 매번 바뀐다. 한 번 보낸 주소가
+# 계속 쓸모 있으려면 드라이브 파일 **하나**의 내용만 갈아 끼워야 한다.
+check("빌드 자동화가 release:install 로 부른다", 'release:"install"' in ci)
+check("Dropbox 에 올린 그 주소를 넘긴다",
+      "steps.upload.outputs.url" in ci and ci.count("steps.upload.outputs.url") >= 2)
+check("링크 갱신이 실패해도 빌드를 무너뜨리지 않는다",
+      "::warning::구글 드라이브 설치 링크를 갱신하지" in ci)
+check("주소가 바뀌면 요약에서 알려 준다", "jq -r '.linkChanged'" in ci)
+check("처음 만든 것도 알려 준다", "jq -r '.created'" in ci)
+check("공개에 실패하면 알려 준다", "jq -r '.shared'" in ci)
+# Apps Script
+check("설치 링크 갈래가 있다", "body.release === 'install'" in gs
+      and "function handleReleaseInstall(" in gs)
+check("파일 ID 를 그대로 두고 내용만 바꾼다 (고급 드라이브 서비스)",
+      "Drive.Files.update({ name: APK_FILE_NAME }, file.getId(), blob," in gs)
+check("주소 모양이 사람이 쓰는 그 모양이다",
+      "'https://drive.google.com/file/d/' + id + '/view?usp=drive_link'" in gs)
+check("바로 내려받는 주소도 만든다",
+      "'https://drive.google.com/uc?export=download&id=' + id" in gs)
+check("파일은 <공유 드라이브>/앱 설치 파일/ 에 하나만 둔다",
+      "var APK_FOLDER_NAME = '앱 설치 파일';" in gs
+      and "var APK_FILE_NAME = '현장포털-설치.apk';" in gs)
+check("파일 ID 를 시트와 스크립트 속성 두 곳에 남긴다",
+      "var INSTALL_SHEET = '앱 설치 링크';" in gs and "APK_FILE_ID" in gs
+      and "function rememberApkId(" in gs)
+check("시트 탭을 지워도 되찾는다 (속성 → 폴더에서 이름으로)",
+      "function findApkFile(" in gs and "f.getName() === APK_FILE_NAME" in gs)
+check("주소 칸은 눌러서 열 수 있는 파란 링크다", "writeLinkCell(sheet, 2, 1," in gs)
+check("미리보기 HTML 을 APK 로 착각하지 않는다", "bytes < 100000" in gs)
+check("링크가 있는 누구나 볼 수 있게 만든다", "sharePublic(file)" in gs)
+# 태블릿
+check("latest 응답에 설치 주소가 함께 온다",
+      "installUrl: link.installUrl, downloadUrl: link.downloadUrl" in gs
+      and "function installLinkRow(" in gs)
+check("앱이 그 주소를 기기에 담아 둔다", "const LINK_KEY = 'installLink';" in update
+      and "await store.setMeta(LINK_KEY, installLink);" in update)
+# 예전 Apps Script 는 이 값을 안 준다. 그때 null 로 덮으면 알던 주소를 잃는다.
+check("주소가 안 왔을 때 알던 주소를 지운다면 안 된다", "if (r && r.installUrl) {" in update)
+check("설정 화면이 주소와 [링크 복사] 를 보여 준다",
+      'id="installLinkBox"' in settings and "data-act=\"copy-install\"" in settings
+      and "act === 'copy-install'" in settings)
+check("아직 없으면 어디서 생기는지 알려 준다",
+      "다음 빌드가 올라간 뒤에 여기 보입니다" in settings)
+check("주소가 안 바뀐다는 것을 화면에서도 말해 준다",
+      "이 주소는 바뀌지 않습니다" in settings)
+
+print()
 if fails:
     print("실패 %d건: %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)

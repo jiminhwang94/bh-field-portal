@@ -1,6 +1,9 @@
 // 설정 — 구글 시트 연결 · 업데이트(공개본) · 앱 설치
 import { api, APP_VERSION } from '../api.js';
-import { settingsLine as updateSettingsLine, startUpdate, checkForUpdate } from '../update.js';
+import {
+  settingsLine as updateSettingsLine, startUpdate, checkForUpdate,
+  getInstallLink, loadInstallLink,
+} from '../update.js';
 import { $, h, confirmDialog, copyText, loading, openSheet, toast } from '../ui.js';
 import { isOnline } from '../sync.js';
 import { formatBytes } from '../sheets.js';
@@ -31,12 +34,44 @@ function driveLine(drive) {
     </p>`;
 }
 
+/**
+ * 팀원에게 보내 주는 APK 설치 주소.
+ *
+ * 이 주소는 **버전이 올라가도 바뀌지 않는다** — 빌드 자동화가 드라이브에 둔
+ * 파일 하나의 내용만 갈아 끼우기 때문이다. 그래서 한 번 카톡으로 보내 두면
+ * 그 사람은 언제 눌러도 그때의 최신 APK 를 받는다.
+ */
+function installLinkHtml(link) {
+  if (!link || !link.installUrl) {
+    return `
+      <p class="muted" style="margin:0;font-size:.9rem;line-height:1.65">
+        APK 설치 링크는 다음 빌드가 올라간 뒤에 여기 보입니다.
+        <br />(구글 시트의 <strong>'앱 설치 링크'</strong> 탭에도 적힙니다)
+      </p>`;
+  }
+  // 주소를 통째로 보여 주면 줄이 넘쳐 읽기 어렵다. 파일 부분만 줄여 보인다.
+  const shown = link.installUrl.replace(/^https:\/\//, '').replace(/\/view.*$/, '');
+  return `
+    <p class="muted" style="margin:0;font-size:.9rem;line-height:1.65">
+      APK 설치 링크 <span class="muted">(팀원에게 보내는 주소)</span><br />
+      <a class="link mono" href="${h(link.installUrl)}" target="_blank"
+         rel="noopener">${h(shown)} ↗</a>
+      <button class="btn btn--sm btn--ghost" data-act="copy-install" type="button"
+              style="margin-left:8px">링크 복사</button>
+      <br />버전이 올라가도 <strong>이 주소는 바뀌지 않습니다.</strong>
+      받은 사람은 누를 때마다 최신 APK 를 받습니다.
+    </p>`;
+}
+
 export async function settingsView(view) {
   const updateLine = updateSettingsLine();
+  await loadInstallLink();
   // 설정을 열었다는 건 "지금 상태를 보고 싶다" 는 뜻 — 4분 규칙을 건너뛰고 묻는다.
   checkForUpdate({ force: true }).then(() => {
     const line = document.getElementById('appUpdateLine');
     if (line) line.innerHTML = updateSettingsLine();
+    const box = document.getElementById('installLinkBox');
+    if (box) box.innerHTML = installLinkHtml(getInstallLink());
   }).catch(() => {});
   loading(view);
   const [settings, build] = await Promise.all([api.getSettings(), api.version()]);
@@ -193,6 +228,8 @@ export async function settingsView(view) {
           접속 주소: <strong class="mono">${h(build.siteUrl || '-')}</strong>
           <button class="btn btn--sm btn--ghost" data-act="copy-url" type="button" style="margin-left:8px">주소 복사</button>
         </p>
+        <div class="divider"></div>
+        <div id="installLinkBox">${installLinkHtml(getInstallLink())}</div>
       </details>
 
       <details class="panel panel--fold">
@@ -231,6 +268,14 @@ export async function settingsView(view) {
     if (act === 'copy-url') {
       const ok = await copyText(build.siteUrl || '');
       toast(ok ? '주소를 복사했습니다.' : '복사에 실패했습니다.', ok ? 'ok' : 'err');
+      return;
+    }
+
+    if (act === 'copy-install') {
+      const link = getInstallLink();
+      const ok = await copyText((link && link.installUrl) || '');
+      toast(ok ? '설치 링크를 복사했습니다. 메시지로 보내면 바로 받을 수 있습니다.'
+        : '복사에 실패했습니다.', ok ? 'ok' : 'err');
       return;
     }
 

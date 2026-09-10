@@ -724,7 +724,7 @@ img { display: block; max-width: 100%; }
 /* 부품명 칸 — 이름과 알약을 나란히 */
 .table--touch td:first-child { display: flex; align-items: center; gap: 10px; }
 
-/* 최소보유 이하 행 (tr 에 .is-low-row) */
+/* 최소보유보다 적은 행 (tr 에 .is-low-row) */
 .table tbody tr.is-low-row td { background: var(--color-danger-tint); border-color: var(--color-danger-border); }
 .table tbody tr.is-low-row:hover td { background: var(--color-danger-tint-hover); }
 .is-low { color: var(--color-danger); font-weight: 600; }

@@ -25,9 +25,17 @@ export async function inventoryView(view) {
   let query = '';          // 부품 이름 검색어. 차량을 바꿔도 그대로 둔다
                            // (같은 부품을 차량별로 견줘 보는 일이 잦다)
 
+  /**
+   * 보충이 필요한가.
+   *
+   * 최소보유와 **같은 수량은 아직 모자란 것이 아니다.** 예전에는 '이하'로 봐서
+   * 딱 맞게 채워 둔 부품까지 빨갛게 떴다. 최소보유보다 적을 때만 표시한다.
+   */
+  const isLow = (i) => i.minQuantity > 0 && i.quantity < i.minQuantity;
+
   /** 표의 한 줄. 디자인의 `.table--touch` 구조를 그대로 쓴다. */
   function itemRow(item) {
-    const low = item.minQuantity > 0 && item.quantity <= item.minQuantity;
+    const low = isLow(item);
     const name = h(item.partName);
     return `
       <tr data-id="${item.id}" class="${low ? 'is-low-row' : ''}">
@@ -58,7 +66,6 @@ export async function inventoryView(view) {
       </tr>`;
   }
 
-  const isLow = (i) => i.minQuantity > 0 && i.quantity <= i.minQuantity;
 
   /** [부족 항목만] 과 검색어를 함께 적용한 목록. */
   function visibleItems() {
@@ -158,7 +165,7 @@ export async function inventoryView(view) {
 
           <div class="page-head">
             <span class="page-head__meta">
-              ${lowCount ? `보충 필요 <span class="tnum is-low">${lowCount}</span>건 · ` : ''}최소보유 이하는 강조 표시됩니다
+              ${lowCount ? `보충 필요 <span class="tnum is-low">${lowCount}</span>건 · ` : ''}최소보유보다 적으면 강조 표시됩니다
             </span>
             <span class="page-head__spacer"></span>
             <span class="tag tag-neutral" id="invCount">${countText()}</span>
@@ -197,8 +204,7 @@ export async function inventoryView(view) {
     const cell = view.querySelector(`[data-qty="${item.id}"]`);
     if (!cell) return;
     cell.textContent = item.quantity;
-    cell.classList.toggle('is-low',
-      item.minQuantity > 0 && item.quantity <= item.minQuantity);
+    cell.classList.toggle('is-low', isLow(item));
   }
 
   async function onClick(ev) {
@@ -365,7 +371,7 @@ export async function inventoryView(view) {
           <div class="field">
             <label>최소 보유 수량</label>
             <input class="input" id="invMin" type="number" min="0" inputmode="numeric" value="${item ? item.minQuantity : 0}" />
-            <span class="hint">이 수량 이하가 되면 [보충 필요]로 표시됩니다.
+            <span class="hint">이 수량<strong>보다 적어지면</strong> [보충 필요]로 표시됩니다 (같으면 표시하지 않습니다).
               (바꾸면 시트에 자동으로 올라갑니다)</span>
           </div>
         </div>

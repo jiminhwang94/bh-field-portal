@@ -193,7 +193,7 @@ function makeFolder(name, path) {
         name: blob.name, mime: blob.mime, path,
         getUrl() { return `https://drive.google.com/file/d/${file.id}/view`; },
         getId: () => file.id,
-        getName: () => blob.name,
+        getName: () => file.name,
         getMimeType: () => blob.mime,
         // 공유 드라이브에서는 이 호출이 조직 정책으로 **막힌다.**
         // 예전 코드는 실패를 조용히 삼켜서 사진이 비공개로 남았고,
@@ -214,6 +214,10 @@ function makeFolder(name, path) {
           getContentType: () => 'image/png',
         }),
         getParents: () => ({ hasNext: () => false }),
+        // 설치용 APK 는 같은 파일의 **내용만** 갈아 끼운다. 그 길에 쓰인다.
+        setName(value) { file.name = value; blob.name = value; return file; },
+        isTrashed: () => Boolean(file.trashed),
+        setTrashed(value) { file.trashed = value; return file; },
       };
       folder.files.push(file);
       allFiles.set(file.id, file);
@@ -258,6 +262,71 @@ function findPath(...names) {
   return node;
 }
 
+// ─────────────────────────────────────────────── 가짜 Blob · 내려받기 · 속성
+//
+// APK 를 드라이브의 고정 파일에 갈아 끼우는 길에 필요한 것들.
+// 진짜 Blob 은 setName · setContentType 이 **자기를 돌려준다.** 가짜에 없으면
+// `resp.getBlob().setName(...)` 이 undefined 가 되어 뒤가 조용히 무너진다.
+
+function makeBlob(bytes, mime, name) {
+  const blob = {
+    _bytes: bytes, mime, name,
+    getBytes: () => blob._bytes,
+    getContentType: () => blob.mime,
+    getName: () => blob.name,
+    setName(value) { blob.name = value; return blob; },
+    setContentType(value) { blob.mime = value; return blob; },
+  };
+  return blob;
+}
+
+/** 검사에서 바꿔 끼운다 — { code, bytes } */
+let fetchAnswer = { code: 200, bytes: null };
+const fetchCalls = [];
+
+const fakeUrlFetch = {
+  fetch(url, opts) {
+    fetchCalls.push({ url, opts });
+    const bytes = fetchAnswer.bytes || new Array(3_000_000).fill(7);
+    return {
+      getResponseCode: () => fetchAnswer.code,
+      getBlob: () => makeBlob(bytes, 'application/octet-stream', 'download'),
+      getContentText: () => 'text',
+    };
+  },
+};
+
+const scriptProps = new Map();
+const fakeProperties = {
+  getScriptProperties: () => ({
+    getProperty: (k) => (scriptProps.has(k) ? scriptProps.get(k) : null),
+    setProperty(k, v) { scriptProps.set(k, String(v)); return this; },
+    deleteProperty(k) { scriptProps.delete(k); return this; },
+  }),
+};
+
+/**
+ * 고급 드라이브 서비스 — **Files 만** 둔다.
+ *
+ * 파일 ID 를 그대로 두고 내용만 바꾸는 길(Files.update)은 이것 말고 방법이 없다.
+ * Permissions 는 일부러 비워 둔다: 사진 공개는 setSharing 쪽 검사가 이미
+ * 공유 드라이브 정책까지 흉내 내고 있어, 여기서 켜면 그 검사가 무력해진다.
+ */
+let driveUpdateFails = false;
+const driveUpdates = [];
+const fakeAdvancedDrive = {
+  Files: {
+    update(resource, fileId, blob) {
+      if (driveUpdateFails) throw new Error('Access denied: cannot update file');
+      const file = allFiles.get(fileId);
+      if (!file) throw new Error('없는 파일입니다: ' + fileId);
+      file._blob = blob;
+      driveUpdates.push({ fileId, bytes: (blob.getBytes() || []).length });
+      return { id: fileId };
+    },
+  },
+};
+
 // ─────────────────────────────────────────────── 실제 .gs 를 불러온다
 
 const source = readFileSync(join(ROOT, 'google-apps-script.gs'), 'utf8');
@@ -288,11 +357,12 @@ const sandbox = {
     MimeType: { JSON: 'application/json' },
   },
   DriveApp: makeDrive(),
+  UrlFetchApp: fakeUrlFetch,
+  PropertiesService: fakeProperties,
+  Drive: fakeAdvancedDrive,
   Utilities: {
     base64Decode: (text) => ({ _b64: text, length: String(text).length }),
-    newBlob: (bytes, mime, name) => ({ _bytes: bytes, mime, name,
-                                       getBytes: () => bytes,
-                                       getContentType: () => mime }),
+    newBlob: (bytes, mime, name) => makeBlob(bytes, mime, name),
     base64Encode: (bytes) => `b64(${(bytes && bytes.length) || 0})`,
     formatDate: (d) => '2099-01-01 09:00',
   },
@@ -815,6 +885,107 @@ latest = call({ release: 'latest' });
 check("공개 칸을 N 으로 바꾸면 그 버전은 건너뛴다", latest.version === '3.16.5', latest.version);
 check("공개 칸이 비어 있으면 공개로 본다", gs.isReleasePublic('') === true
       && gs.isReleasePublic('아니오') === false && gs.isReleasePublic('X') === false);
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 앱 설치 링크 — 사람에게 보내 주는 주소는 **버전이 바뀌어도 그대로**
+// ═══════════════════════════════════════════════════════════════════
+console.log('');
+console.log('── 앱 설치 링크 (고정 주소)');
+
+const noLink = call({ release: 'latest' });
+check('아직 만든 적이 없으면 빈 주소다 (오류가 아니다)',
+      noLink.ok === true && noLink.installUrl === '');
+
+const first = call({ release: 'install', version: '3.20.0', build: '42',
+                     url: 'https://www.dropbox.com/scl/fi/abc/FieldPortal.apk?dl=1' });
+check('설치용 APK 를 드라이브에 올린다', first.ok === true, JSON.stringify(first));
+check('사람에게 보내는 주소가 /file/d/<ID>/view 모양이다',
+      first.installUrl === `https://drive.google.com/file/d/${first.fileId}/view?usp=drive_link`,
+      first.installUrl);
+check('바로 내려받는 주소도 함께 준다',
+      first.downloadUrl === `https://drive.google.com/uc?export=download&id=${first.fileId}`);
+check('링크가 있는 누구나 볼 수 있게 만든다', first.shared === true);
+check('처음 만든 것임을 알려 준다 (주소가 지금 정해졌다)',
+      first.created === true && first.linkChanged === false);
+check('Dropbox 주소에서 받아 온다',
+      fetchCalls.length === 1 && /dl=1$/.test(fetchCalls[0].url));
+
+const apkDir = findPath('앱 설치 파일');
+check('<공유 드라이브>/앱 설치 파일/ 에 둔다', !!apkDir && apkDir.files.length === 1);
+check('파일 이름이 사람이 알아볼 이름이다',
+      apkDir.files[0].getName() === '현장포털-설치.apk', apkDir.files[0].getName());
+
+const linkTab = ss.getSheetByName('앱 설치 링크');
+check('시트 탭에 주소를 적어 둔다',
+      !!linkTab && linkTab.getRange(2, 1).getValue() === first.installUrl);
+check('그 칸이 눌러서 열 수 있는 파란 링크다',
+      (linkTab.links.get('2,1') || []).some((l) => l.url === first.installUrl));
+check('파일 ID 도 적어 둔다 (시트만 보고도 되찾을 수 있게)',
+      linkTab.getRange(2, 3).getValue() === first.fileId);
+
+// ── 두 번째 배포 — **주소가 바뀌면 안 된다** ────────────────────────
+fetchAnswer = { code: 200, bytes: new Array(3_200_000).fill(9) };
+const second = call({ release: 'install', version: '3.21.0', build: '43',
+                      url: 'https://www.dropbox.com/scl/fi/xyz/FieldPortal2.apk?dl=1' });
+check('다음 버전도 올라간다', second.ok === true, JSON.stringify(second));
+check('★ 주소가 그대로다 — 예전에 보낸 링크가 새 APK 를 준다',
+      second.fileId === first.fileId && second.installUrl === first.installUrl,
+      `${first.installUrl} → ${second.installUrl}`);
+check('내용만 갈아 끼운다 (파일을 새로 만들지 않는다)',
+      second.replaced === true && driveUpdates.length === 1
+      && driveUpdates[0].bytes === 3_200_000);
+check('파일이 하나뿐이다 (버전마다 쌓이지 않는다)', apkDir.files.length === 1);
+check('시트의 버전 칸이 새 버전으로 바뀐다',
+      linkTab.getRange(2, 5).getValue() === '3.21.0');
+
+// ── 태블릿이 [설정] 에서 그 주소를 읽는다 ───────────────────────────
+latest = call({ release: 'latest' });
+check('latest 응답에 설치 주소가 함께 온다',
+      latest.installUrl === first.installUrl && latest.downloadUrl === first.downloadUrl);
+
+// ── dl=0 을 주면 미리보기 HTML 몇 KB 가 APK 인 척 올라간다 ──────────
+fetchAnswer = { code: 200, bytes: new Array(4200).fill(60) };
+const tiny = call({ release: 'install', version: '3.22.0',
+                    url: 'https://www.dropbox.com/scl/fi/xyz/FieldPortal2.apk?dl=0' });
+check('APK 가 아니라 미리보기 페이지면 거절한다',
+      tiny.ok === false && /너무 작습니다/.test(tiny.error), JSON.stringify(tiny));
+check('거절했으면 주소도 건드리지 않는다',
+      call({ release: 'latest' }).installUrl === first.installUrl);
+
+// ── 받아오지 못하면 있는 주소를 지키고 이유를 말한다 ────────────────
+fetchAnswer = { code: 404, bytes: null };
+const gone = call({ release: 'install', version: '3.22.0',
+                    url: 'https://www.dropbox.com/scl/fi/none.apk?dl=1' });
+check('내려받기가 실패하면 이유를 말한다',
+      gone.ok === false && /404/.test(gone.error), JSON.stringify(gone));
+check('실패해도 예전 주소는 살아 있다',
+      call({ release: 'latest' }).installUrl === first.installUrl);
+
+// ── 갈아 끼우지 못하면(고급 서비스 꺼짐) 새로 만들고 **말해 준다** ──
+fetchAnswer = { code: 200, bytes: new Array(3_000_000).fill(1) };
+driveUpdateFails = true;
+const remade = call({ release: 'install', version: '3.23.0',
+                      url: 'https://www.dropbox.com/scl/fi/abc/FieldPortal3.apk?dl=1' });
+driveUpdateFails = false;
+check('갈아 끼우지 못하면 새로 만들어서라도 올린다', remade.ok === true, JSON.stringify(remade));
+check('그때는 linkChanged 로 알려 준다 (예전에 보낸 주소가 옛 APK 를 준다)',
+      remade.replaced === false && remade.linkChanged === true
+      && remade.created === false && remade.fileId !== first.fileId);
+check('바뀐 주소를 시트에 다시 적는다',
+      linkTab.getRange(2, 1).getValue() === remade.installUrl);
+
+// ── 시트 탭을 지워도 주소를 잃지 않는다 ─────────────────────────────
+linkTab.clearContents();
+check('스크립트 속성에 파일 ID 가 남아 있다',
+      call({ release: 'latest' }).installUrl === remade.installUrl);
+
+// ── url 없이 base64 로 직접 보내도 된다 (사람이 손으로 돌릴 때) ─────
+const byData = call({ release: 'install', version: '3.24.0', data: 'x'.repeat(300000) });
+check('base64 로 보내도 올라간다', byData.ok === true, JSON.stringify(byData));
+check('그래도 같은 주소를 지킨다', byData.installUrl === remade.installUrl);
+check('주소가 없으면 무엇이 잘못됐는지 말한다',
+      call({ release: 'install', version: '3.25.0' }).error.indexOf('https') >= 0);
 
 console.log('='.repeat(62));
 if (failures.length) {
