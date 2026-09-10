@@ -103,7 +103,7 @@ function row(guide, categoryType) {
       <span class="row__code tnum">${h(code)}</span>
       <span class="row__main">
         <span class="row__title">${h(title)}</span>
-        <span class="row__meta">${h(guide.summary || '요약 없음')}</span>
+        ${guide.summary ? `<span class="row__meta">${h(guide.summary)}</span>` : ''}
         <span class="row__meta">${h(bits.join(' · '))}</span>
       </span>
       <span class="row__meta">열기 →</span>
@@ -233,8 +233,9 @@ function stepHtml(step, idx, done) {
       <span class="step__body">
         <span class="step__text">${h(step.instruction).replace(/\n/g, '<br />')}</span>
         ${step.expectedMetric ? `
-          <span class="step__meta">
-            <span class="badge badge--metric">기준값 ${h(step.expectedMetric)}</span>
+          <span class="step__meta tag-list">
+            ${step.expectedMetric.split(',').map((t) => t.trim()).filter(Boolean)
+              .map((t) => `<span class="tag tag-accent">${h(t)}</span>`).join('')}
           </span>` : ''}
         ${step.imageUrl ? `<img class="step__img" data-media="${h(step.imageUrl)}"
              alt="단계 ${idx + 1} 참고 사진" loading="lazy" />` : ''}
@@ -279,12 +280,63 @@ export async function guideEditView(view, guideId, categoryType) {
     };
   }
 
+  /** 쉼표로 적은 공구 목록을 배열로. 빈 항목·중복은 버린다. */
+  function splitTools(text) {
+    const out = [];
+    for (const raw of String(text || '').split(',')) {
+      const t = raw.trim();
+      if (t && !out.includes(t)) out.push(t);
+    }
+    return out;
+  }
+
+  /**
+   * 단계마다 고를 수 있는 공구 칩.
+   *
+   * 고르는 값은 위 [준비 공구 · 부품] 에 적은 것에서만 나온다. 예전에는 이 자리가
+   * '기준 수치' 자유 입력이었는데, 현장에서 그 단계에 무엇을 들고 가야 하는지가
+   * 더 자주 필요했다. 저장은 예전 칸(expectedMetric)에 쉼표로 이어 담는다 —
+   * 시트 열을 새로 만들지 않아도 되고, 예전 기록도 그대로 읽힌다.
+   */
+  function toolChips(step, idx) {
+    const options = splitTools(state.requiredTools);
+    if (!options.length) {
+      return '<span class="hint">위 [준비 공구 · 부품] 에 먼저 적으면 여기서 고를 수 있습니다.</span>';
+    }
+    const chosen = splitTools(step.expectedMetric);
+    return options.map((tool) => `
+      <button type="button" class="filter-toggle${chosen.includes(tool) ? ' is-on' : ''}"
+              data-act="toggle-tool" data-idx="${idx}" data-tool="${h(tool)}"
+              aria-pressed="${chosen.includes(tool)}">${h(tool)}</button>`).join('');
+  }
+
+  /** 준비 공구에서 빠진 것은 단계 선택에서도 뺀다. */
+  function pruneStepTools() {
+    const options = splitTools(state.requiredTools);
+    for (const step of state.steps) {
+      const kept = splitTools(step.expectedMetric).filter((t) => options.includes(t));
+      step.expectedMetric = kept.join(', ');
+    }
+  }
+
+  /** 단계마다의 칩 영역만 다시 그린다. 숨은 칸도 함께 맞춘다. */
+  function paintToolChips() {
+    state.steps.forEach((step, i) => {
+      const box = document.querySelector(`[data-tool-pick="${i}"]`);
+      if (box) box.innerHTML = toolChips(step, i);
+      const row = document.querySelector(`[data-step-row][data-idx="${i}"]`);
+      const hidden = row && row.querySelector('[name=stepMetric]');
+      if (hidden) hidden.value = step.expectedMetric || '';
+    });
+  }
+
   function collect() {
     const form = $('#guideForm');
     if (!form) return;
     state.categoryType = $('#gCategory').value;
     state.codeOrTitle = $('#gTitle').value;
-    state.summary = $('#gSummary').value;
+    // 요약 칸은 없앴다. 예전 가이드가 갖고 있던 요약은 그대로 두고 저장한다
+    // (시트의 '요약' 열도 그대로다 — 지우면 옛 기록이 사라진다).
     state.requiredTools = $('#gTools').value;
     state.commands = $$('[data-cmd-row]').map((rowEl) => ({
       label: $('[name=cmdLabel]', rowEl).value,
@@ -324,15 +376,11 @@ export async function guideEditView(view, guideId, categoryType) {
             </div>
           </div>
           <div class="field">
-            <label>요약</label>
-            <input class="input" id="gSummary" value="${h(state.summary)}"
-                   placeholder="한 줄로 증상/작업을 설명" />
-          </div>
-          <div class="field">
             <label>준비 공구 · 부품</label>
             <input class="input" id="gTools" value="${h(state.requiredTools)}"
                    placeholder="쉼표로 구분 · 예) 멀티미터, 육각 렌치 3mm" />
-            <span class="hint">쉼표(,)로 구분하면 상세 화면에서 태그로 표시됩니다.</span>
+            <span class="hint">쉼표(,)로 구분해 적으세요.
+              상세 화면에서 태그로 보이고, <strong>아래 단계마다 여기서 골라</strong> 씁니다.</span>
           </div>
         </div>
 
@@ -376,8 +424,11 @@ export async function guideEditView(view, guideId, categoryType) {
                 </div>
                 <div class="field"><label>작업 내용<span class="req">*</span></label>
                   <textarea class="textarea" name="stepText" placeholder="예) 모터 커넥터 CN3 양단 전압을 측정한다.">${h(s.instruction)}</textarea></div>
-                <div class="field"><label>기준 수치 (정량 판정값)</label>
-                  <input class="input mono" name="stepMetric" value="${h(s.expectedMetric)}" placeholder="예) DC 24V ±0.5V" /></div>
+                <div class="field">
+                  <label>필요 공구 · 부품</label>
+                  <input type="hidden" name="stepMetric" value="${h(s.expectedMetric)}" />
+                  <div class="tag-list" data-tool-pick="${i}">${toolChips(s, i)}</div>
+                </div>
                 <div class="field" style="margin-bottom:0">
                   <label>참고 사진</label>
                   <input type="hidden" name="stepImage" value="${h(s.imageUrl)}" />
@@ -403,6 +454,15 @@ export async function guideEditView(view, guideId, categoryType) {
     const form = $('#guideForm');
     form.addEventListener('submit', save);
     form.addEventListener('click', onClick);
+
+    // [준비 공구 · 부품] 을 고치면 단계의 고를 거리도 따라 바뀌어야 한다.
+    // 글자를 칠 때마다 화면 전체를 다시 그리면 커서가 튀므로 칩만 다시 그린다.
+    $('#gTools').addEventListener('input', () => {
+      state.requiredTools = $('#gTools').value;
+      pruneStepTools();
+      paintToolChips();
+    });
+
     hydrateMedia(view);
   }
 
@@ -411,6 +471,18 @@ export async function guideEditView(view, guideId, categoryType) {
     if (!btn) return;
     const act = btn.dataset.act;
     const idx = Number(btn.dataset.idx);
+
+    if (act === 'toggle-tool') {
+      collect();
+      const step = state.steps[idx];
+      const tool = btn.dataset.tool;
+      const chosen = splitTools(step.expectedMetric);
+      step.expectedMetric = (chosen.includes(tool)
+        ? chosen.filter((t) => t !== tool)
+        : [...chosen, tool]).join(', ');
+      paintToolChips();
+      return;
+    }
 
     if (act === 'add-cmd') { collect(); state.commands.push({ label: '', cmd: '', desc: '' }); render(); }
     if (act === 'del-cmd') { collect(); state.commands.splice(idx, 1); render(); }

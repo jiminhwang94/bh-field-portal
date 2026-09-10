@@ -702,7 +702,10 @@ function readGuideSheet(sheet, categoryType) {
       if (!text) return;
       text = text.replace(/^\d+\.\s*/, '');
       var metric = '';
-      var mark = text.indexOf('  (기준: ');
+      // 단계에 딸린 값. 예전에는 '기준 수치'였고 지금은 '필요 공구'다.
+      // 옛 기록을 그대로 읽어야 하므로 두 이름을 모두 받는다.
+      var mark = text.indexOf('  (공구: ');
+      if (mark < 0) mark = text.indexOf('  (기준: ');
       if (mark >= 0) {
         metric = text.slice(mark + 7).replace(/\)$/, '').trim();
         text = text.slice(0, mark);
@@ -760,7 +763,7 @@ function writeGuideSheet(ss, name, list) {
     for (var k = 0; k < stepList.length; k++) {
       var step = stepList[k] || {};
       var text = (k + 1) + '. ' + (step.instruction || '');
-      if (step.expectedMetric) text += '  (기준: ' + step.expectedMetric + ')';
+      if (step.expectedMetric) text += '  (공구: ' + step.expectedMetric + ')';
       steps.push(text);
       // 드라이브에 올라간 사진만 적는다. 기기 안에만 있는 것(/media/...)은
       // 다른 사람이 열 수 없으므로 시트에 적어 봐야 소용이 없다.

@@ -109,6 +109,37 @@ check("등록 뒤 지금 이름을 그 자리에서 보여 준다", 'id="nameHin
 check("엔터로도 등록된다", "ev.key !== 'Enter'" in settings)
 
 print()
+print("== 7. 새 가이드 작성 — 요약 제거 · 단계마다 공구 고르기")
+guides = read("web", "js", "views", "guides.js")
+gs_src = read("google-apps-script.gs")
+# 요약 칸은 없앴다. 다만 예전 가이드가 가진 요약과 시트의 '요약' 열은 건드리지 않는다.
+check("요약 입력칸이 없다", 'id="gSummary"' not in guides)
+check("요약을 collect 에서 덮어쓰지 않는다", "state.summary = $('#gSummary')" not in guides)
+check("예전 가이드의 요약은 그대로 저장된다", "summary: state.summary," in guides)
+check("시트의 '요약' 열은 그대로 둔다", "'요약'" in gs_src)
+check("목록에서 '요약 없음' 을 더 이상 쓰지 않는다", "요약 없음" not in guides)
+# 단계의 '기준 수치' 자유 입력 → 준비 공구에서 고르기
+check("단계 라벨이 '필요 공구 · 부품' 이다",
+      "<label>필요 공구 · 부품</label>" in guides
+      and "기준 수치 (정량 판정값)" not in guides)
+check("고를 거리는 준비 공구에서만 나온다",
+      "const options = splitTools(state.requiredTools);" in guides)
+check("고른 값은 예전 칸에 쉼표로 담는다 (시트 열을 새로 만들지 않는다)",
+      "name=\"stepMetric\"" in guides and "type=\"hidden\"" in guides)
+check("칩을 다시 누르면 꺼진다",
+      "chosen.includes(tool)" in guides and "chosen.filter((t) => t !== tool)" in guides)
+check("준비 공구를 고치면 칩만 다시 그린다 (글자 칠 때 커서가 튀지 않게)",
+      "paintToolChips();" in guides and "function paintToolChips()" in guides)
+check("준비 공구에서 빠진 것은 단계 선택에서도 빠진다", "function pruneStepTools()" in guides)
+check("공구를 안 적었으면 안내를 보여 준다",
+      "위 [준비 공구 · 부품] 에 먼저 적으면" in guides)
+check("상세 화면이 '기준값' 대신 공구 칩을 보여 준다",
+      "기준값" not in guides and 'class="tag tag-accent"' in guides)
+# 시트 쪽 표기
+check("시트에는 '(공구: …)' 로 적는다", "'  (공구: '" in gs_src)
+check("옛 '(기준: …)' 기록도 그대로 읽는다", "indexOf('  (기준: ')" in gs_src)
+
+print()
 if fails:
     print("실패 %d건: %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)
