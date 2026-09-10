@@ -22,6 +22,8 @@ export async function inventoryView(view) {
   }
   let items = current ? (await api.listInventory(current)).items : [];
   let lowOnly = false;
+  let query = '';          // 부품 이름 검색어. 차량을 바꿔도 그대로 둔다
+                           // (같은 부품을 차량별로 견줘 보는 일이 잦다)
 
   /** 표의 한 줄. 디자인의 `.table--touch` 구조를 그대로 쓴다. */
   function itemRow(item) {
@@ -56,11 +58,72 @@ export async function inventoryView(view) {
       </tr>`;
   }
 
+  const isLow = (i) => i.minQuantity > 0 && i.quantity <= i.minQuantity;
+
+  /** [부족 항목만] 과 검색어를 함께 적용한 목록. */
+  function visibleItems() {
+    const q = query.trim().toLowerCase();
+    return items.filter((i) => {
+      if (lowOnly && !isLow(i)) return false;
+      if (q && !String(i.partName || '').toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }
+
+  /** 표 자리만 만드는 조각. 검색할 때 이 부분만 다시 그린다. */
+  function bodyHtml() {
+    const visible = visibleItems();
+    if (!visible.length) {
+      const why = query.trim()
+        ? `'${h(query.trim())}' 에 맞는 부품이 없습니다.`
+        : (lowOnly ? '보충이 필요한 품목이 없습니다.'
+          : '등록된 품목이 없습니다. [＋ 품목 추가]로 등록하세요.');
+      return `<div class="empty">${why}</div>`;
+    }
+    return `
+      <table class="table table--touch">
+        <thead>
+          <tr>
+            <th>부품</th>
+            <th style="text-align:right">보유</th>
+            <th style="text-align:right">최소보유</th>
+            <th style="text-align:right">수량 조절</th>
+            <th style="text-align:right">항목</th>
+          </tr>
+        </thead>
+        <tbody>${visible.map(itemRow).join('')}</tbody>
+      </table>`;
+  }
+
+  /** 오른쪽 아래 알약에 적을 글자. 거르는 중이면 '보인 것 / 전체' 로 적는다. */
+  function countText() {
+    const shown = visibleItems().length;
+    const filtering = Boolean(query.trim()) || lowOnly;
+    return `${sheetMode ? '시트 연결됨' : '기기에만 저장'} · 품목 `
+      + (filtering ? `${shown} / ${items.length}종` : `${items.length}종`);
+  }
+
+  /**
+   * 검색 중에는 화면 전체를 다시 그리지 않는다.
+   * 다시 그리면 검색칸이 새로 만들어져 **글자를 한 자 칠 때마다 커서가 빠진다.**
+   */
+  function paintBody() {
+    const body = $('#invBody');
+    if (body) body.innerHTML = bodyHtml();
+    const count = $('#invCount');
+    if (count) count.textContent = countText();
+  }
+
+  /** [부족 항목만] 칩의 켜짐 표시만 고친다. */
+  function refreshLowChip() {
+    const chip = view.querySelector('[data-act="toggle-low"]');
+    if (!chip) return;
+    chip.classList.toggle('is-on', lowOnly);
+    chip.setAttribute('aria-pressed', String(lowOnly));
+  }
+
   function render() {
-    const visible = lowOnly
-      ? items.filter((i) => i.minQuantity > 0 && i.quantity <= i.minQuantity)
-      : items;
-    const lowCount = items.filter((i) => i.minQuantity > 0 && i.quantity <= i.minQuantity).length;
+    const lowCount = items.filter(isLow).length;
 
     view.innerHTML = `
       <div id="pageRoot">
@@ -85,30 +148,20 @@ export async function inventoryView(view) {
         </div>
 
         ${current ? `
-          <div class="scroll">
-            ${visible.length ? `
-              <table class="table table--touch">
-                <thead>
-                  <tr>
-                    <th>부품</th>
-                    <th style="text-align:right">보유</th>
-                    <th style="text-align:right">최소보유</th>
-                    <th style="text-align:right">수량 조절</th>
-                    <th style="text-align:right">항목</th>
-                  </tr>
-                </thead>
-                <tbody>${visible.map(itemRow).join('')}</tbody>
-              </table>`
-              : `<div class="empty">${lowOnly ? '보충이 필요한 품목이 없습니다.'
-                : '등록된 품목이 없습니다. [＋ 품목 추가]로 등록하세요.'}</div>`}
+          <div class="toolbar" style="margin-bottom:var(--space-3)">
+            <input class="input" id="invQ" type="search" style="flex:1"
+                   placeholder="부품 이름으로 찾기 (패드, 베어링)"
+                   aria-label="${h(current)} 부품 검색" />
+            <button class="btn btn-secondary" data-act="clear-q" type="button">지우기</button>
           </div>
+          <div class="scroll" id="invBody">${bodyHtml()}</div>
 
           <div class="page-head">
             <span class="page-head__meta">
               ${lowCount ? `보충 필요 <span class="tnum is-low">${lowCount}</span>건 · ` : ''}최소보유 이하는 강조 표시됩니다
             </span>
             <span class="page-head__spacer"></span>
-            <span class="tag tag-neutral">${sheetMode ? '시트 연결됨' : '기기에만 저장'} · 품목 ${items.length}종</span>
+            <span class="tag tag-neutral" id="invCount">${countText()}</span>
           </div>`
         : `<div class="empty">
              등록된 차량이 없습니다.<br />
@@ -118,6 +171,14 @@ export async function inventoryView(view) {
       </div>`;
 
     $('#pageRoot').addEventListener('click', onClick);
+
+    const box = $('#invQ');
+    if (box) {
+      box.value = query;
+      box.addEventListener('input', () => { query = box.value; paintBody(); });
+      // 한글은 조합이 끝나야 값이 확정되는 기기가 있다 — 그때도 한 번 더 맞춘다.
+      box.addEventListener('compositionend', () => { query = box.value; paintBody(); });
+    }
   }
 
   async function reload() {
@@ -152,7 +213,14 @@ export async function inventoryView(view) {
       await reload();
       return;
     }
-    if (act === 'toggle-low') { lowOnly = !lowOnly; render(); return; }
+    if (act === 'toggle-low') { lowOnly = !lowOnly; paintBody(); refreshLowChip(); return; }
+    if (act === 'clear-q') {
+      query = '';
+      const box = $('#invQ');
+      if (box) { box.value = ''; box.focus(); }
+      paintBody();
+      return;
+    }
     if (act === 'manage-vehicles') { openVehicleManager(); return; }
 
     if (act === 'sheet-refresh') {

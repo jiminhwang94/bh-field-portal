@@ -140,6 +140,26 @@ check("시트에는 '(공구: …)' 로 적는다", "'  (공구: '" in gs_src)
 check("옛 '(기준: …)' 기록도 그대로 읽는다", "indexOf('  (기준: ')" in gs_src)
 
 print()
+print("== 8. 차량 재고 — 부품 검색")
+inv = read("web", "js", "views", "inventory.js")
+check("차량마다 검색칸이 있다", 'id="invQ"' in inv and 'type="search"' in inv)
+check("부품 이름으로 거른다", "String(i.partName || '').toLowerCase().includes(q)" in inv)
+check("[부족 항목만] 과 함께 걸러진다",
+      "if (lowOnly && !isLow(i)) return false;" in inv
+      and "function visibleItems()" in inv)
+# 화면 전체를 다시 그리면 검색칸이 새로 만들어져 한 자 칠 때마다 커서가 빠진다.
+check("검색할 때 표만 다시 그린다 (커서가 빠지지 않게)",
+      "function paintBody()" in inv
+      and "box.addEventListener('input', () => { query = box.value; paintBody(); });" in inv)
+check("한글 조합이 끝날 때도 맞춘다", "compositionend" in inv)
+check("[부족 항목만] 도 화면 전체를 다시 그리지 않는다",
+      "paintBody(); refreshLowChip();" in inv and "function refreshLowChip()" in inv)
+check("[지우기] 가 검색어를 비운다", "act === 'clear-q'" in inv)
+check("찾은 것이 없으면 무엇을 찾았는지 보여 준다", "에 맞는 부품이 없습니다" in inv)
+check("아래 알약이 '보인 것 / 전체' 를 보여 준다",
+      "function countText()" in inv and 'id="invCount"' in inv)
+
+print()
 if fails:
     print("실패 %d건: %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)
