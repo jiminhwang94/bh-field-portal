@@ -1121,8 +1121,16 @@ var INSTALL_HEADER = ['설치 링크 (사람에게 보내는 주소)', '바로 �
 function driveViewUrl(id) {
   return 'https://drive.google.com/file/d/' + id + '/view?usp=drive_link';
 }
+/**
+ * 누르면 **바로** 파일이 떨어지는 주소.
+ *
+ * drive.google.com/uc?export=download 는 APK 를 줄 때 "바이러스 검사를 할 수
+ * 없습니다" 안내 화면을 한 번 끼운다 (사람이 한 번 더 눌러야 한다).
+ * 그 화면의 [다운로드] 가 실제로 부르는 주소가 이것이다 — 로그인도 필요 없다.
+ */
 function driveDownloadUrl(id) {
-  return 'https://drive.google.com/uc?export=download&id=' + id;
+  return 'https://drive.usercontent.google.com/download?id=' + id
+       + '&export=download&confirm=t';
 }
 
 /** 파일 ID 를 스크립트 속성에도 남긴다 — 시트 탭을 지워도 링크가 안 바뀐다. */

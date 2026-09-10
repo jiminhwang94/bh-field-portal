@@ -903,8 +903,10 @@ check('설치용 APK 를 드라이브에 올린다', first.ok === true, JSON.str
 check('사람에게 보내는 주소가 /file/d/<ID>/view 모양이다',
       first.installUrl === `https://drive.google.com/file/d/${first.fileId}/view?usp=drive_link`,
       first.installUrl);
-check('바로 내려받는 주소도 함께 준다',
-      first.downloadUrl === `https://drive.google.com/uc?export=download&id=${first.fileId}`);
+// uc?export=download 는 APK 에 '바이러스 검사 불가' 화면을 한 번 끼운다.
+check('바로 내려받는 주소는 안내 화면을 거치지 않는 그 주소다',
+      first.downloadUrl === 'https://drive.usercontent.google.com/download'
+        + `?id=${first.fileId}&export=download&confirm=t`, first.downloadUrl);
 check('링크가 있는 누구나 볼 수 있게 만든다', first.shared === true);
 check('처음 만든 것임을 알려 준다 (주소가 지금 정해졌다)',
       first.created === true && first.linkChanged === false);

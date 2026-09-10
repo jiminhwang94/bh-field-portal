@@ -200,8 +200,12 @@ check("파일 ID 를 그대로 두고 내용만 바꾼다 (고급 드라이브 �
       "Drive.Files.update({ name: APK_FILE_NAME }, file.getId(), blob," in gs)
 check("주소 모양이 사람이 쓰는 그 모양이다",
       "'https://drive.google.com/file/d/' + id + '/view?usp=drive_link'" in gs)
-check("바로 내려받는 주소도 만든다",
-      "'https://drive.google.com/uc?export=download&id=' + id" in gs)
+# uc?export=download 는 APK 에 '바이러스 검사 불가' 화면을 끼워, 받는 사람이
+# 한 번 더 눌러야 한다. 그 화면이 실제로 부르는 주소를 바로 쓴다.
+check("바로 내려받는 주소는 안내 화면을 거치지 않는다",
+      "'https://drive.usercontent.google.com/download?id=' + id" in gs
+      and "'&export=download&confirm=t'" in gs
+      and "'https://drive.google.com/uc?export=download" not in gs)
 check("파일은 <공유 드라이브>/앱 설치 파일/ 에 하나만 둔다",
       "var APK_FOLDER_NAME = '앱 설치 파일';" in gs
       and "var APK_FILE_NAME = '현장포털-설치.apk';" in gs)
