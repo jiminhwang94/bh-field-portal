@@ -115,6 +115,109 @@ export async function guideListView(view, categoryType) {
   });
 }
 
+// ---------------------------------------------------------------- 가이드 탭 (B안)
+//
+// 왼쪽에 종류 카드 셋(색이 다르다 · 건수 · 마지막 수정), 오른쪽에 그 종류의 검색과
+// 목록. 종류 카드가 늘 보여 "지금 무엇을 보고 있나" 를 잃지 않고, 목록은 제 자리에서
+// 스크롤된다. 작성은 오른쪽 위 한 곳.
+const HUB_TYPE_KEY = 'bh_guide_type';
+
+/** 종류마다 색 — 같은 종류는 어디서나 같은 색으로 읽히게 토큰을 고정한다. */
+export const CATEGORY_COLOR = {
+  ERROR_CODE: { color: 'var(--color-accent)', tint: 'var(--color-accent-tint)' },
+  HARDWARE_SOP: { color: 'var(--color-warn)', tint: 'var(--color-warn-tint)' },
+  SOFTWARE_CMD: { color: 'var(--color-ok)', tint: 'var(--color-ok-tint)' },
+};
+
+export async function guideHubView(view) {
+  loading(view);
+  const all = (await api.listGuides()).items;
+  const types = Object.keys(CATEGORY);
+  let type = localStorage.getItem(HUB_TYPE_KEY);
+  if (!types.includes(type)) type = types[0];
+  let query = '';
+
+  const ofType = (t) => all.filter((g) => g.categoryType === t);
+  const lastOf = (t) => ofType(t).reduce((m, g) => (g.updatedAt > m ? g.updatedAt : m), '');
+
+  function card(t) {
+    const meta = CATEGORY[t];
+    const list = ofType(t);
+    const last = lastOf(t);
+    const on = t === type;
+    const c = CATEGORY_COLOR[t];
+    return `
+      <button class="cat-card${on ? ' is-on' : ''}" data-act="type" data-type="${t}" type="button"
+              style="--cat:${c.color};--cat-tint:${c.tint}" aria-pressed="${on}">
+        <span class="cat-card__name">${h(meta.label)}</span>
+        <span class="cat-card__count tnum">${list.length}<small>건</small></span>
+        <span class="cat-card__meta">${last ? `${h(when(last, { time: false }))} 수정` : '아직 없음'}</span>
+      </button>`;
+  }
+
+  function visible() {
+    const q = query.trim().toLowerCase();
+    return ofType(type).filter((g) => !q
+      || `${g.codeOrTitle} ${g.summary} ${g.requiredTools}`.toLowerCase().includes(q));
+  }
+
+  function listHtml() {
+    const list = visible();
+    if (!list.length) {
+      return `<div class="empty">${query.trim()
+        ? `'${h(query.trim())}' 에 맞는 가이드가 없습니다.`
+        : `${h(CATEGORY[type].label)} 가이드가 없습니다. [＋ 가이드 작성]으로 추가하세요.`}</div>`;
+    }
+    return list.map((g) => row(g, type)).join('');
+  }
+
+  /** 목록만 다시 그린다 — 검색칸의 커서를 지키기 위해 화면 전체는 두지 않는다. */
+  function paintList() {
+    const box = $('#hubList');
+    if (box) box.innerHTML = listHtml();
+    const n = $('#hubCount');
+    if (n) n.textContent = `${visible().length}건`;
+  }
+
+  function render() {
+    view.innerHTML = `
+      <div id="pageRoot" style="display:flex;flex-direction:column;gap:var(--space-3);flex:1;min-height:0">
+        <div class="page-head">
+          <h1 class="page-head__title">가이드</h1>
+          <span class="page-head__meta"><span class="tnum">${all.length}</span>건</span>
+          <span class="page-head__spacer"></span>
+          <a class="btn btn-primary" href="#/guides/new/${type}">＋ 가이드 작성</a>
+        </div>
+        <div class="guide-hub">
+          <div class="guide-hub__cats">${types.map(card).join('')}</div>
+          <section class="guide-hub__list">
+            <div class="toolbar">
+              <input class="input" id="hubQ" type="search" style="flex:1"
+                     placeholder="코드 · 증상 · 부품으로 찾기" autocomplete="off"
+                     aria-label="${h(CATEGORY[type].label)} 검색" />
+              <span class="tag tag-neutral" id="hubCount">${visible().length}건</span>
+            </div>
+            <div class="scroll rows" id="hubList">${listHtml()}</div>
+          </section>
+        </div>
+      </div>`;
+
+    $('#pageRoot').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-act="type"]');
+      if (!btn) return;
+      type = btn.dataset.type;
+      localStorage.setItem(HUB_TYPE_KEY, type);
+      render();
+    });
+    const box = $('#hubQ');
+    box.value = query;
+    box.addEventListener('input', () => { query = box.value; paintList(); });
+    box.addEventListener('compositionend', () => { query = box.value; paintList(); });
+  }
+
+  render();
+}
+
 /**
  * 가이드 한 줄. 디자인의 `.row` 구조 — 코드 · (제목+요약) · 열기.
  * 배지를 여러 개 늘어놓는 대신 요약 줄에 숫자를 모아 적는다.

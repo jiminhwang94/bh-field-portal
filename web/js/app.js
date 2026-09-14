@@ -1,7 +1,7 @@
 // 해시 라우터 + 메인 화면
 import { api } from './api.js';
 import { $, h, CATEGORY, closeModal, errorView, loading, openSheet, toast } from './ui.js';
-import { guideListView, guideDetailView, guideEditView } from './views/guides.js';
+import { guideListView, guideDetailView, guideEditView, guideHubView } from './views/guides.js';
 import { inventoryView } from './views/inventory.js';
 import { drivingView } from './views/driving.js';
 import { fieldsView } from './views/fields.js';
@@ -18,6 +18,7 @@ const HEX = '[0-9a-f]{6,}';
 const routes = [
   [/^\/?$/, mainView],
   [/^\/search$/, searchView],
+  [/^\/guides$/, () => guideHubView(view)],        // 가이드 탭 — 종류 카드 + 목록
   [/^\/guides\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD)$/, (m) => guideListView(view, m[1])],
   [/^\/guides\/new\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD)$/, (m) => guideEditView(view, null, m[1])],
   [/^\/guides\/new$/, () => guideEditView(view, null, null)],   // 종류는 폼 안에서 고른다
@@ -41,7 +42,8 @@ function parseHash() {
 
 function paintTabs(path) {
   const active =
-    path === '/' || path.startsWith('/search') || path.startsWith('/guides') ? 'home'
+    path === '/' || path.startsWith('/search') ? 'home'
+    : path.startsWith('/guides') ? 'guides'
     : path.startsWith('/inventory') ? 'inventory'
     : path.startsWith('/driving') ? 'driving'
     : path.startsWith('/report/new') ? 'new'
@@ -114,9 +116,6 @@ async function mainView() {
     .filter((g) => g.categoryType === 'ERROR_CODE')
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
     .slice(0, 6);
-  const recent = [...items]
-    .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
-    .slice(0, 5);
 
   view.innerHTML = `
     <section class="search-block">
@@ -126,7 +125,6 @@ async function mainView() {
                enterkeyhint="search" aria-label="통합 검색"
                placeholder="오류 코드 · 부품명 · 증상 · 명령어" />
         <button class="btn btn-primary" type="submit">검색</button>
-        <a class="btn btn-secondary" href="#/guides/new">＋ 가이드 작성</a>
       </form>
     </section>
 
@@ -152,29 +150,7 @@ async function mainView() {
         </div>
       </section>` : ''}
 
-    <hr class="hr" />
-
-    <div class="home-split">
-      <section class="recent home-card">
-        <div class="label">최근 수정된 가이드</div>
-        ${recent.length ? `<div class="recent__list">${recent.map(recentRow).join('')}</div>`
-          : '<div class="empty">등록된 가이드가 없습니다.</div>'}
-      </section>
-
-      <section class="scope home-card">
-        <div class="label">가이드 종류</div>
-        <div class="seg" style="grid-template-columns:1fr">
-          ${Object.entries(CATEGORY).map(([type, meta]) => `
-            <a class="seg-opt" href="#/guides/${type}">
-              ${h(meta.label)} · ${items.filter((g) => g.categoryType === type).length}
-            </a>`).join('')}
-        </div>
-        <div class="scope__note">
-          임시보관 리포트 <span class="tnum">${drafts.length}</span>건 ·
-          올릴 대기 <span class="tnum">${pending}</span>건
-        </div>
-      </section>
-    </div>`;
+    `;
 
   $('#searchForm').addEventListener('submit', (ev) => {
     ev.preventDefault();
@@ -219,18 +195,6 @@ async function monthSummary() {
   }
 }
 
-function recentRow(guide) {
-  const meta = CATEGORY[guide.categoryType] || { label: '' };
-  // 오류 코드는 코드를, 나머지는 종류 약칭을 왼쪽 칸에 둔다.
-  // (제목 첫 단어를 코드처럼 보여 주면 "그리퍼" 같은 낱말이 코드 자리에 앉는다)
-  const code = SHORT[guide.categoryType] || guide.codeOrTitle.split(' ')[0];
-  return `
-    <a class="recent__row" href="#/guides/${guide.id}">
-      <span class="recent__code">${h(code)}</span>
-      <span class="recent__title">${h(guide.summary || guide.codeOrTitle)}</span>
-      <span class="recent__meta">${guide.stepCount || 0}단계</span>
-    </a>`;
-}
 
 function guideRow(guide) {
   const meta = CATEGORY[guide.categoryType] || { emoji: '', label: '' };

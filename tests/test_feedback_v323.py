@@ -107,7 +107,10 @@ check("목록 안의 줄에만 테두리·흰 배경",
 
 print()
 print("== 9-가. 가이드 작성은 홈에서 바로")
-check("홈 검색 옆 [＋ 가이드 작성]", 'href="#/guides/new">＋ 가이드 작성</a>' in app)
+# v3.25 — 가이드 탭(B안)이 생기면서 홈의 작성 버튼은 가이드 탭으로 옮겼다.
+check("가이드 작성은 가이드 탭 오른쪽 위 (홈에는 없다)",
+      'href="#/guides/new/${type}">＋ 가이드 작성</a>' in guides
+      and 'href="#/guides/new">＋ 가이드 작성</a>' not in app)
 check("종류 없는 작성 주소가 있다", "[/^\\/guides\\/new$/, () => guideEditView(view, null, null)]" in app)
 check("종류는 폼 안에서 큰 버튼으로 고른다",
       'class="type-pick"' in guides and "act === 'pick-type'" in guides

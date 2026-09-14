@@ -91,7 +91,7 @@
 
   /* 셸 치수 */
   --rail-w: 104px;
-  --rail-item-h: 76px;
+  --rail-item-h: 68px;               /* 레일이 일곱 칸이 되어 한 칸을 조금 줄였다 — 세로가 넘치면 화면 전체가 스크롤된다 */
   --topbar-h: 66px;
   --touch-lg: 76px;   /* 검색 입력대 */
   --touch-md: 62px;   /* 코드 버튼 */
@@ -190,6 +190,7 @@ img { display: block; max-width: 100%; }
 /* ── 레일 ─────────────────────────────────────────────────────────── */
 .tabbar {
   display: flex; flex-direction: column; align-items: stretch;
+  min-height: 0; overflow: hidden;     /* 레일이 길어져도 화면(.app)을 키우지 않는다 */
   gap: var(--space-1);
   padding: var(--space-4) 10px;
   background: var(--color-surface);
@@ -1137,6 +1138,33 @@ iframe.step__img--edit, video.step__img--edit { width: 260px; height: 150px; }
 .home-stats .stat[data-track="swap"]  .stat__n { color: var(--color-danger); }
 .home-stats .stat[data-track="watch"] .stat__n { color: var(--color-accent); }
 .home-stats .stat[data-track="done"]  .stat__n { color: var(--color-ok); }
+
+/* 가이드 탭 (B안) — 왼쪽 종류 카드 · 오른쪽 목록.
+   종류마다 색이 다르다(코발트 · 주황 · 초록). 카드가 --cat 을 들고 다닌다. */
+.guide-hub { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: var(--space-4); flex: 1; min-height: 0; }
+.guide-hub__cats { display: flex; flex-direction: column; gap: var(--space-3); }
+.guide-hub__list { display: flex; flex-direction: column; gap: var(--space-3); min-height: 0; }
+.guide-hub__list .scroll { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.cat-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  min-height: 110px; padding: 16px 18px 14px;
+  background: var(--color-bg); color: var(--color-text);
+  border: 1.5px solid var(--color-border); border-left: 6px solid var(--cat);
+  border-radius: var(--radius-lg); text-align: left; cursor: pointer;
+  font: inherit; box-shadow: var(--shadow-raise);
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.cat-card:hover { background: var(--cat-tint); }
+.cat-card.is-on { background: var(--cat-tint); border-color: var(--cat); }
+.cat-card__name { font-family: var(--font-heading); font-weight: 700; font-size: 17px; letter-spacing: -0.02em; color: var(--cat); }
+.cat-card__count { font-weight: 700; font-size: 30px; line-height: 1.1; letter-spacing: -0.03em; }
+.cat-card__count small { font-size: 14px; font-weight: 600; margin-left: 3px; color: var(--color-muted); }
+.cat-card__meta { font-size: 14px; color: var(--color-muted); }
+@media (max-width: 900px) {
+  .guide-hub { grid-template-columns: 1fr; }
+  .guide-hub__cats { flex-direction: row; }
+  .cat-card { flex: 1; min-height: 88px; }
+}
 
 /* 남이 올린 새 내용이 있다 — [새로고침] 에 점. 누를 때까지 화면은 그대로다. */
 .btn-update.has-new::before {
