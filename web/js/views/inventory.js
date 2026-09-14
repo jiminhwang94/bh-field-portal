@@ -1,8 +1,6 @@
 // 스타리아 차량 수동 재고 관리 (차량 추가/삭제 + 품목 수량 조절)
 import { api } from '../api.js';
-import { isOnline } from '../sync.js';
 import { isEnabled as sheetInvEnabled, pullInventory } from '../invsheet.js';
-import * as store from '../local/store.js';
 import {
   $, h, closeModal, confirmDialog, loading, openSheet, toast,
 } from '../ui.js';
@@ -408,28 +406,9 @@ export async function inventoryView(view) {
 
   render();
 
-  // 화면이 이미 보이는 상태에서 시트를 받아온다. 받고 나서 달라진 게 있으면
-  // 그때 다시 그린다. 사용자는 기다리지 않는다.
+  // 시트에서 받아오는 일은 **사람이 누를 때만** 한다.
   //
-  // 방금 받은 것은 다시 받지 않는다. 화면을 옮길 때마다 부르면 현장 LTE 에서
-  // 왕복이 1~3초라, 들어간 화면이 잠시 뒤 한 번 더 그려져 덜컥거린다.
-  if (sheetMode && isOnline() && !(await store.pulledWithin('sheetInventoryPulledAt', 60))) {
-    (async () => {
-      const pulled = await pullInventory().catch(() => null);
-      if (!pulled) return;                              // 못 닿으면 기기 내용 그대로
-      if (pulled.changed === false) return;              // 시트가 그대로면 손대지 않는다
-      const fresh = (await api.listVehicles()).items;
-      if (!fresh.some((v) => v.name === current)) {
-        current = fresh.length ? fresh[0].name : null;
-      }
-      const freshItems = current ? (await api.listInventory(current)).items : [];
-      // 그 사이 다른 화면으로 넘어갔거나, 사용자가 창을 열어 놓고 무언가
-      // 적는 중이면 손대지 않는다. 다시 그리면 적던 내용이 날아간다.
-      if (!view.querySelector('#pageRoot')) return;
-      if (document.getElementById('modalRoot').innerHTML) return;
-      vehicles = fresh;
-      items = freshItems;
-      render();
-    })();
-  }
+  // 예전에는 화면을 열면 뒤에서 받아 와 잠시 뒤 다시 그렸다. 검색칸에 글자를
+  // 치고 있거나 목록을 내려 본 뒤였으면 그게 다 날아갔다. 받으려면 위의
+  // [시트에서 받기] 나 오른쪽 위 [새로고침] 을 누른다.
 }

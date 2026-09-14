@@ -10,13 +10,13 @@ import {
   describeFiles, explain as explainError, findVisits, previewUrl, thumbUrl,
 } from '../reportsheet.js';
 
-// 임시보관 칸은 **둘로 나뉘어 있다.**
-//   새 리포트 → NEW_DRAFT_KEY  (시트 줄 번호를 절대 갖지 않는다)
-//   리포트 수정 → EDIT_DRAFT_KEY (어느 줄을 고치는 중인지 함께 담는다)
-// 한 칸을 같이 쓰면, 한 번 수정한 뒤로는 [새 리포트] 를 눌러도 그 수정 내용이
-// 되살아나 수정 화면이 열린다. 실제로 그런 일이 있었다.
-const NEW_DRAFT_KEY = 'bh_report_draft';
-const EDIT_DRAFT_KEY = 'bh_report_edit_draft';
+// **작성 중 내용을 되살리지 않는다.**
+//
+// 예전에는 적는 대로 기기에 담아 두었다가 [새 리포트] 를 열 때 되살렸다.
+// 그런데 이미 올린 리포트의 내용까지 되살아나, 끝난 건을 다시 쓰고 있는 것처럼
+// 보였다. 새 리포트는 **언제나 빈 화면**에서 시작한다.
+// 옛 버전이 남겨 둔 칸은 화면을 열 때 지운다.
+const OLD_DRAFT_KEYS = ['bh_report_draft', 'bh_report_edit_draft'];
 const SEED_KEY = 'bh_report_seed';   // 이력에서 [이어서 작성] 로 넘겨받는 값
 
 /** 이력의 한 건을 새 리포트의 출발점으로 넘긴다. */
@@ -35,12 +35,6 @@ export function seedFromEntry(entry, { edit = false } = {}) {
   }));
 }
 
-/** 저장된 임시보관을 읽는다. 깨져 있으면 없는 것으로 친다. */
-function readDraft(key) {
-  try { return JSON.parse(localStorage.getItem(key) || 'null') || null; }
-  catch { return null; }
-}
-
 // ------------------------------------------------------------ 작성 화면
 //
 // 같은 화면이 두 가지 일을 한다. 무엇을 하는지는 **주소가 정한다.**
@@ -49,15 +43,14 @@ function readDraft(key) {
 export async function reportFormView(view) {
   loading(view);
   const editMode = location.hash.replace(/^#/, '').split('?')[0] === '/report/edit';
-  const draftKey = editMode ? EDIT_DRAFT_KEY : NEW_DRAFT_KEY;
+  // 옛 버전이 담아 둔 작성 내용은 여기서 버린다 — 되살릴 일이 없다.
+  for (const key of OLD_DRAFT_KEYS) localStorage.removeItem(key);
   const [{ items: fields }, settings] = await Promise.all([
     api.listFields(), api.getSettings(),
   ]);
 
   // { fieldId: { value: string, media: [{id,filename,url,mime,originalName}] } }
   let values = {};
-  const savedDraft = readDraft(draftKey);
-  if (savedDraft && savedDraft.values) values = savedDraft.values;
   fields.forEach((f) => {
     if (!values[f.id]) values[f.id] = { value: '', media: [] };
     if (!Array.isArray(values[f.id].media)) values[f.id].media = [];
@@ -70,23 +63,13 @@ export async function reportFormView(view) {
   try {
     seeded = JSON.parse(sessionStorage.getItem(SEED_KEY) || 'null');
   } catch { /* 무시 */ }
-  // 고치는 중인 줄. **수정 화면일 때만** 존재한다.
-  // 넘겨받은 값이 우선이고, 없으면 폼을 벗어났다 돌아온 경우라 임시보관에서 되살린다.
-  const editingLink = editMode
-    ? ((seeded && seeded.sheetLink) || (savedDraft && savedDraft.sheetLink) || null)
-    : null;
+  // 고치는 중인 줄. **수정 화면일 때만** 존재하고, 이력에서 넘겨받는다.
+  const editingLink = editMode ? ((seeded && seeded.sheetLink) || null) : null;
 
-  // 다른 줄을 고치러 들어왔는데 예전 수정 내용이 남아 있으면 버린다.
-  if (editMode && seeded && seeded.sheetLink && savedDraft && savedDraft.sheetLink
-      && (savedDraft.sheetLink.row !== seeded.sheetLink.row
-          || savedDraft.sheetLink.sheetName !== seeded.sheetLink.sheetName)) {
-    values = {};
-    fields.forEach((f) => { values[f.id] = { value: '', media: [], kept: [] }; });
-  }
-
-  // 주소로는 수정인데 고칠 줄을 모른다 — 이력을 거치지 않고 직접 들어온 경우.
+  // 주소로는 수정인데 고칠 줄을 모른다 — 이력을 거치지 않고 들어왔거나,
+  // 수정 화면을 벗어났다 뒤로 돌아온 경우다. 이력으로 돌려보낸다
+  // (모르는 채로 저장하면 같은 방문이 두 줄이 된다).
   if (editMode && !editingLink) {
-    localStorage.removeItem(EDIT_DRAFT_KEY);
     location.replace('#/reports');
     return;
   }
@@ -119,25 +102,14 @@ export async function reportFormView(view) {
         }
       }
     }
-    saveDraft();
   }
 
   // 지난 방문을 찾을 기준이 되는 항목 (식당명)
   const storeField = fields.find(
     (f) => f.fieldLabel.includes('식당') || f.fieldLabel.includes('매장'));
 
-  const hasDraft = fields.some(
-    (f) => values[f.id].value || values[f.id].media.length || values[f.id].kept.length);
   const sheetsReady = !!settings.sheetsReady;
   let reportId = null;   // 저장 후 재업로드 대상
-
-  function saveDraft() {
-    // 수정 대상(어느 줄을 고쳐 쓰는지)도 함께 담는다. 이게 빠지면 폼을 벗어났다
-    // 돌아왔을 때 새 줄로 저장돼 같은 방문이 두 개가 된다.
-    localStorage.setItem(draftKey, JSON.stringify({
-      values, sheetLink: editingLink, savedAt: new Date().toISOString(),
-    }));
-  }
 
   function mediaTile(fieldId, media, idx) {
     const isVideo = (media.mime || '').startsWith('video/');
@@ -176,7 +148,7 @@ export async function reportFormView(view) {
           ${label}
           <div class="row">
             <button class="btn btn--ghost" data-act="capture" data-field="${field.id}" type="button">사진 촬영</button>
-            <button class="btn btn--ghost" data-act="record" data-field="${field.id}" type="button">동영상 찍기</button>
+            <button class="btn btn--ghost" data-act="record" data-field="${field.id}" type="button">영상 촬영</button>
             <button class="btn btn--ghost" data-act="pick" data-field="${field.id}" type="button">앨범 · 파일</button>
             <span class="badge">${state.kept.length + state.media.length}개 첨부</span>
           </div>
@@ -223,19 +195,10 @@ export async function reportFormView(view) {
           <h1 class="page-head__title">${editingLink ? '리포트 수정' : '새 현장 리포트'}</h1>
           <span class="page-head__meta">${editingLink
             ? `${h(editingLink.sheetName)} 시트 <span class="tnum">${editingLink.row}</span>행을 고쳐 씁니다 — 새 줄이 생기지 않습니다`
-            : '입력 즉시 기기에 임시보관 — 새로고침해도 복구됩니다'}</span>
+            : '새 리포트는 언제나 빈 화면에서 시작합니다'}</span>
           <span class="page-head__spacer"></span>
           <a class="btn btn-secondary" href="#/fields">항목 설정</a>
         </div>
-
-        ${hasDraft ? `
-          <div class="panel panel--warn">
-            <div class="row row--between">
-              <div><strong>작성 중이던 내용을 복구했습니다.</strong>
-                <div class="muted" style="font-size:.9rem">새로 시작하려면 초기화하세요.</div></div>
-              <button class="btn btn--ghost btn--sm" data-act="clear-draft" type="button">초기화</button>
-            </div>
-          </div>` : ''}
 
         <div id="pastVisits"></div>
 
@@ -267,7 +230,6 @@ export async function reportFormView(view) {
       const id = ev.target.dataset.input;
       if (!id) return;
       values[id].value = ev.target.value;
-      saveDraft();
       if (storeField && id === storeField.id) {
         clearTimeout(visitTimer);
         visitTimer = setTimeout(paintPastVisits, 350);
@@ -277,7 +239,6 @@ export async function reportFormView(view) {
       const id = ev.target.dataset.input;
       if (!id) return;
       values[id].value = ev.target.value;
-      saveDraft();
     });
     $('#reportForm').addEventListener('submit', submit);
     paintPastVisits();
@@ -425,7 +386,6 @@ export async function reportFormView(view) {
         toast(`${original.name}: ${err.message}`, 'err');
       }
     }
-    saveDraft();
     render();
     if (added) toast(`첨부 ${added}개를 붙였습니다.`, 'ok');
   }
@@ -445,21 +405,12 @@ export async function reportFormView(view) {
     if (act === 'del-kept') {
       ev.preventDefault();          // <a> 안의 버튼이라 링크 이동을 막는다
       values[btn.dataset.field].kept.splice(Number(btn.dataset.idx), 1);
-      saveDraft();
       render();
       return;
     }
     if (act === 'del-media') {
       values[btn.dataset.field].media.splice(Number(btn.dataset.idx), 1);
-      saveDraft();
       render();
-      return;
-    }
-    if (act === 'clear-draft') {
-      const ok = await confirmDialog('작성 내용 초기화', '입력한 모든 내용과 첨부를 비웁니다.', '초기화', true);
-      if (!ok) return;
-      localStorage.removeItem(draftKey);
-      location.reload();
       return;
     }
     if (act === 'save-draft') {
@@ -513,7 +464,6 @@ export async function reportFormView(view) {
     submitBtn.textContent = '구글 시트에 올리는 중…';
     try {
       const result = await api.uploadReportToSheet(saved.id);
-      localStorage.removeItem(draftKey);
       if (result.queued) {
         // 오프라인 — 기기에 저장해 두었다가 연결되면 자동으로 올린다.
         toast('기기에 저장했습니다. 인터넷에 연결되면 자동으로 시트에 올립니다.', 'ok');
@@ -568,7 +518,7 @@ const trackOf = (value) => TRACK.find((t) => t.value === value) || TRACK[2];
 function warnPrivateVideo(result) {
   if (!result || !result.mediaVideos || !result.mediaPrivate) return;
   toast('동영상이 다른 사람 화면에서 재생되지 않을 수 있습니다 — 드라이브 링크 공개가 '
-        + '막혀 있습니다. 설정 → [사진 공개 복구] 를 눌러 보고, 안 되면 관리자에게 알려 주세요.', 'err');
+        + '막혀 있습니다. 관리자에게 알려 주세요.', 'err');
 }
 
 /**
@@ -863,8 +813,8 @@ export async function reportListView(view) {
     return `<div class="stat-grid">
       ${TRACK.map((t) => `
         <button class="stat ${filter === t.value ? 'is-active' : ''}"
-                data-act="filter" data-value="${h(t.value)}" type="button"
-                aria-pressed="${filter === t.value}">
+                data-track="${t.cls}" data-act="filter" data-value="${h(t.value)}"
+                type="button" aria-pressed="${filter === t.value}">
           <span class="stat__n tnum">${c[t.value]}</span>
           <span class="stat__label">${h(t.value)}</span>
         </button>`).join('')}
@@ -891,7 +841,8 @@ export async function reportListView(view) {
               <span class="row__title">${h(e.store || '(식당명 없음)')}</span>
               <span class="row__meta">${h(e.author || '-')}${attach}${detail ? ` · ${h(detail)}` : ''}</span>
             </button>
-            <select class="select status-select" data-act="status" data-key="${h(e.key)}"
+            <select class="select status-select status-select--${trackOf(e.status).cls}"
+                    data-act="status" data-key="${h(e.key)}"
                     aria-label="${h(e.store || '리포트')} 상태">
               ${TRACK.map((o) => `<option value="${h(o.value)}" ${o.value === e.status ? 'selected' : ''}>${h(o.value)}</option>`).join('')}
             </select>

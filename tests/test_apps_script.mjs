@@ -1029,10 +1029,10 @@ const pushed = call({
       fromPlace: '흥부골', toPlace: '언주사무실', note: '' },
   ],
 });
-check('차량마다 탭이 하나 생긴다',
-      pushed.ok === true && pushed.sheetName === '운행일지 스타리아 1호차', pushed.sheetName);
+check('차량마다 · 해마다 탭이 하나 생긴다',
+      pushed.ok === true && pushed.sheetName === '운행일지 2026 스타리아 1호차', pushed.sheetName);
 
-const logTab = ss.getSheetByName('운행일지 스타리아 1호차');
+const logTab = ss.getSheetByName('운행일지 2026 스타리아 1호차');
 check('맨 위가 서식 제목이다',
       logTab.getRange(1, 1).getValue() === '법 인 차 량 운 행 일 지');
 check('법인명 · 사업자등록번호가 서식대로 들어간다',
@@ -1090,13 +1090,13 @@ check('시트가 날짜로 바꾼 칸도 YYYY-MM-DD 로 읽는다',
 call({ driving: 'push', vehicleName: '스타리아 2호차', info: {},
        rows: [{ id: 'e1', date: '2026-09-14', odoBefore: 200, odoAfter: 260,
                 fromPlace: '본사', toPlace: '공장', note: '' }] });
-check('차량이 늘면 탭도 는다', !!ss.getSheetByName('운행일지 스타리아 2호차'));
+check('차량이 늘면 탭도 는다', !!ss.getSheetByName('운행일지 2026 스타리아 2호차'));
 const both = call({ driving: 'pull' });
 check('차량을 안 고르면 전부 읽는다', both.rows.length === 2);
 check('한 차량만 고르면 그 차량만 읽는다',
       call({ driving: 'pull', vehicleName: '스타리아 2호차' }).rows.length === 1);
 check('한 차량을 올려도 다른 차량 탭은 건드리지 않는다',
-      ss.getSheetByName('운행일지 스타리아 1호차').getRange(6, 1).getValue() !== '');
+      ss.getSheetByName('운행일지 2026 스타리아 1호차').getRange(6, 1).getValue() !== '');
 
 // 부서 · 장소 선택지
 call({ driving: 'options', depts: ['BS', '연구소'], places: ['언주사무실', '흥부골'] });
@@ -1115,9 +1115,66 @@ check('지운 선택지는 시트에서도 빠진다',
 
 check('차량 이름이 없으면 무엇이 잘못됐는지 말한다',
       call({ driving: 'push', rows: [] }).error.indexOf('차량') >= 0);
-check('탭 이름에 못 쓰는 글자는 바꿔서 만든다',
+// 줄이 하나도 없으면 빈 탭을 새로 만들지 않는다 — 탭만 늘어난다.
+check('기록이 없으면 빈 탭을 만들지 않는다',
       call({ driving: 'push', vehicleName: '1/2호차', info: {}, rows: [] })
-        .sheetName === '운행일지 1 2호차');
+        .sheets.length === 0 && !ss.getSheetByName('운행일지 2026 1 2호차'));
+check('탭 이름에 못 쓰는 글자는 바꿔서 만든다',
+      call({ driving: 'push', vehicleName: '1/2호차', info: {},
+             rows: [{ id: 'z1', date: '2026-01-05', odoBefore: 1, odoAfter: 2 }] })
+        .sheetName === '운행일지 2026 1 2호차');
+
+// ── 해가 바뀌면 새 탭 ────────────────────────────────────────────────
+call({
+  driving: 'push',
+  vehicleName: '스타리아 1호차',
+  info: { model: '현대 스타리아 3밴', plate: '845누5868' },
+  rows: [
+    { id: 'd1', date: '2026-09-14', odoBefore: 15000, odoAfter: 15300,
+      fromPlace: '언주사무실', toPlace: '흥부골', note: '' },
+    { id: 'd9', date: '2027-01-03', odoBefore: 20000, odoAfter: 20150,
+      fromPlace: '언주사무실', toPlace: '판교', note: '새해 첫 운행' },
+  ],
+});
+check('★ 해가 바뀌면 새 탭에 쌓인다',
+      !!ss.getSheetByName('운행일지 2027 스타리아 1호차'));
+check('지난해 탭은 그대로 남는다',
+      ss.getSheetByName('운행일지 2026 스타리아 1호차').getRange(6, 1).getValue() === '2026-09-14');
+check('새해 탭에는 그 해 것만 있다',
+      ss.getSheetByName('운행일지 2027 스타리아 1호차').getRange(6, 1).getValue() === '2027-01-03'
+      && ss.getSheetByName('운행일지 2027 스타리아 1호차').getRange(7, 1).getValue() === '');
+check('사업연도도 탭마다 그 해로 적힌다',
+      ss.getSheetByName('운행일지 2027 스타리아 1호차').getRange(3, 8).getValue()
+        === '2027-01-01 ~ 2027-12-31');
+check('합계도 그 해 것만 센다',
+      ss.getSheetByName('운행일지 2027 스타리아 1호차').getRange(4, 7).getValue() === 150);
+check('①차종 ②등록번호는 해마다 같이 적힌다',
+      ss.getSheetByName('운행일지 2027 스타리아 1호차').getRange(3, 5).getValue() === '845누5868');
+check('읽을 때는 두 해가 함께 온다',
+      call({ driving: 'pull', vehicleName: '스타리아 1호차' }).rows.length === 2);
+check('해를 고르면 그 해만 읽는다',
+      call({ driving: 'pull', vehicleName: '스타리아 1호차', year: '2027' }).rows.length === 1);
+
+// 지난해 줄을 모두 지우고 올리면 그 해 탭도 비워져야 한다 (옛 줄이 남으면 안 된다)
+call({
+  driving: 'push', vehicleName: '스타리아 1호차',
+  info: { model: '현대 스타리아 3밴', plate: '845누5868' },
+  rows: [{ id: 'd9', date: '2027-01-03', odoBefore: 20000, odoAfter: 20150,
+           fromPlace: '언주사무실', toPlace: '판교', note: '' }],
+});
+check('지난해 줄을 지우면 그 해 탭도 비워진다',
+      ss.getSheetByName('운행일지 2026 스타리아 1호차').getRange(6, 1).getValue() === ''
+      && ss.getSheetByName('운행일지 2026 스타리아 1호차').getRange(4, 2).getValue() === 0);
+
+// 연도를 붙이기 전에 만들어진 탭도 읽어야 한다 (v3.21 에서 만든 것)
+const legacy = ss.insertSheet('운행일지 옛차량');
+legacy.getRange(5, 1, 1, 11).setValues([['③사용일자', '요일', '④부서', '성명',
+  '⑤주행 전 계기판의 거리(㎞)', '⑥주행 후 계기판의 거리(㎞)', '⑦주행거리(㎞)',
+  '⑧출발지', '⑨도착지', '⑩비고', '기록 ID']]);
+legacy.getRange(6, 1, 1, 11).setValues([['2026-05-02', '토', 'BS', '홍길동',
+  100, 180, 80, '가', '나', '', 'old1']]);
+check('연도 없이 만든 옛 탭도 읽는다',
+      call({ driving: 'pull', vehicleName: '옛차량' }).rows.length === 1);
 
 console.log('='.repeat(62));
 if (failures.length) {

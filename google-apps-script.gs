@@ -611,7 +611,7 @@ function readFieldSheet(sheet) {
 // ═══════════════════════════════════════════════════════════════════
 // 차량 운행 일지 — 국세청 '법인 차량 운행 일지' 서식
 //
-// 차량마다 탭이 하나씩 생긴다: [운행일지 스타리아 1호차]
+// 차량마다 · 해마다 탭이 하나씩 생긴다: [운행일지 2026 스타리아 1호차]
 // 그 탭을 그대로 인쇄해 제출할 수 있게 서식의 항목 번호(①~⑩)를 그대로 쓴다.
 //
 //   1행  제목
@@ -637,18 +637,37 @@ var DRIVING_WIDTHS = [110, 60, 110, 100, 150, 150, 120, 150, 150, 200, 190];
 var COMPANY_NAME = '비욘드허니컴';
 var COMPANY_BIZ_NO = '697-86-01767';
 
-/** '운행일지 스타리아 1호차' — 탭 이름에 못 쓰는 글자는 바꾼다. */
-function drivingSheetName(vehicleName) {
+/**
+ * 탭 이름 — '운행일지 2026 스타리아 1호차'.
+ *
+ * **해마다 새 탭**이다. 법인 차량 운행 일지는 사업연도 단위로 내는 서류이고,
+ * 한 탭에 몇 해가 섞이면 연말에 그 해 것만 골라내야 한다. 해가 바뀌면 다음
+ * 기록부터 새 탭에 쌓이고, 지난해 탭은 그대로 남아 그냥 인쇄하면 된다.
+ */
+function drivingSheetName(vehicleName, year) {
   var clean = String(vehicleName || '').replace(/[\[\]\*\/\\\?:]/g, ' ');
   clean = clean.replace(/\s+/g, ' ').trim();
-  return (DRIVING_PREFIX + clean).slice(0, 95);
+  return (DRIVING_PREFIX + year + ' ' + clean).slice(0, 95);
 }
 
-/** 탭 이름에서 차량 이름을 되찾는다. 운행일지 탭이 아니면 빈 문자열. */
-function drivingVehicleOf(sheetName) {
+/**
+ * 탭 이름에서 연도와 차량 이름을 되찾는다. 운행일지 탭이 아니면 null.
+ * 연도 없이 만들어진 옛 탭('운행일지 스타리아 1호차')도 읽는다.
+ */
+function drivingTabOf(sheetName) {
   var name = String(sheetName || '');
-  if (name.indexOf(DRIVING_PREFIX) !== 0) return '';
-  return name.slice(DRIVING_PREFIX.length).trim();
+  if (name.indexOf(DRIVING_PREFIX) !== 0) return null;
+  var rest = name.slice(DRIVING_PREFIX.length).trim();
+  var m = /^(\d{4})\s+(.+)$/.exec(rest);
+  if (m) return { year: m[1], vehicle: m[2].trim() };
+  return { year: '', vehicle: rest };        // 연도를 붙이기 전에 만든 탭
+}
+
+/** 'YYYY-MM-DD' → 'YYYY'. 날짜가 아니면 올해. */
+function drivingYearOf(date) {
+  var text = String(date || '');
+  return /^\d{4}/.test(text) ? text.slice(0, 4)
+    : String(new Date().getFullYear());
 }
 
 function handleDriving(ss, body) {
@@ -671,17 +690,21 @@ function handleDriving(ss, body) {
 
 function handleDrivingPull(ss, body) {
   var want = String(body.vehicleName || '').trim();
+  var wantYear = String(body.year || '').trim();
   var sheets = ss.getSheets();
   var rows = [];
   var info = {};
   for (var i = 0; i < sheets.length; i++) {
-    var vehicle = drivingVehicleOf(sheets[i].getName());
-    if (!vehicle) continue;
-    if (want && vehicle !== want) continue;
-    info[vehicle] = readDrivingHead(sheets[i]);
+    var tab = drivingTabOf(sheets[i].getName());
+    if (!tab) continue;
+    if (want && tab.vehicle !== want) continue;
+    if (wantYear && tab.year && tab.year !== wantYear) continue;
+    // 차종·등록번호는 해마다 같다. 가장 최근 해의 것을 쓴다.
+    var head = readDrivingHead(sheets[i]);
+    if (!info[tab.vehicle] || head.model || head.plate) info[tab.vehicle] = head;
     var list = readDrivingSheet(sheets[i]);
     for (var j = 0; j < list.length; j++) {
-      list[j].vehicleName = vehicle;
+      list[j].vehicleName = tab.vehicle;
       rows.push(list[j]);
     }
   }
@@ -691,13 +714,49 @@ function handleDrivingPull(ss, body) {
 function handleDrivingPush(ss, body) {
   var vehicle = String(body.vehicleName || '').trim();
   if (!vehicle) return json({ ok: false, error: '차량 이름이 없습니다.' });
-  var name = drivingSheetName(vehicle);
-  var sheet = ss.getSheetByName(name);
-  if (!sheet) sheet = ss.insertSheet(name);
-
   var rows = body.rows || [];
   var info = body.info || {};
-  writeDrivingHead(sheet, vehicle, info, rows);
+
+  // 해마다 탭이 다르므로 **연도로 먼저 나눈다.**
+  var byYear = {};
+  for (var i = 0; i < rows.length; i++) {
+    var year = drivingYearOf(rows[i].date);
+    if (!byYear[year]) byYear[year] = [];
+    byYear[year].push(rows[i]);
+  }
+  // 기록이 하나도 없으면 올해 탭만 비운다 (마지막 줄을 지운 경우).
+  if (!rows.length) byYear[String(new Date().getFullYear())] = [];
+
+  // 이미 있는 그 차량의 탭도 함께 손본다. 줄을 지난해로 옮겼거나 모두 지웠으면
+  // 그 해 탭에 옛 줄이 남아 있기 때문이다.
+  var sheets = ss.getSheets();
+  for (var s = 0; s < sheets.length; s++) {
+    var tab = drivingTabOf(sheets[s].getName());
+    if (tab && tab.year && tab.vehicle === vehicle && !byYear[tab.year]) {
+      byYear[tab.year] = [];
+    }
+  }
+
+  var written = [];
+  var total = 0;
+  for (var y in byYear) {
+    var name = drivingSheetName(vehicle, y);
+    var sheet = ss.getSheetByName(name);
+    // 줄이 없는 해의 탭은 **없으면 만들지 않는다** (빈 탭이 늘어난다).
+    if (!sheet) {
+      if (!byYear[y].length) continue;
+      sheet = ss.insertSheet(name);
+    }
+    writeDrivingYear(sheet, vehicle, info, byYear[y], y);
+    written.push(name);
+    total += byYear[y].length;
+  }
+  return json({ ok: true, sheetName: written[0] || '', sheets: written, count: total });
+}
+
+/** 한 해치 탭 하나를 통째로 다시 쓴다. */
+function writeDrivingYear(sheet, vehicle, info, rows, year) {
+  writeDrivingHead(sheet, vehicle, info, rows, year);
 
   var values = [];
   for (var i = 0; i < rows.length; i++) {
@@ -732,21 +791,15 @@ function handleDrivingPush(ss, body) {
       .setValues(values);
     sheet.getRange(DRIVING_FIRST_ROW, 5, values.length, 3).setNumberFormat('#,##0');
   }
-  return json({ ok: true, sheetName: name, count: values.length });
 }
 
 /** 서식의 머리 다섯 줄. 매번 다시 쓴다 — 사람이 지워도 되살아난다. */
-function writeDrivingHead(sheet, vehicle, info, rows) {
+function writeDrivingHead(sheet, vehicle, info, rows, year) {
   var total = 0;
   for (var i = 0; i < (rows || []).length; i++) {
     var b = Number(rows[i].odoBefore) || 0;
     var a = Number(rows[i].odoAfter) || 0;
     total += a >= b ? a - b : (Number(rows[i].distance) || 0);
-  }
-  var year = new Date().getFullYear();
-  if (rows && rows.length) {
-    var first = String(rows[0].date || '');
-    if (/^\d{4}/.test(first)) year = Number(first.slice(0, 4));
   }
 
   sheet.getRange(1, 1).setValue('법 인 차 량 운 행 일 지');
@@ -1124,12 +1177,14 @@ var GUIDE_FOLDER_ROOT = '가이드';
  * 리포트 첨부(매장 → 날짜 → 사진)와 **같은 뿌리**를 쓰되 가지가 다르다.
  * 사람이 드라이브에서 직접 찾을 때 "무슨 가이드의 사진" 인지가 경로에 보인다.
  */
-function guideMediaFolder(root, categoryType, title) {
+function guideMediaFolder(root, categoryType, title, mimeType) {
   var base = folderByName(root, GUIDE_FOLDER_ROOT);
   var label = GUIDE_SHEETS[categoryType] || '분류 미지정';
   var kind = folderByName(base, safeFolderName(label, '분류 미지정'));
   var one = folderByName(kind, safeFolderName(title, '제목 없음'));
-  return folderByName(one, PHOTO_FOLDER_NAME);
+  // 리포트 첨부와 같은 갈래 — 사람이 드라이브에서 찾을 때 같은 자리를 본다.
+  var isVideo = String(mimeType || '').indexOf('video/') === 0;
+  return folderByName(one, isVideo ? VIDEO_FOLDER_NAME : PHOTO_FOLDER_NAME);
 }
 
 /**
@@ -1153,7 +1208,6 @@ function saveGuideMedia(ss, body) {
   }
 
   var root = mediaRoot(ss);
-  var folder = guideMediaFolder(root.folder, body.categoryType, body.title);
   var links = [];
   var skipped = [];
   var publicCount = 0;
@@ -1165,6 +1219,9 @@ function saveGuideMedia(ss, body) {
       var blob = Utilities.newBlob(bytes,
                                    item.mimeType || 'application/octet-stream',
                                    item.filename || ('사진' + (i + 1)));
+      // 사진과 영상은 폴더를 나눈다 — 파일마다 정한다.
+      var folder = guideMediaFolder(root.folder, body.categoryType, body.title,
+                                    item.mimeType);
       var file = folder.createFile(blob);
       if (sharePublic(file)) publicCount++; else privateCount++;
       links.push(file.getUrl());

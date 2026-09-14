@@ -92,10 +92,14 @@ check("주행거리 칸은 사람이 못 고친다", "readonly aria-readonly=\"t
 check("시트도 ⑦을 다시 계산한다 (앱이 틀린 값을 보내도)",
       "after >= before ? after - before :" in gs)
 # ⑤ 출발지·도착지 — 고르기도 되고 직접 쓰기도 된다
-check("출발지·도착지는 고르거나 직접 적는다",
-      'list="${listId}"' in view and "<datalist id=" in view
-      and "placeField('drvFrom', '⑧출발지'" in view)
+# 같은 것을 고르는 길이 둘이면(목록 + 태그) 칸을 누를 때 목록이 태그를 가린다.
+check("출발지·도착지는 아래 태그로 고르거나 직접 적는다",
+      "placeField('drvFrom', '⑧출발지'" in view
+      and "아래에서 누르거나 직접 적으세요" in view
+      and "<datalist" not in view and 'list="' not in view)
 check("자주 가는 곳은 눌러서 넣는다", "data-place=" in view)
+# 목록이 길어도 다 보여 준다 — 스크롤해 가며 찾을 것이 없다.
+check("만들어 둔 곳은 빠짐없이 보인다", "options.places.map((p) => `" in view)
 check("장소도 만들고 고치고 지울 수 있다", "optionListHtml('places'" in view)
 # 직접 친 곳을 기억하지 않으면 자주 가는 곳을 매번 다시 쳐야 한다.
 check("직접 친 곳은 다음부터 고를 수 있게 기억한다",

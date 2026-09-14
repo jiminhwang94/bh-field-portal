@@ -3,7 +3,7 @@
 // **올리기는 자동이다.** 재고 수량 · 리포트 · 가이드 · 항목 설정 변경은 인터넷이
 // 되는 순간 곧바로 시트로 올라간다 (오프라인이면 대기열에 쌓였다가 연결되면 올라간다).
 // 그래서 이 버튼이 하는 일은 하나 — **지금 시트에서 최신 내용을 받아오는 것.**
-// 받기도 앱으로 돌아올 때와 5분마다 조용히 자동으로 돌지만, "지금 당장" 보고 싶을 때
+// 받기는 **자동으로 돌지 않는다.** 다른 사람이 바꾼 것을 보고 싶을 때
 // 누른다.
 //
 // 예전 이름은 [⬆ 업데이트] 였다. 올리기와 받기를 다 하는 것처럼 읽혔는데 올리기는
@@ -235,8 +235,6 @@ export function syncSummaryText() {
     : '아직 한 번도 새로고침하지 않았습니다.';
 }
 
-const AUTO_REFRESH_MS = 5 * 60 * 1000;
-
 export function initSyncButton() {
   const btn = document.getElementById('btn-update');
   if (btn) btn.addEventListener('click', () => runRefresh(btn));
@@ -251,15 +249,17 @@ export function initSyncButton() {
   }
 
   refreshState();
+  // 칩(올릴 건수·오프라인 표시)만 주기로 맞춘다. **화면은 건드리지 않는다.**
   setInterval(refreshState, 60 * 1000);
   sync.onNetChange(() => refreshState());
-
-  // 받기는 조용히 자동으로도 돈다 — 앱으로 돌아올 때, 그리고 5분마다.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      refreshState();
-      runRefresh(null, { quiet: true });
-    }
+    if (document.visibilityState === 'visible') refreshState();
   });
-  setInterval(() => runRefresh(null, { quiet: true }), AUTO_REFRESH_MS);
+
+  // 받기를 자동으로 돌리지 않는다.
+  //
+  // 예전에는 5분마다, 그리고 앱으로 돌아올 때마다 조용히 받아 와서 화면을
+  // 다시 그렸다. 적는 중이거나 목록을 한참 내려 본 뒤에 그 일이 벌어지면
+  // **하던 것을 처음부터 다시** 해야 했다. 받는 시점은 사람이 정한다 —
+  // 오른쪽 위 [새로고침] 이 그 버튼이다.
 }

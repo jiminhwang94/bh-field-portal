@@ -979,7 +979,8 @@ export async function deleteReport(id) {
 export async function saveMedia(file) {
   const ext = (file.name || '').includes('.')
     ? '.' + file.name.split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '')
-    : ((file.type || '').includes('png') ? '.png' : '.jpg');
+    : ((file.type || '').startsWith('video/') ? '.mp4'
+      : ((file.type || '').includes('png') ? '.png' : '.jpg'));
   const filename = `${Date.now().toString(36)}-${newId().slice(0, 8)}${ext}`;
   const row = {
     filename,

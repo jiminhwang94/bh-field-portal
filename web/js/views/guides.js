@@ -6,6 +6,42 @@ import {
 
 const DONE_KEY = (id) => `bh_steps_done_${id}`;
 
+/**
+ * 단계에 붙은 것이 영상인가.
+ *
+ * 단계는 주소 한 칸(`imageUrl`)만 들고 다닌다 — 시트도 그 한 칸으로 주고받는다.
+ * 그래서 종류를 따로 담을 자리가 없다. 기기 안 파일은 이름에 확장자가 남고,
+ * 드라이브 주소는 올릴 때 **`#video` 를 붙여** 표시해 둔다 (주소로는 아무 뜻이
+ * 없어 링크는 그대로 열리고, 시트에 적혀도 눌러서 열린다).
+ */
+const VIDEO_MARK = '#video';
+export const isStepVideo = (url) =>
+  /#video$|\.(mp4|mov|m4v|webm|3gp)(\?|$)/i.test(String(url || ''));
+
+/** 드라이브 주소에서 파일 id. 못 찾으면 빈 문자열. */
+const driveIdOf = (url) =>
+  (String(url || '').match(/\/d\/([A-Za-z0-9_-]{10,})/) || [])[1] || '';
+
+/**
+ * 단계에 붙은 사진·영상 한 조각.
+ *
+ * 드라이브에 올라간 영상은 `<video src>` 로 못 튼다 — 드라이브가 파일이 아니라
+ * 재생기 페이지를 주기 때문이다. 그래서 재생기를 그대로 끼운다 (리포트 상세와
+ * 같은 방법). 기기 안 영상은 파일이 있으니 그냥 튼다.
+ */
+function stepMediaHtml(url, cls, alt) {
+  if (!url) return '';
+  if (!isStepVideo(url)) {
+    return `<img class="${cls}" data-media="${h(url)}" alt="${h(alt)}" loading="lazy" />`;
+  }
+  const id = driveIdOf(url);
+  if (id) {
+    return `<iframe class="${cls}" src="https://drive.google.com/file/d/${id}/preview"
+                    allow="fullscreen" allowfullscreen title="${h(alt)}"></iframe>`;
+  }
+  return `<video class="${cls}" data-media="${h(url)}" controls playsinline></video>`;
+}
+
 /** 시트가 연결돼 있으면 가이드 사진도 드라이브에 올릴 수 있다. */
 async function guideMediaEnabled() {
   const store = await import('../local/store.js');
@@ -13,16 +49,16 @@ async function guideMediaEnabled() {
 }
 
 /**
- * 가이드 단계 사진 하나를 드라이브에 올린다.
- *   <공유 드라이브>/가이드/<분류>/<제목>/사진/
- * 반환: 드라이브 주소
+ * 가이드 단계 사진·영상 하나를 드라이브에 올린다.
+ *   <공유 드라이브>/가이드/<분류>/<제목>/사진|동영상/
+ * 반환: 드라이브 주소 (영상이면 끝에 #video)
  */
 async function uploadGuidePhoto(fileOrBlob, categoryType, title) {
   const { callAppsScript } = await import('../sheets.js');
   const data = await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-    reader.onerror = () => reject(new Error('사진을 읽지 못했습니다.'));
+    reader.onerror = () => reject(new Error('파일을 읽지 못했습니다.'));
     reader.readAsDataURL(fileOrBlob);
   });
   const result = await callAppsScript({
@@ -30,18 +66,21 @@ async function uploadGuidePhoto(fileOrBlob, categoryType, title) {
     categoryType,
     title,
     files: [{
-      filename: fileOrBlob.name || '단계사진.jpg',
-      mimeType: fileOrBlob.type || 'image/jpeg',
+      filename: fileOrBlob.name || (isVideoFile(fileOrBlob) ? '단계영상.mp4' : '단계사진.jpg'),
+      mimeType: fileOrBlob.type || (isVideoFile(fileOrBlob) ? 'video/mp4' : 'image/jpeg'),
       data,
     }],
-  }, 120000);
+  }, 180000);
   const url = (result.links || [])[0];
   if (!url) {
     const why = (result.skipped || [])[0];
     throw new Error(result.error || (why && why.reason) || '드라이브가 주소를 주지 않았습니다.');
   }
-  return url;
+  // 드라이브 주소에는 확장자가 없다 — 영상이라는 표시를 남겨야 재생기로 연다.
+  return isVideoFile(fileOrBlob) ? url + VIDEO_MARK : url;
 }
+
+const isVideoFile = (file) => String((file && file.type) || '').startsWith('video/');
 
 // ---------------------------------------------------------------- 목록
 export async function guideListView(view, categoryType) {
@@ -191,8 +230,9 @@ export async function guideDetailView(view, guideId) {
     }
     if (act === 'toggle-step') {
       // 사진을 눌렀으면 단계 완료 체크가 아니라 사진을 크게 본다.
+      // 영상(재생기·video)은 눌러도 크게 하지 않는다 — 그 누름은 재생 버튼이다.
       if (ev.target.classList.contains('step__img')) {
-        ev.target.classList.toggle('is-zoomed');
+        if (ev.target.tagName === 'IMG') ev.target.classList.toggle('is-zoomed');
         return;
       }
       const el = btn.closest('.step');
@@ -237,8 +277,7 @@ function stepHtml(step, idx, done) {
             ${step.expectedMetric.split(',').map((t) => t.trim()).filter(Boolean)
               .map((t) => `<span class="tag tag-accent">${h(t)}</span>`).join('')}
           </span>` : ''}
-        ${step.imageUrl ? `<img class="step__img" data-media="${h(step.imageUrl)}"
-             alt="단계 ${idx + 1} 참고 사진" loading="lazy" />` : ''}
+        ${stepMediaHtml(step.imageUrl, 'step__img', `단계 ${idx + 1} 참고 자료`)}
       </span>
       <span class="step__check" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
@@ -430,14 +469,16 @@ export async function guideEditView(view, guideId, categoryType) {
                   <div class="tag-list" data-tool-pick="${i}">${toolChips(s, i)}</div>
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label>참고 사진</label>
+                  <label>참고 사진 · 영상</label>
                   <input type="hidden" name="stepImage" value="${h(s.imageUrl)}" />
-                  ${s.imageUrl ? `<img class="step__img step__img--edit"
-                       data-media="${h(s.imageUrl)}" alt="참고 사진" />` : ''}
+                  ${stepMediaHtml(s.imageUrl, 'step__img step__img--edit', '참고 자료')}
                   <div class="row" style="margin-top:8px">
-                    <button class="btn btn--ghost btn--sm" data-act="pick-image" data-idx="${i}" type="button">사진 첨부</button>
-                    ${s.imageUrl ? `<button class="btn btn--danger btn--sm" data-act="clear-image" data-idx="${i}" type="button">사진 제거</button>` : ''}
+                    <button class="btn btn--ghost btn--sm" data-act="step-capture" data-idx="${i}" type="button">사진 촬영</button>
+                    <button class="btn btn--ghost btn--sm" data-act="step-record" data-idx="${i}" type="button">영상 촬영</button>
+                    <button class="btn btn--ghost btn--sm" data-act="step-pick" data-idx="${i}" type="button">앨범 · 파일</button>
+                    ${s.imageUrl ? `<button class="btn btn--danger btn--sm" data-act="clear-image" data-idx="${i}" type="button">첨부 제거</button>` : ''}
                   </div>
+                  <span class="hint">단계마다 하나씩 붙습니다 · 영상은 <strong>최대 20초</strong></span>
                 </div>
               </div>`).join('')}
           </div>
@@ -448,7 +489,9 @@ export async function guideEditView(view, guideId, categoryType) {
           <button class="btn btn--primary" type="submit">저장</button>
         </div>
       </form>
-      <input type="file" id="stepImageInput" accept="image/*" style="display:none" />`;
+      <input type="file" id="stepCapture" accept="image/*" capture="environment" style="display:none" />
+      <input type="file" id="stepRecord" accept="video/*" capture="environment" style="display:none" />
+      <input type="file" id="stepPick" accept="image/*,video/*" style="display:none" />`;
 
     // 리스너는 매 렌더마다 새로 생성되는 form 에만 연결해 중복 등록을 막는다.
     const form = $('#guideForm');
@@ -504,14 +547,19 @@ export async function guideEditView(view, guideId, categoryType) {
       render();
     }
     if (act === 'clear-image') { collect(); state.steps[idx].imageUrl = ''; render(); }
-    if (act === 'pick-image') {
-      const input = $('#stepImageInput');
+    // 리포트와 같은 세 가지 — 찍기(사진) · 찍기(영상) · 앨범에서 고르기.
+    // 촬영은 capture 가 붙은 칸을 써야 카메라가 바로 열린다.
+    if (act === 'step-capture' || act === 'step-record' || act === 'step-pick') {
+      const input = $({ 'step-capture': '#stepCapture', 'step-record': '#stepRecord',
+                        'step-pick': '#stepPick' }[act]);
+      const label = btn.textContent;
       input.value = '';
       input.onchange = async () => {
         const file = input.files[0];
         if (!file) return;
+        const kind = isVideoFile(file) ? '영상' : '사진';
         btn.disabled = true;
-        btn.textContent = '업로드 중…';
+        btn.textContent = '올리는 중…';
         try {
           // 1) 기기에 먼저 담는다 — 오프라인에서도 바로 보인다.
           const media = await api.uploadMedia(file);
@@ -520,7 +568,7 @@ export async function guideEditView(view, guideId, categoryType) {
           render();
 
           // 2) 시트가 연결돼 있으면 드라이브에도 올린다. 그래야 **다른 사람도**
-          //    이 사진을 볼 수 있다 (기기 안 파일은 그 기기에만 있다).
+          //    이걸 볼 수 있다 (기기 안 파일은 그 기기에만 있다).
           //    제목이 없으면 폴더 이름을 정할 수 없으니 저장할 때 올린다.
           const title = (state.codeOrTitle || '').trim();
           if (title && await guideMediaEnabled()) {
@@ -529,19 +577,19 @@ export async function guideEditView(view, guideId, categoryType) {
               collect();
               state.steps[idx].imageUrl = url;
               render();
-              toast('사진을 드라이브에 올렸습니다. 팀 전체가 볼 수 있습니다.', 'ok');
+              toast(`${kind}을 드라이브에 올렸습니다. 팀 전체가 볼 수 있습니다.`, 'ok');
             } catch (err) {
-              toast(`사진은 이 기기에만 저장했습니다 — ${err.message}`, 'err');
+              toast(`${kind}은 이 기기에만 저장했습니다 — ${err.message}`, 'err');
             }
           } else {
             toast(title
-              ? '사진을 첨부했습니다. (구글 시트 연결 시 팀에 공유됩니다)'
-              : '사진을 첨부했습니다. 제목을 넣고 저장하면 팀에 공유됩니다.', 'ok');
+              ? `${kind}을 첨부했습니다. (구글 시트 연결 시 팀에 공유됩니다)`
+              : `${kind}을 첨부했습니다. 제목을 넣고 저장하면 팀에 공유됩니다.`, 'ok');
           }
         } catch (err) {
           toast(err.message, 'err');
           btn.disabled = false;
-          btn.textContent = '사진 첨부';
+          btn.textContent = label;
         }
       };
       input.click();

@@ -577,7 +577,32 @@ img { display: block; max-width: 100%; }
 .item__chevron { color: var(--color-disabled); font-size: 18px; flex: none; }
 .item__actions { display: flex; gap: var(--space-2); flex: none; }
 .item__actions .btn--icon { min-width: 42px; min-height: 42px; font-size: 16px; }
-.status-select { min-height: 44px; font-size: 14px; flex: none; }
+/*
+ * 이력의 상태 칸.
+ *
+ * 예전에는 그냥 흰 선택칸이라 '모니터링' 과 '조치 완료' 가 한눈에 구분되지
+ * 않았고 글씨도 작았다. 목록을 훑을 때 **색으로 먼저** 읽히게 한다.
+ * 색은 상태 알약(.pill--*)과 같은 것을 쓴다 — 같은 뜻에 같은 색.
+ */
+.status-select {
+  min-height: 48px; flex: none;
+  font-size: 15px; font-weight: 700; letter-spacing: -0.01em;
+  border: 2px solid var(--color-border-strong);
+  padding-right: 34px;
+}
+.status-select--done  { background: var(--color-ok-tint); color: var(--color-ok); border-color: var(--color-ok); }
+.status-select--watch { background: var(--color-accent-tint); color: var(--color-accent); border-color: var(--color-accent); }
+.status-select--doing { background: var(--color-warn-tint); color: var(--color-warn); border-color: var(--color-warn); }
+.status-select--swap  { background: var(--color-danger-tint-2); color: var(--color-danger); border-color: var(--color-danger); }
+.status-select option { background: var(--color-bg); color: var(--color-text); font-weight: 600; }
+
+/* 위 요약 타일도 상태 색을 띠로 두른다 (숫자만으로는 어느 상태인지 늦게 읽힌다) */
+.stat[data-track] { border-left: 5px solid var(--color-border-strong); }
+.stat[data-track="done"]  { border-left-color: var(--color-ok); }
+.stat[data-track="watch"] { border-left-color: var(--color-accent); }
+.stat[data-track="doing"] { border-left-color: var(--color-warn); }
+.stat[data-track="swap"]  { border-left-color: var(--color-danger); }
+.stat[data-track] .stat__label { font-size: 14px; font-weight: 600; color: var(--color-text); }
 
 /* 카테고리 색은 쓰지 않는다 — 강조는 코발트 하나 */
 .cat-ERROR_CODE, .cat-HARDWARE_SOP, .cat-SOFTWARE_CMD,
@@ -640,6 +665,13 @@ img { display: block; max-width: 100%; }
   cursor: zoom-in;
 }
 .step__img--edit { max-width: 200px; max-height: 130px; cursor: default; }
+/*
+ * 단계에 영상이 붙은 경우.
+ * 드라이브 영상은 재생기(iframe)라 크기를 정해 줘야 한다 — auto 로 두면
+ * 300×150 짜리 기본 칸이 되어 화면이 어긋난다. 눌러서 크게 보는 것도 없다.
+ */
+iframe.step__img, video.step__img { width: 320px; height: 200px; cursor: default; }
+iframe.step__img--edit, video.step__img--edit { width: 260px; height: 150px; }
 .step__img.is-zoomed { max-width: 100%; max-height: none; cursor: zoom-out; }
 .media-missing {
   padding: var(--space-3); margin-top: var(--space-2);

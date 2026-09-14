@@ -161,7 +161,8 @@ export async function drivingView(view) {
           ${vehicles.map((v) => `
             <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
                     data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
-          <a class="veh-tab veh-tab--manage" href="#/inventory">＋ 차량</a>
+          <button class="veh-tab veh-tab--manage" data-act="go-vehicles"
+                  type="button">＋ 차량</button>
         </div>
 
         ${current ? `
@@ -193,7 +194,8 @@ export async function drivingView(view) {
           <div class="scroll" id="drvBody">${bodyHtml()}</div>`
         : `<div class="empty">
              등록된 차량이 없습니다.<br />
-             <a class="btn btn-primary" href="#/inventory" style="margin-top:14px">＋ 차량 추가하기</a>
+             <button class="btn btn-primary" data-act="go-vehicles" type="button"
+                     style="margin-top:14px">＋ 차량 추가하기</button>
            </div>`}
       </div>`;
 
@@ -216,6 +218,8 @@ export async function drivingView(view) {
       await reload();
       return;
     }
+    // 차량은 재고 화면에서 만들고 지운다 — 한 곳에서만 관리한다.
+    if (act === 'go-vehicles') { location.hash = '#/inventory'; return; }
     if (act === 'add') { openEditor(null); return; }
     if (act === 'edit') { openEditor(rows.find((r) => r.id === id)); return; }
     if (act === 'manage-options') { openOptionManager(); return; }
@@ -252,19 +256,22 @@ export async function drivingView(view) {
 
   // ------------------------------------------------------ 운행 기록 쓰기
 
+  /**
+   * 출발지 · 도착지.
+   *
+   * 아래 태그를 누르면 바로 들어가므로 **고르는 목록(datalist)은 두지 않는다.**
+   * 같은 것을 두 가지 방법으로 고르게 하면 칸을 눌렀을 때 목록이 덮어써서
+   * 아래 태그가 가린다. 없는 곳은 그냥 칸에 치면 된다.
+   */
   function placeField(which, label, value) {
-    const listId = `${which}List`;
     return `
       <div class="field">
         <label>${label}</label>
-        <input class="input" id="${which}" list="${listId}" value="${h(value)}"
-               placeholder="고르거나 직접 적으세요" autocomplete="off" />
-        <datalist id="${listId}">
-          ${options.places.map((p) => `<option value="${h(p)}"></option>`).join('')}
-        </datalist>
+        <input class="input" id="${which}" value="${h(value)}"
+               placeholder="아래에서 누르거나 직접 적으세요" autocomplete="off" />
         ${options.places.length ? `
           <div class="tag-list" style="margin-top:8px">
-            ${options.places.slice(0, 12).map((p) => `
+            ${options.places.map((p) => `
               <button class="tag tag-neutral" data-place="${which}" data-name="${h(p)}"
                       type="button">${h(p)}</button>`).join('')}
           </div>` : ''}
@@ -533,11 +540,6 @@ export async function drivingView(view) {
 
   await reload();
 
-  // 시트 쪽이 원본이다 — 화면을 먼저 보여 주고 뒤에서 받아 온다.
-  // 받아 온 것이 지금과 같으면 다시 그리지 않는다 (화면이 깜빡이지 않게).
-  if (sheetMode && current) {
-    api.pullDriving(current).then((res) => {
-      if (res && (res.changed || res.added || res.removed)) reload();
-    }).catch(() => {});
-  }
+  // 받아오는 일은 **사람이 누를 때만** 한다 ([시트에서 받기]).
+  // 뒤에서 받아 와 다시 그리면, 기록을 적던 중에 창이 통째로 새로 그려진다.
 }

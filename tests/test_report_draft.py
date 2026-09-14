@@ -50,21 +50,23 @@ print("새 리포트 / 리포트 수정 분리")
 
 report = read("web/js/views/report.js")
 
+# v3.22 — 칸을 나누는 대신 **되살리기 자체를 없앴다.**
+# 이미 시트에 올린 건의 내용까지 되살아나, 끝난 리포트를 다시 쓰고 있는 것처럼
+# 보였다. 새 리포트는 언제나 빈 화면에서 시작한다.
 check(
-    "임시보관 칸이 새 리포트용과 수정용으로 나뉘어 있다",
-    "const NEW_DRAFT_KEY" in report and "const EDIT_DRAFT_KEY" in report,
+    "작성 내용을 기기에 담아 두지 않는다",
+    "localStorage.setItem('bh_report" not in report and "saveDraft" not in report,
 )
 
 check(
-    "두 칸의 이름이 서로 다르다",
-    re.search(r"NEW_DRAFT_KEY\s*=\s*'([^']+)'", report).group(1)
-    != re.search(r"EDIT_DRAFT_KEY\s*=\s*'([^']+)'", report).group(1),
+    "옛 버전이 남긴 칸은 화면을 열 때 지운다",
+    "const OLD_DRAFT_KEYS = ['bh_report_draft', 'bh_report_edit_draft'];" in report
+    and "for (const key of OLD_DRAFT_KEYS) localStorage.removeItem(key);" in report,
 )
 
-# 예전 이름을 그대로 두면 두 화면이 다시 한 칸을 쓰게 된다.
 check(
-    "공용 DRAFT_KEY 는 더 이상 없다",
-    not re.search(r"\bconst DRAFT_KEY\b", report),
+    "'복구했습니다' 띠가 없다",
+    "작성 중이던 내용을 복구했습니다" not in report and "clear-draft" not in report,
 )
 
 check(
@@ -91,11 +93,11 @@ check(
               report) is not None,
 )
 
+# 고칠 줄은 이력에서 넘겨받은 것 하나뿐이다. 기기에 담아 둔 것을 주워 오면
+# 다른 줄을 고치러 들어왔을 때 엉뚱한 줄을 덮어쓸 수 있다.
 check(
-    "임시보관을 읽고 쓰고 지우는 곳이 모두 그때그때의 칸(draftKey)을 쓴다",
-    "localStorage.setItem(draftKey" in report
-    and "localStorage.removeItem(draftKey)" in report
-    and "localStorage.getItem(DRAFT_KEY)" not in report,
+    "고칠 줄은 이력에서 넘겨받은 것만 쓴다",
+    "const editingLink = editMode ? ((seeded && seeded.sheetLink) || null) : null;" in report,
 )
 
 app = read("web/js/app.js")
@@ -144,13 +146,15 @@ check(
     "재고: 시트를 기다렸다가 그리지 않는다",
     "if (sheetMode && isOnline()) {\n    try { await pullInventory(); }" not in inventory,
 )
+# v3.22 — 화면을 연 뒤 뒤에서 받아 다시 그리던 것을 **없앴다.**
+# 검색칸에 글자를 치거나 목록을 내려 본 뒤에 그 일이 벌어지면 다 날아갔다.
 check(
-    "재고: 그린 뒤에 시트를 받아 다시 그린다",
-    "const pulled = await pullInventory().catch(() => null);" in inventory,
+    "재고: 저절로 받아 와 다시 그리지 않는다",
+    "await pullInventory().catch(() => null);" not in inventory,
 )
 check(
-    "재고: 창이 열려 있으면 다시 그리지 않는다 (적던 내용이 날아간다)",
-    "getElementById('modalRoot').innerHTML) return;" in inventory,
+    "재고: 받는 버튼은 그대로 있다",
+    "act === 'sheet-refresh'" in inventory and "await pullInventory();" in inventory,
 )
 check(
     "이력: 받아 둔 것으로 먼저 보여 준다",
@@ -208,9 +212,17 @@ check(
     "시트 내용이 그대로면 저장소를 다시 쓰지 않는다",
     "sheetInventorySignature" in store_js and "changed: false" in store_js,
 )
+syncnow = read("web/js/syncnow.js")
+# 5분마다·앱으로 돌아올 때마다 조용히 받아 와 화면을 다시 그렸다.
+# 적는 중이거나 한참 내려 본 뒤였으면 하던 것을 처음부터 다시 해야 했다.
 check(
-    "재고: 방금 받았으면 다시 받지 않는다",
-    "store.pulledWithin('sheetInventoryPulledAt', 60)" in inventory,
+    "받기가 시간마다 저절로 돌지 않는다",
+    "AUTO_REFRESH_MS" not in syncnow
+    and "setInterval(() => runRefresh" not in syncnow,
+)
+check(
+    "앱으로 돌아올 때도 저절로 받지 않는다 (칩만 맞춘다)",
+    "if (document.visibilityState === 'visible') refreshState();" in syncnow,
 )
 check(
     "이력: 방금 받았으면 다시 받지 않는다",

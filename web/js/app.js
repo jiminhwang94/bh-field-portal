@@ -293,7 +293,8 @@ function showFirstRunGuide() {
       <div class="sub-card" style="margin-bottom:10px">
         <strong>상단 [새로고침] 은 다른 사람이 바꾼 것을 받아옵니다</strong>
         <p class="muted" style="margin:6px 0 0;font-size:.9rem">
-          앱으로 돌아올 때와 5분마다 자동으로도 받아와요. 지금 당장 보고 싶을 때 누르세요.
+          앱을 열 때 한 번 받아옵니다. 그 뒤로는 <strong>이 버튼을 누를 때만</strong> 받아와요 —
+          적는 중에 화면이 저절로 바뀌지 않게 하기 위해서입니다.
         </p>
       </div>
       <div class="sub-card">

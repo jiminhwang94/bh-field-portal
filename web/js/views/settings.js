@@ -134,7 +134,6 @@ export async function settingsView(view) {
           <div class="form-actions">
             <button class="btn btn--ghost" data-act="sheets-help" type="button">설치 방법</button>
             <button class="btn btn--ghost" data-act="sheets-test" type="button">연결 테스트</button>
-            <button class="btn btn--ghost" data-act="drive-repair" type="button">사진 공개 복구</button>
             <button class="btn btn--primary" type="submit">저장</button>
           </div>
         </div>
@@ -167,12 +166,12 @@ export async function settingsView(view) {
       </div>
 
       <div class="panel">
-        <h2 class="panel__title">새로고침 — 다른 사람 변경 받기</h2>
+        <h2 class="panel__title">올리기 · 받기 상태</h2>
         <p class="muted" style="margin:0 0 14px;line-height:1.65">
-          <strong>올리기는 자동</strong>입니다 — 재고·리포트·가이드·항목 변경은 인터넷이 되는
-          순간 곧바로 시트로 올라갑니다 (오프라인이면 쌓였다가 연결되면 올라갑니다).
-          이 버튼은 <strong>다른 사람이 바꾼 내용을 지금 받아오는</strong> 것입니다.
-          앱으로 돌아올 때와 5분마다 자동으로도 받아옵니다.
+          <strong>올리기는 자동</strong>입니다 — 재고·리포트·가이드·항목·운행일지를 바꾸면
+          인터넷이 되는 순간 곧바로 시트로 올라갑니다 (오프라인이면 쌓였다가 연결되면
+          올라갑니다). 다른 사람이 바꾼 내용을 받아오려면
+          <strong>화면 오른쪽 위 [새로고침]</strong>을 누르세요.
         </p>
         <div class="row" style="gap:8px;margin-bottom:14px">
           <span class="badge ${state.failed ? 'badge--danger' : (waiting ? 'badge--warn' : 'badge--ok')}">
@@ -180,10 +179,6 @@ export async function settingsView(view) {
           </span>
         </div>
         <p class="muted" style="margin:0 0 14px;font-size:.9rem">${h(syncSummaryText())}</p>
-        <div class="row">
-          <button class="btn ${waiting ? 'btn--pending' : 'btn-primary'}"
-                  data-act="do-publish" type="button">새로고침</button>
-        </div>
 
         <div class="divider"></div>
         <div class="field" style="margin-bottom:0">
@@ -298,12 +293,6 @@ export async function settingsView(view) {
       return;
     }
 
-    if (act === 'do-publish') {
-      $('#sDevice').value.trim() && setDeviceName($('#sDevice').value.trim());
-      await runSync(btn);
-      settingsView(view);
-      return;
-    }
     if (act === 'app-update') { startUpdate(); return; }
     if (act === 'sheets-test') {
       btn.disabled = true;
@@ -330,35 +319,6 @@ export async function settingsView(view) {
       }
       btn.disabled = false;
       btn.textContent = '연결 테스트';
-    }
-    if (act === 'drive-repair') {
-      // 예전 버전은 사진을 올린 뒤 '링크가 있는 누구나' 로 만드는 데 실패해도
-      // 조용히 넘어갔다. 그래서 그때 올린 사진이 비공개로 남아 액박이 뜬다.
-      // 이 버튼이 드라이브를 훑어 다시 공개로 만든다.
-      btn.disabled = true;
-      btn.textContent = '복구 중…';
-      const box = $('#testResult');
-      box.style.display = 'block';
-      try {
-        const result = await api.repairDriveSharing();
-        const lines = [
-          `살펴본 파일 ${result.checked}개`,
-          `공개로 바꾼 파일 ${result.fixed}개`,
-          result.failed ? `바꾸지 못한 파일 ${result.failed}개` : '',
-        ].filter(Boolean);
-        box.innerHTML = `<h2 class="panel__title">사진 공개 복구</h2>
-          <p class="muted">${lines.map(h).join(' · ')}</p>
-          ${result.failed ? `<p class="muted">바꾸지 못한 파일은 공유 드라이브 정책으로
-             링크 공개가 막힌 것입니다. 앱은 그 사진도 <strong>구글 시트를 거쳐
-             직접 받아</strong> 보여 주므로 화면에서는 정상으로 보입니다.</p>` : ''}`;
-        toast(`사진 ${result.fixed}개를 공개로 바꿨습니다.`, 'ok');
-      } catch (err) {
-        box.innerHTML = `<h2 class="panel__title" style="color:var(--danger)">복구 실패</h2>
-          <p class="muted" style="white-space:pre-wrap">${h(err.message)}</p>`;
-        toast(err.message, 'err');
-      }
-      btn.disabled = false;
-      btn.textContent = '사진 공개 복구';
     }
   });
 
