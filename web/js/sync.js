@@ -116,6 +116,8 @@ export async function flushOutbox() {
   const sheetPushOps = rows.filter((r) => r.type === 'invsheet-push');
   const guidePushOps = rows.filter((r) => r.type === 'guidesheet-push');
   const fieldPushOps = rows.filter((r) => r.type === 'fieldsheet-push');
+  const drivePushOps = rows.filter((r) => r.type === 'drivesheet-push');
+  const driveOptionOps = rows.filter((r) => r.type === 'drivesheet-options');
   const statusOps = rows.filter((r) => r.type === 'report-status');
   let sent = 0;
 
@@ -154,6 +156,40 @@ export async function flushOutbox() {
         sent += 1;
       }
     });
+  }
+
+  // 운행일지 선택지(부서·장소) — 일지보다 먼저 올린다.
+  // 뒤에 올리면 새로 만든 부서가 아직 시트에 없는 채로 일지가 올라간다.
+  if (driveOptionOps.length && onSheet) {
+    await step('운행일지 항목', async () => {
+      const drivesheet = await import('./drivesheet.js');
+      const last = driveOptionOps[driveOptionOps.length - 1];
+      await drivesheet.pushOptions({ depts: last.depts, places: last.places });
+      for (const op of driveOptionOps) {
+        await store.dequeue(op.id);
+        sent += 1;
+      }
+    });
+  }
+
+  // 운행일지 — 차량마다 탭이 다르므로 차량별로 묶어 한 번씩 올린다.
+  if (drivePushOps.length && onSheet) {
+    const byVehicle = new Map();
+    for (const op of drivePushOps) {
+      const name = op.vehicleName || '';
+      if (!byVehicle.has(name)) byVehicle.set(name, []);
+      byVehicle.get(name).push(op);
+    }
+    for (const [name, ops] of byVehicle) {
+      await step(`운행일지 ${name}`, async () => {
+        const drivesheet = await import('./drivesheet.js');
+        await drivesheet.pushDriving(name, ops.flatMap((o) => o.changes || []));
+        for (const op of ops) {
+          await store.dequeue(op.id);
+          sent += 1;
+        }
+      });
+    }
   }
 
   // 오프라인에서 바꾼 이력 상태 — 한 건씩 시트에 반영한다.

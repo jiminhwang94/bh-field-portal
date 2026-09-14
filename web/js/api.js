@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.20.0';
+export const APP_VERSION = '3.21.0';
 
 export const deviceId = sync.deviceId;
 
@@ -92,6 +92,42 @@ export const api = {
   updateField: (id, payload) => store.saveField(payload, id),
   deleteField: (id) => store.deleteField(id),
   reorderFields: async (ids) => ({ items: await store.reorderFields(ids) }),
+
+  // ------------------------------------------------------- 차량 운행 일지
+  listDriving: async (vehicle) => ({
+    vehicles: await store.listVehicles(),
+    items: await store.listDriving(vehicle || null),
+    options: await store.drivingOptions(),
+    info: await store.vehicleInfo(vehicle || ''),
+    lastOdometer: vehicle ? await store.lastOdometer(vehicle) : null,
+  }),
+  saveDriving: async (payload, id = null) => {
+    const row = await store.saveDriving(payload, id);
+    // 직접 쳐 넣은 곳도 다음부터는 고를 수 있게 목록에 넣는다.
+    await store.rememberPlaces(row.fromPlace, row.toPlace);
+    flushSoon();
+    return row;
+  },
+  deleteDriving: async (id) => {
+    const ok = await store.deleteDriving(id);
+    flushSoon();
+    return ok;
+  },
+  drivingOptions: () => store.drivingOptions(),
+  saveDrivingOptions: async (next) => {
+    const value = await store.saveDrivingOptions(next);
+    flushSoon();
+    return value;
+  },
+  saveVehicleInfo: async (name, info) => {
+    const value = await store.saveVehicleInfo(name, info);
+    flushSoon();
+    return value;
+  },
+  pullDriving: async (vehicle) => {
+    const drivesheet = await import('./drivesheet.js');
+    return drivesheet.pullDriving(vehicle || null);
+  },
 
   // ------------------------------------------------------------------ 리포트
   listReports: async () => ({ items: await store.listReports() }),

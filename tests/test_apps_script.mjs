@@ -87,6 +87,7 @@ class FakeRange {
     return this;
   }
   setFontWeight() { return this; }
+  setFontSize() { return this; }
   setBackground() { return this; }
   setVerticalAlignment() { return this; }
   setWrap() { return this; }
@@ -364,7 +365,21 @@ const sandbox = {
     base64Decode: (text) => ({ _b64: text, length: String(text).length }),
     newBlob: (bytes, mime, name) => makeBlob(bytes, mime, name),
     base64Encode: (bytes) => `b64(${(bytes && bytes.length) || 0})`,
-    formatDate: (d) => '2099-01-01 09:00',
+    /**
+     * 무늬(pattern)를 실제로 따른다.
+     * 예전 가짜는 무엇을 물어도 '2099-01-01 09:00' 을 돌려줬다. 그래서 날짜만
+     * 쓰는 코드(운행일지)가 시간까지 붙은 글자를 받아도 검사가 통과해 버렸다.
+     */
+    formatDate: (d, tz, pattern) => {
+      const date = d instanceof Date ? d : new Date(2099, 0, 1, 9, 0);
+      const pad = (n) => String(n).padStart(2, '0');
+      return String(pattern || 'yyyy-MM-dd HH:mm')
+        .replace('yyyy', date.getFullYear())
+        .replace('MM', pad(date.getMonth() + 1))
+        .replace('dd', pad(date.getDate()))
+        .replace('HH', pad(date.getHours()))
+        .replace('mm', pad(date.getMinutes()));
+    },
   },
 };
 
@@ -988,6 +1003,121 @@ check('base64 로 보내도 올라간다', byData.ok === true, JSON.stringify(by
 check('그래도 같은 주소를 지킨다', byData.installUrl === remade.installUrl);
 check('주소가 없으면 무엇이 잘못됐는지 말한다',
       call({ release: 'install', version: '3.25.0' }).error.indexOf('https') >= 0);
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 차량 운행 일지 — 차량마다 탭 하나, 법인 차량 운행 일지 서식 그대로
+// ═══════════════════════════════════════════════════════════════════
+console.log('');
+console.log('── 차량 운행 일지');
+
+const emptyLog = call({ driving: 'pull' });
+check('아직 아무것도 없으면 빈 목록이다 (오류가 아니다)',
+      emptyLog.ok === true && emptyLog.rows.length === 0
+      && emptyLog.options.depts.length === 0);
+
+const pushed = call({
+  driving: 'push',
+  vehicleName: '스타리아 1호차',
+  info: { model: '현대 스타리아 3밴', plate: '845누5868' },
+  rows: [
+    { id: 'd1', date: '2026-09-14', weekday: '월', dept: 'BS', driverName: '홍길동',
+      odoBefore: 15000, odoAfter: 15300, distance: 300,
+      fromPlace: '언주사무실', toPlace: '흥부골', note: '정기 점검' },
+    { id: 'd2', date: '2026-09-15', weekday: '화', dept: 'BS', driverName: '홍길동',
+      odoBefore: 15300, odoAfter: 15420, distance: 120,
+      fromPlace: '흥부골', toPlace: '언주사무실', note: '' },
+  ],
+});
+check('차량마다 탭이 하나 생긴다',
+      pushed.ok === true && pushed.sheetName === '운행일지 스타리아 1호차', pushed.sheetName);
+
+const logTab = ss.getSheetByName('운행일지 스타리아 1호차');
+check('맨 위가 서식 제목이다',
+      logTab.getRange(1, 1).getValue() === '법 인 차 량 운 행 일 지');
+check('법인명 · 사업자등록번호가 서식대로 들어간다',
+      logTab.getRange(2, 2).getValue() === '비욘드허니컴'
+      && logTab.getRange(2, 5).getValue() === '697-86-01767');
+check('①차종 ②자동차등록번호가 머리에 있다',
+      logTab.getRange(3, 2).getValue() === '현대 스타리아 3밴'
+      && logTab.getRange(3, 5).getValue() === '845누5868');
+check('사업연도가 기록의 연도를 따른다',
+      logTab.getRange(3, 8).getValue() === '2026-01-01 ~ 2026-12-31');
+check('건수와 주행거리 합계를 적어 둔다',
+      logTab.getRange(4, 2).getValue() === 2 && logTab.getRange(4, 7).getValue() === 420);
+check('머리줄이 서식의 ③~⑩ 그대로다',
+      logTab.getRange(5, 1).getValue() === '③사용일자'
+      && logTab.getRange(5, 5).getValue() === '⑤주행 전 계기판의 거리(㎞)'
+      && logTab.getRange(5, 7).getValue() === '⑦주행거리(㎞)'
+      && logTab.getRange(5, 8).getValue() === '⑧출발지'
+      && logTab.getRange(5, 10).getValue() === '⑩비고');
+check('자료는 6행부터 쌓인다',
+      logTab.getRange(6, 1).getValue() === '2026-09-14'
+      && logTab.getRange(6, 3).getValue() === 'BS'
+      && logTab.getRange(7, 1).getValue() === '2026-09-15');
+
+// ⑦ 은 앱이 뭐라 보내든 시트에서 다시 뺀다 — ⑤⑥⑦ 이 어긋나 보이면 안 된다.
+call({
+  driving: 'push',
+  vehicleName: '스타리아 1호차',
+  info: { model: '현대 스타리아 3밴', plate: '845누5868' },
+  rows: [{ id: 'd1', date: '2026-09-14', dept: 'BS', driverName: '홍길동',
+           odoBefore: 15000, odoAfter: 15300, distance: 99999,
+           fromPlace: '언주사무실', toPlace: '흥부골', note: '' }],
+});
+check('⑦주행거리는 시트가 ⑥−⑤ 로 다시 센다 (틀린 값이 와도)',
+      logTab.getRange(6, 7).getValue() === 300, logTab.getRange(6, 7).getValue());
+check('줄을 지우고 올리면 옛 줄이 남지 않는다',
+      logTab.getRange(7, 1).getValue() === '');
+
+// 다시 읽기
+let pulled = call({ driving: 'pull', vehicleName: '스타리아 1호차' });
+check('읽으면 차량 이름이 함께 온다',
+      pulled.rows.length === 1 && pulled.rows[0].vehicleName === '스타리아 1호차');
+check('기록 ID 로 같은 줄을 알아본다', pulled.rows[0].id === 'd1');
+check('①차종 ②등록번호도 함께 읽힌다',
+      pulled.info['스타리아 1호차'].model === '현대 스타리아 3밴'
+      && pulled.info['스타리아 1호차'].plate === '845누5868');
+
+// 시트가 날짜로 바꿔 담은 칸도 읽어야 한다 (사람이 손으로 고치면 그렇게 된다)
+logTab.getRange(6, 1).setValue(new Date(2026, 8, 14));
+pulled = call({ driving: 'pull', vehicleName: '스타리아 1호차' });
+check('시트가 날짜로 바꾼 칸도 YYYY-MM-DD 로 읽는다',
+      pulled.rows.length === 1 && pulled.rows[0].date === '2026-09-14',
+      JSON.stringify(pulled.rows[0] || {}));
+
+// 차량이 둘이면 탭도 둘
+call({ driving: 'push', vehicleName: '스타리아 2호차', info: {},
+       rows: [{ id: 'e1', date: '2026-09-14', odoBefore: 200, odoAfter: 260,
+                fromPlace: '본사', toPlace: '공장', note: '' }] });
+check('차량이 늘면 탭도 는다', !!ss.getSheetByName('운행일지 스타리아 2호차'));
+const both = call({ driving: 'pull' });
+check('차량을 안 고르면 전부 읽는다', both.rows.length === 2);
+check('한 차량만 고르면 그 차량만 읽는다',
+      call({ driving: 'pull', vehicleName: '스타리아 2호차' }).rows.length === 1);
+check('한 차량을 올려도 다른 차량 탭은 건드리지 않는다',
+      ss.getSheetByName('운행일지 스타리아 1호차').getRange(6, 1).getValue() !== '');
+
+// 부서 · 장소 선택지
+call({ driving: 'options', depts: ['BS', '연구소'], places: ['언주사무실', '흥부골'] });
+const optTab = ss.getSheetByName('운행일지 항목');
+check('선택지는 탭 하나에 함께 둔다 (팀 공통)',
+      !!optTab && optTab.getRange(2, 1).getValue() === '구분'
+      && optTab.getRange(3, 1).getValue() === '부서'
+      && optTab.getRange(3, 2).getValue() === 'BS');
+const opts = call({ driving: 'pull' }).options;
+check('부서와 장소를 갈라서 돌려준다',
+      opts.depts.join(',') === 'BS,연구소' && opts.places.join(',') === '언주사무실,흥부골');
+call({ driving: 'options', depts: ['BS'], places: [] });
+check('지운 선택지는 시트에서도 빠진다',
+      call({ driving: 'pull' }).options.depts.join(',') === 'BS'
+      && call({ driving: 'pull' }).options.places.length === 0);
+
+check('차량 이름이 없으면 무엇이 잘못됐는지 말한다',
+      call({ driving: 'push', rows: [] }).error.indexOf('차량') >= 0);
+check('탭 이름에 못 쓰는 글자는 바꿔서 만든다',
+      call({ driving: 'push', vehicleName: '1/2호차', info: {}, rows: [] })
+        .sheetName === '운행일지 1 2호차');
 
 console.log('='.repeat(62));
 if (failures.length) {

@@ -80,6 +80,16 @@ async function describe(op) {
              goto: '#/fields', undoLabel: '되돌리기',
              undoNote: '항목 설정을 바꾸기 전으로 되돌립니다. 새로 만든 것은 지웁니다.' };
   }
+  if (op.type === 'drivesheet-push') {
+    return { title: `운행일지 (${op.vehicleName || '차량'})`, what: summarize(op.changes),
+             goto: '#/driving', undoLabel: '되돌리기',
+             undoNote: '운행 기록을 바꾸기 전으로 되돌립니다. 새로 적은 것은 지웁니다.' };
+  }
+  if (op.type === 'drivesheet-options') {
+    return { title: '운행일지 항목 (부서 · 장소)', what: '선택지 목록',
+             goto: '#/driving', undoLabel: '취소',
+             undoNote: '이 변경만 대기열에서 뺍니다. 목록은 기기에 그대로 남습니다.' };
+  }
   return { title: op.type, what: '올릴 내용', goto: '', undoLabel: '취소',
            undoNote: '이 작업만 대기열에서 뺍니다.' };
 }
@@ -116,6 +126,9 @@ async function undo(op) {
   }
   if (op.type === 'fieldsheet-push') {
     await restoreRows('fields', op.changes);
+  }
+  if (op.type === 'drivesheet-push') {
+    await restoreRows('driving', op.changes);
   }
   if (op.type === 'invsheet-push') {
     for (const c of op.changes || []) {

@@ -6,7 +6,7 @@
 //
 // 데이터(가이드·재고·리포트)는 IndexedDB 에 있으므로 여기서 다루지 않는다.
 
-const CACHE = 'bh-shell-v3.20.0';
+const CACHE = 'bh-shell-v3.21.0';
 
 // 앱을 여는 데 필요한 파일 전부.
 // ⚠️ 화면 파일(js/css)을 추가하면 **이 목록에도 반드시 추가**해야 오프라인에서 열린다.
@@ -16,10 +16,11 @@ const SHELL = [
   './js/app.js', './js/api.js', './js/sync.js', './js/sheets.js',
   './js/invsheet.js', './js/guidesheet.js', './js/reportsheet.js',
   './js/net.js', './js/install.js', './js/syncnow.js', './js/pending.js', './js/fieldsheet.js',
-  './js/drivemedia.js', './js/update.js',
+  './js/drivemedia.js', './js/update.js', './js/drivesheet.js',
   './js/share.js', './js/ui.js',
   './js/local/idb.js', './js/local/store.js',
   './js/views/guides.js', './js/views/inventory.js', './js/views/fields.js',
+  './js/views/driving.js',
   './js/views/report.js', './js/views/settings.js',
   './icons/icon-192.png', './icons/apple-touch-icon.png',
   './fonts/PretendardVariable.woff2',   // 현장은 오프라인이라 서체도 담아 둔다

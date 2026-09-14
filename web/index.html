@@ -18,7 +18,7 @@
 <body>
 <div class="app">
 
-  <!-- 좌측 세로 레일 : 브랜드 마크 + 주요 화면 5개 (설정은 맨 아래)
+  <!-- 좌측 세로 레일 : 브랜드 마크 + 주요 화면 6개 (설정은 맨 아래)
        class="tab" · data-tab · href 는 app.js paintTabs() 가 쓰므로 유지한다. -->
   <nav class="tabbar" aria-label="주요 화면">
     <span class="tabbar__mark" aria-hidden="true"></span>
@@ -29,6 +29,10 @@
     <a class="tab" data-tab="inventory" href="#/inventory">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h11v10H2z"/><path d="M13 9h5l3 3.5V16h-8z"/><circle cx="6.5" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
       <span>재고</span>
+    </a>
+    <a class="tab" data-tab="driving" href="#/driving">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14v18H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+      <span>운행일지</span>
     </a>
     <a class="tab" data-tab="new" href="#/report/new">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6z"/><path d="M12 11v6M9 14h6"/></svg>

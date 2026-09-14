@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { $, h, CATEGORY, closeModal, errorView, loading, openSheet, toast } from './ui.js';
 import { guideListView, guideDetailView, guideEditView } from './views/guides.js';
 import { inventoryView } from './views/inventory.js';
+import { drivingView } from './views/driving.js';
 import { fieldsView } from './views/fields.js';
 import { reportFormView, reportListView, reportDetailView } from './views/report.js';
 import { settingsView } from './views/settings.js';
@@ -22,6 +23,7 @@ const routes = [
   [new RegExp(`^/guides/edit/(${HEX})$`), (m) => guideEditView(view, m[1])],
   [new RegExp(`^/guides/(${HEX})$`), (m) => guideDetailView(view, m[1])],
   [/^\/inventory$/, () => inventoryView(view)],
+  [/^\/driving$/, () => drivingView(view)],
   [/^\/fields$/, () => fieldsView(view)],
   // 같은 화면이지만 하는 일이 다르다 — 주소가 새 리포트인지 수정인지를 정한다.
   [/^\/report\/(new|edit)$/, () => reportFormView(view)],
@@ -40,6 +42,7 @@ function paintTabs(path) {
   const active =
     path === '/' || path.startsWith('/search') || path.startsWith('/guides') ? 'home'
     : path.startsWith('/inventory') ? 'inventory'
+    : path.startsWith('/driving') ? 'driving'
     : path.startsWith('/report/new') ? 'new'
     : path.startsWith('/reports') ? 'reports'
     : path.startsWith('/settings') || path.startsWith('/fields') ? 'settings'

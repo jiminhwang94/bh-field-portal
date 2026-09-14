@@ -71,6 +71,11 @@ function doPost(e) {
       return handleReports(ss, body);
     }
 
+    // 차량 운행 일지 — 차량마다 탭 하나 (법인 차량 운행 일지 서식)
+    if (body.driving) {
+      return handleDriving(ss, body);
+    }
+
     // 첨부 파일 종류 확인 (사진 / 영상)
     if (body.drive === 'info') {
       return handleDriveInfo(body);
@@ -601,6 +606,253 @@ function readFieldSheet(sheet) {
     });
   }
   return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 차량 운행 일지 — 국세청 '법인 차량 운행 일지' 서식
+//
+// 차량마다 탭이 하나씩 생긴다: [운행일지 스타리아 1호차]
+// 그 탭을 그대로 인쇄해 제출할 수 있게 서식의 항목 번호(①~⑩)를 그대로 쓴다.
+//
+//   1행  제목
+//   2행  법인명 · 사업자등록번호
+//   3행  ①차종 · ②자동차등록번호 · 사업연도
+//   4행  운행 건수 · 주행거리 합계
+//   5행  머리줄 (③~⑩ + 기록 ID)
+//   6행~ 운행 기록
+//
+// **자료는 늘 6행부터**다. 위 다섯 줄의 모양이 바뀌어도 읽는 자리는 그대로다.
+//
+// 부서 · 출발/도착지 선택지는 팀 공통이라 [운행일지 항목] 탭 하나에 둔다.
+// ═══════════════════════════════════════════════════════════════════
+var DRIVING_PREFIX = '운행일지 ';
+var DRIVING_OPTION_SHEET = '운행일지 항목';
+var DRIVING_FIRST_ROW = 6;
+var DRIVING_HEADER = [
+  '③사용일자', '요일', '④부서', '성명',
+  '⑤주행 전 계기판의 거리(㎞)', '⑥주행 후 계기판의 거리(㎞)', '⑦주행거리(㎞)',
+  '⑧출발지', '⑨도착지', '⑩비고', '기록 ID',
+];
+var DRIVING_WIDTHS = [110, 60, 110, 100, 150, 150, 120, 150, 150, 200, 190];
+var COMPANY_NAME = '비욘드허니컴';
+var COMPANY_BIZ_NO = '697-86-01767';
+
+/** '운행일지 스타리아 1호차' — 탭 이름에 못 쓰는 글자는 바꾼다. */
+function drivingSheetName(vehicleName) {
+  var clean = String(vehicleName || '').replace(/[\[\]\*\/\\\?:]/g, ' ');
+  clean = clean.replace(/\s+/g, ' ').trim();
+  return (DRIVING_PREFIX + clean).slice(0, 95);
+}
+
+/** 탭 이름에서 차량 이름을 되찾는다. 운행일지 탭이 아니면 빈 문자열. */
+function drivingVehicleOf(sheetName) {
+  var name = String(sheetName || '');
+  if (name.indexOf(DRIVING_PREFIX) !== 0) return '';
+  return name.slice(DRIVING_PREFIX.length).trim();
+}
+
+function handleDriving(ss, body) {
+  if (body.driving === 'pull') return handleDrivingPull(ss, body);
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    if (body.driving === 'push') return handleDrivingPush(ss, body);
+    if (body.driving === 'options') {
+      writeDrivingOptions(ss, body.depts || [], body.places || []);
+      return json({ ok: true, depts: (body.depts || []).length,
+                    places: (body.places || []).length });
+    }
+    return json({ ok: false, error: '알 수 없는 요청입니다.' });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function handleDrivingPull(ss, body) {
+  var want = String(body.vehicleName || '').trim();
+  var sheets = ss.getSheets();
+  var rows = [];
+  var info = {};
+  for (var i = 0; i < sheets.length; i++) {
+    var vehicle = drivingVehicleOf(sheets[i].getName());
+    if (!vehicle) continue;
+    if (want && vehicle !== want) continue;
+    info[vehicle] = readDrivingHead(sheets[i]);
+    var list = readDrivingSheet(sheets[i]);
+    for (var j = 0; j < list.length; j++) {
+      list[j].vehicleName = vehicle;
+      rows.push(list[j]);
+    }
+  }
+  return json({ ok: true, rows: rows, info: info, options: readDrivingOptions(ss) });
+}
+
+function handleDrivingPush(ss, body) {
+  var vehicle = String(body.vehicleName || '').trim();
+  if (!vehicle) return json({ ok: false, error: '차량 이름이 없습니다.' });
+  var name = drivingSheetName(vehicle);
+  var sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name);
+
+  var rows = body.rows || [];
+  var info = body.info || {};
+  writeDrivingHead(sheet, vehicle, info, rows);
+
+  var values = [];
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var before = Number(r.odoBefore) || 0;
+    var after = Number(r.odoAfter) || 0;
+    values.push([
+      String(r.date || ''),
+      String(r.weekday || ''),
+      String(r.dept || ''),
+      String(r.driverName || ''),
+      before,
+      after,
+      // ⑦ 은 앱이 보낸 값을 믿지 않고 **여기서 다시 뺀다.**
+      // 시트만 보는 사람에게도 ⑤⑥⑦ 이 어긋나 보이면 안 된다.
+      after >= before ? after - before : (Number(r.distance) || 0),
+      String(r.fromPlace || ''),
+      String(r.toPlace || ''),
+      String(r.note || ''),
+      String(r.id || ''),
+    ]);
+  }
+
+  // 값을 먼저 만들고 **그 다음에** 옛 줄을 지운다 (리포트 항목 탭과 같은 이유).
+  var last = sheet.getLastRow();
+  if (last >= DRIVING_FIRST_ROW) {
+    sheet.getRange(DRIVING_FIRST_ROW, 1, last - DRIVING_FIRST_ROW + 1,
+                   DRIVING_HEADER.length).clearContent();
+  }
+  if (values.length) {
+    sheet.getRange(DRIVING_FIRST_ROW, 1, values.length, DRIVING_HEADER.length)
+      .setValues(values);
+    sheet.getRange(DRIVING_FIRST_ROW, 5, values.length, 3).setNumberFormat('#,##0');
+  }
+  return json({ ok: true, sheetName: name, count: values.length });
+}
+
+/** 서식의 머리 다섯 줄. 매번 다시 쓴다 — 사람이 지워도 되살아난다. */
+function writeDrivingHead(sheet, vehicle, info, rows) {
+  var total = 0;
+  for (var i = 0; i < (rows || []).length; i++) {
+    var b = Number(rows[i].odoBefore) || 0;
+    var a = Number(rows[i].odoAfter) || 0;
+    total += a >= b ? a - b : (Number(rows[i].distance) || 0);
+  }
+  var year = new Date().getFullYear();
+  if (rows && rows.length) {
+    var first = String(rows[0].date || '');
+    if (/^\d{4}/.test(first)) year = Number(first.slice(0, 4));
+  }
+
+  sheet.getRange(1, 1).setValue('법 인 차 량 운 행 일 지');
+  sheet.getRange(1, 1).setFontWeight('bold').setFontSize(15);
+  sheet.getRange(2, 1, 1, 5).setValues([['법인명', COMPANY_NAME, '',
+                                         '사업자등록번호', COMPANY_BIZ_NO]]);
+  sheet.getRange(3, 1, 1, 8).setValues([[
+    '①차종', String(info.model || ''), '',
+    '②자동차등록번호', String(info.plate || ''), '',
+    '사업연도', year + '-01-01 ~ ' + year + '-12-31']]);
+  sheet.getRange(4, 1, 1, 7).setValues([[
+    '운행 건수', (rows || []).length, '', '', '', '⑦주행거리 합계(㎞)', total]]);
+  sheet.getRange(4, 7).setNumberFormat('#,##0');
+
+  var head = sheet.getRange(5, 1, 1, DRIVING_HEADER.length);
+  head.setValues([DRIVING_HEADER]);
+  head.setFontWeight('bold').setBackground('#f0f2f6').setWrap(true);
+  sheet.setFrozenRows(5);
+  for (var c = 0; c < DRIVING_WIDTHS.length; c++) {
+    sheet.setColumnWidth(c + 1, DRIVING_WIDTHS[c]);
+  }
+}
+
+function readDrivingHead(sheet) {
+  var values = sheet.getRange(3, 1, 1, 5).getValues()[0];
+  return { model: String(values[1] || '').trim(), plate: String(values[4] || '').trim() };
+}
+
+function readDrivingSheet(sheet) {
+  var last = sheet.getLastRow();
+  if (last < DRIVING_FIRST_ROW) return [];
+  var values = sheet.getRange(DRIVING_FIRST_ROW, 1,
+                              last - DRIVING_FIRST_ROW + 1, DRIVING_HEADER.length).getValues();
+  var out = [];
+  for (var i = 0; i < values.length; i++) {
+    var r = values[i];
+    var date = drivingDateText(r[0]);
+    if (!date) continue;                       // 빈 줄은 건너뛴다
+    var before = Number(r[4]) || 0;
+    var after = Number(r[5]) || 0;
+    out.push({
+      id: String(r[10] || '').trim(),
+      date: date,
+      weekday: String(r[1] || '').trim(),
+      dept: String(r[2] || '').trim(),
+      driverName: String(r[3] || '').trim(),
+      odoBefore: before,
+      odoAfter: after,
+      distance: after >= before ? after - before : (Number(r[6]) || 0),
+      fromPlace: String(r[7] || '').trim(),
+      toPlace: String(r[8] || '').trim(),
+      note: String(r[9] || '').trim(),
+    });
+  }
+  return out;
+}
+
+/**
+ * 사용일자 칸을 'YYYY-MM-DD' 로.
+ *
+ * 시트는 '2026-09-14' 를 날짜로 바꿔 담는다. 그대로 String() 하면
+ * 'Mon Sep 14 2026 …' 같은 글자가 되어 앱이 못 읽는다.
+ */
+function drivingDateText(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, 'Asia/Seoul', 'yyyy-MM-dd');
+  }
+  var text = String(value === undefined || value === null ? '' : value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+}
+
+// ------------------------------------------------- 부서 · 장소 선택지
+
+function readDrivingOptions(ss) {
+  var sheet = ss.getSheetByName(DRIVING_OPTION_SHEET);
+  var out = { depts: [], places: [] };
+  if (!sheet || sheet.getLastRow() < 3) return out;
+  var values = sheet.getRange(3, 1, sheet.getLastRow() - 2, 2).getValues();
+  for (var i = 0; i < values.length; i++) {
+    var kind = String(values[i][0] || '').trim();
+    var name = String(values[i][1] || '').trim();
+    if (!name) continue;
+    if (kind === '부서') out.depts.push(name);
+    else if (kind === '장소') out.places.push(name);
+  }
+  return out;
+}
+
+function writeDrivingOptions(ss, depts, places) {
+  var sheet = ss.getSheetByName(DRIVING_OPTION_SHEET);
+  if (!sheet) sheet = ss.insertSheet(DRIVING_OPTION_SHEET);
+
+  var head = sheet.getRange(2, 1, 1, 2);
+  head.setValues([['구분', '이름']]);
+  head.setFontWeight('bold').setBackground('#f0f2f6');
+  sheet.setFrozenRows(2);
+  sheet.setColumnWidth(1, 90);
+  sheet.setColumnWidth(2, 240);
+
+  var rows = [];
+  for (var i = 0; i < depts.length; i++) rows.push(['부서', String(depts[i] || '')]);
+  for (var j = 0; j < places.length; j++) rows.push(['장소', String(places[j] || '')]);
+
+  var last = sheet.getLastRow();
+  if (last >= 3) sheet.getRange(3, 1, last - 2, 2).clearContent();
+  if (rows.length) sheet.getRange(3, 1, rows.length, 2).setValues(rows);
 }
 
 function handleGuides(ss, body) {
