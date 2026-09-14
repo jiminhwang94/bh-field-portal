@@ -230,6 +230,12 @@ function makeFolder(name, path) {
 
 const allFiles = new Map();
 
+// 스프레드시트 파일 자체 — "마지막으로 바뀐 시각" 을 묻는 갈래가 이것을 본다.
+// 검사에서 시각을 바꿔 가며 앱이 '새 내용' 을 알아보는지 확인한다.
+let spreadsheetUpdatedAt = new Date(2026, 8, 14, 9, 0, 0);
+allFiles.set('testid', { getId: () => 'testid', getName: () => '테스트 시트',
+                         getLastUpdated: () => spreadsheetUpdatedAt });
+
 // 검사마다 켜고 끈다. true = 공유 드라이브가 링크 공개를 막는 현장.
 let SHARED_DRIVE_BLOCKS_LINK_SHARING = false;
 
@@ -1175,6 +1181,19 @@ legacy.getRange(6, 1, 1, 11).setValues([['2026-05-02', '토', 'BS', '홍길동',
   100, 180, 80, '가', '나', '', 'old1']]);
 check('연도 없이 만든 옛 탭도 읽는다',
       call({ driving: 'pull', vehicleName: '옛차량' }).rows.length === 1);
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 바뀐 시각 — 태블릿이 5분마다 이것만 묻는다
+// ═══════════════════════════════════════════════════════════════════
+console.log('');
+console.log('── 시트가 마지막으로 바뀐 시각');
+const c1 = call({ changed: true });
+check('시각을 ISO 로 돌려준다', c1.ok === true && /^2026-09-14T/.test(c1.changedAt), JSON.stringify(c1));
+spreadsheetUpdatedAt = new Date(2026, 8, 14, 9, 5, 0);
+const c2 = call({ changed: true });
+check('시트가 바뀌면 시각도 바뀐다', c2.changedAt !== c1.changedAt);
+check('자료는 딸려 오지 않는다 (가벼운 물음)', Object.keys(c2).sort().join(',') === 'changedAt,ok');
 
 console.log('='.repeat(62));
 if (failures.length) {

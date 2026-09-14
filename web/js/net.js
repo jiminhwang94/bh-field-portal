@@ -90,17 +90,10 @@ function changedSomething(result) {
 
 export function initNetStatus() {
   paint();
-  sync.onNetChange(({ work }) => {
-    paint();
-    if (work && work.flushed) {
-      toast(`대기 중이던 작업 ${work.flushed}건을 처리했습니다.`, 'ok');
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-    }
-    if (work && work.pulled) {
-      toast('다른 사용자가 업데이트한 최신 내용을 받았습니다.', 'ok');
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-    }
-  });
+  // 올린 뒤의 알림("시트에 올렸습니다 · 재고 2건")은 changes.js 가 종류별로 말한다.
+  // 예전에는 여기서 건수 알림을 띄우고 **화면을 다시 그렸다** — 적는 중에 저절로
+  // 바뀌던 원인 하나가 여기 남아 있었다. 칩만 맞추고 화면은 두지 않는다.
+  sync.onNetChange(() => paint());
   // 화면을 다시 켰을 때도 밀린 일이 있으면 처리한다.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') sync.runPendingWork().then(paint);

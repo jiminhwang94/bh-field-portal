@@ -1115,3 +1115,11 @@ iframe.step__img--edit, video.step__img--edit { width: 260px; height: 150px; }
 
 /* 11-나. 상단바 칩은 문제가 있을 때만 보인다. */
 .sync[hidden] { display: none; }
+
+/* 남이 올린 새 내용이 있다 — [새로고침] 에 점. 누를 때까지 화면은 그대로다. */
+.btn-update.has-new::before {
+  content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--color-warn); border: 2px solid var(--color-on-accent);
+  margin-right: 8px; vertical-align: -1px;
+}
+.btn-update.has-new { animation: update-pulse 1.8s ease-in-out 3; }

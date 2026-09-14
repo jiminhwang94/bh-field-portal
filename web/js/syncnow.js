@@ -187,6 +187,8 @@ export async function runRefresh(btn, { quiet = false } = {}) {
   await store.setMeta(LAST_SYNC_KEY, store.now());
   await refreshState();
   if (btn) { btn.disabled = false; btn.textContent = '새로고침'; }
+  // 지금 받은 것이 곧 내가 아는 시트다 — [새 내용] 점을 끈다.
+  import('./changes.js').then((c) => c.markSynced()).catch(() => {});
 
   // 화면이 새 자료를 반영하도록 다시 그린다 (적는 중이면 건드리지 않는다).
   if (!quiet || safeToRepaint()) window.dispatchEvent(new HashChangeEvent('hashchange'));

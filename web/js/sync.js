@@ -257,10 +257,18 @@ let working = false;
 export async function runPendingWork() {
   if (working || !online) return null;
   working = true;
-  const result = { flushed: 0, error: null };
+  // 무엇을 올렸는지 종류별로 센다 — "시트에 올렸습니다 · 재고 2건" 에 쓴다.
+  // 올린 뒤에는 대기열에서 사라지므로 **올리기 전에** 적어 둔다.
+  const result = { flushed: 0, error: null, sentByType: {} };
   try {
+    const before = await store.outbox();
     const flushed = await flushOutbox();
     result.flushed = flushed.sent;
+    const left = new Set((await store.outbox()).map((op) => op.id));
+    for (const op of before) {
+      if (left.has(op.id)) continue;
+      result.sentByType[op.type] = (result.sentByType[op.type] || 0) + 1;
+    }
   } catch (err) {
     result.error = err;
   }

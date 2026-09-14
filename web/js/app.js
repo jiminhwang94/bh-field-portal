@@ -297,6 +297,9 @@ window.addEventListener('hashchange', render);
   catchUpFromSheet();                      // 시트 최신본은 뒤에서 조용히
   // 시트 연결 — 주소가 비어 있으면 공용 주소를 적어 넣고, 처음이면 확인해 알린다.
   import('./connect.js').then((c) => c.ensureSheetConnection()).catch(() => {});
+  // 남이 올린 새 내용이 있으면 [새로고침] 에 점 · 내 것이 올라가면 한 줄 알림.
+  // 화면은 건드리지 않는다 — 받는 시점은 사람이 정한다.
+  import('./changes.js').then((c) => c.initChangeWatch()).catch(() => {});
 })();
 registerServiceWorker();       // 오프라인에서 앱이 열리도록
 initUpdateBanner();            // 새 버전 안내 띠 (지난번 받아 둔 정보로 먼저 그린다)

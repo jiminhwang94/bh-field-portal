@@ -34,6 +34,12 @@ function doPost(e) {
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
 
+    // 시트가 마지막으로 바뀐 시각 — 태블릿이 5분마다 이것만 물어본다.
+    // 자료를 받는 것이 아니라 "달라진 게 있나" 만 보는 것이라 아주 가볍다.
+    if (body.changed) {
+      return handleChanged(ss);
+    }
+
     // 연결 테스트
     if (body.ping) {
       var names = ss.getSheets().map(function (s) { return s.getName(); });
@@ -1602,6 +1608,21 @@ function handleReleaseInstall(ss, body) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * 스프레드시트 파일이 마지막으로 바뀐 시각 (ISO).
+ *
+ * 앱이 올린 것도, 사람이 시트에서 직접 고친 것도 모두 잡힌다 — 드라이브의
+ * 파일 수정 시각이기 때문이다. 드라이브에 닿지 못하면 빈 문자열을 준다.
+ * 앱은 빈 값을 "모른다" 로 보고 아무 표시도 하지 않는다.
+ */
+function handleChanged(ss) {
+  var stamp = '';
+  try {
+    stamp = DriveApp.getFileById(ss.getId()).getLastUpdated().toISOString();
+  } catch (err) { /* 드라이브 권한이 없거나 잠시 안 닿음 */ }
+  return json({ ok: true, changedAt: stamp });
 }
 
 /** 매장 → 날짜 → 사진/동영상 순으로 내려가며 폴더를 만든다. */
