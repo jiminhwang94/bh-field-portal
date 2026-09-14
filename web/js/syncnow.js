@@ -95,6 +95,9 @@ function paintNow() {
     chip.classList.toggle('is-failed', failed);
     chip.classList.toggle('is-dirty', !state.offline && !failed && waiting > 0);
     chip.title = failed ? `올리지 못했습니다: ${state.failed}` : '아직 올리지 않은 내용 보기';
+    // 정상이면 조용하다. 오프라인 · 올리는 중 · 올리지 못함 — 알아야 할 때만 나타난다.
+    // 세 곳(상단바 · 재고 알약 · 설정 배지)이 다 "정상" 이라고 말하던 것을 여기 하나로.
+    chip.hidden = !state.offline && !failed && waiting === 0;
   }
 
   if (!text) return;

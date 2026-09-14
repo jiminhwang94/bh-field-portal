@@ -53,7 +53,8 @@
     <button class="btn btn--icon btn--ghost" id="backBtn" type="button" aria-label="뒤로" hidden>‹</button>
     <a class="topbar__brand" href="#/">비욘드허니컴 현장 포털</a>
     <span class="topbar__spacer"></span>
-    <button class="sync" id="sync-chip" type="button" title="아직 올리지 않은 내용 보기">
+    <!-- 문제가 있을 때만 보인다 (오프라인 · 올리는 중 · 올리지 못함). 정상이면 조용하다. -->
+    <button class="sync" id="sync-chip" type="button" title="아직 올리지 않은 내용 보기" hidden>
       <span class="sync__dot"></span>
       <span id="sync-text">시트와 같은 내용</span>
     </button>
@@ -61,6 +62,8 @@
          모양은 디자인의 .btn-update 를 그대로 쓴다. -->
     <button class="btn btn-primary btn-update" id="btn-update" type="button"
             title="다른 사람이 바꾼 내용을 지금 받아옵니다 (올리기는 자동)">새로고침</button>
+    <!-- 새 리포트 화면에서만 — 같은 자리에 이 화면의 주 동작 (app.js paintTopAction) -->
+    <button class="btn btn-primary btn-topaction" id="btn-topaction" type="button" hidden>구글 시트로 업로드</button>
   </header>
 
   <!-- 오프라인일 때만 표시 (net.js 가 토글) -->

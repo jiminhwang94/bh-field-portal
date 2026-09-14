@@ -16,7 +16,9 @@ export async function fieldsView(view) {
       field.fieldType === 'DROPDOWN' && field.options ? field.options : '',
     ].filter(Boolean).join(' · ');
     return `
-      <div class="row">
+      <div class="row" data-id="${field.id}">
+        <button class="drag-handle" type="button" data-drag="1"
+                aria-label="${h(field.fieldLabel)} 순서 옮기기 (잡고 끌기)">≡</button>
         <span class="row__code tnum">${index + 1}</span>
         <span class="row__main">
           <span class="row__title">
@@ -25,10 +27,6 @@ export async function fieldsView(view) {
           <span class="row__meta">${h(sub)}</span>
         </span>
         <span class="order-btns">
-          <button class="btn btn-secondary" data-act="up" data-idx="${index}" type="button"
-                  ${index === 0 ? 'disabled' : ''} aria-label="${h(field.fieldLabel)} 위로">↑</button>
-          <button class="btn btn-secondary" data-act="down" data-idx="${index}" type="button"
-                  ${index === fields.length - 1 ? 'disabled' : ''} aria-label="${h(field.fieldLabel)} 아래로">↓</button>
           <button class="btn btn-secondary" data-act="edit" data-id="${field.id}" type="button">수정</button>
           <button class="btn btn-secondary" data-act="del" data-id="${field.id}" type="button">삭제</button>
         </span>
@@ -40,20 +38,17 @@ export async function fieldsView(view) {
       <div id="pageRoot">
         <div class="page-head">
           <div>
-            <a class="back" href="#/settings">← 설정</a>
             <h1 class="page-head__title">리포트 항목 설정</h1>
           </div>
           <span class="page-head__meta">
             항목 <span class="tnum">${fields.length}</span>개 ·
-            필수 <span class="tnum">${fields.filter((f) => f.isRequired).length}</span>개 ·
-            <strong>바꾸면 팀 전체에 자동으로 적용됩니다</strong> ·
-            구글 시트의 열 순서도 이 순서를 따릅니다
+            필수 <span class="tnum">${fields.filter((f) => f.isRequired).length}</span>개
           </span>
           <span class="page-head__spacer"></span>
           <button class="btn btn-primary" data-act="add" type="button">＋ 항목 추가</button>
         </div>
 
-        <div class="rows">
+        <div class="rows" id="fieldRows">
           ${fields.length ? fields.map(fieldRow).join('')
             : '<div class="empty">입력 항목이 없습니다. [＋ 항목 추가]로 리포트 폼을 구성하세요.</div>'}
         </div>
@@ -64,14 +59,10 @@ export async function fieldsView(view) {
             : '<p class="muted">항목을 추가하면 실제 입력 폼 형태로 미리 보입니다.</p>'}
         </div>
 
-        <p class="muted" style="font-size:.9rem;line-height:1.6">
-          ※ 항목은 <strong>팀 공통</strong>입니다. 바꾸면 인터넷이 되는 순간 시트의
-          [리포트 항목] 탭으로 올라가 <strong>모든 기기에 자동으로 적용</strong>됩니다.
-          항목이 바뀐 뒤의 리포트는 그 달 <strong>새 탭</strong>에 이어 쌓입니다.
-        </p>
       </div>`;
 
     $('#pageRoot').addEventListener('click', onClick);
+    bindDrag($('#fieldRows'));
   }
 
   function previewHtml(field) {
@@ -95,6 +86,65 @@ export async function fieldsView(view) {
     render();
   }
 
+  /**
+   * 손잡이(≡)를 잡고 끌어 순서를 바꾼다.
+   *
+   * 예전에는 ↑↓ 버튼뿐이어서 새 항목(맨 아래에 생긴다)을 위로 올리려면 항목 수만큼
+   * 눌러야 했다. 손잡이만 잡히게 한 이유 — 줄 어디서나 끌리면 목록을 넘기려던
+   * 손가락이 항목을 옮겨 버린다. 손잡이 밖은 그냥 스크롤이다.
+   *
+   * 끄는 동안은 화면(DOM)만 옮기고, 놓았을 때 한 번 저장한다.
+   */
+  function bindDrag(list) {
+    if (!list) return;
+    let dragging = null;     // 끌리는 줄
+    let pointerId = null;
+
+    const rowsOf = () => Array.from(list.querySelectorAll('.row[data-id]'));
+    const clearMarks = () => rowsOf().forEach((r) => r.classList.remove('is-drop-before', 'is-drop-after'));
+
+    list.addEventListener('pointerdown', (ev) => {
+      const handle = ev.target.closest('[data-drag]');
+      if (!handle) return;
+      dragging = handle.closest('.row');
+      pointerId = ev.pointerId;
+      dragging.classList.add('is-dragging');
+      handle.setPointerCapture(pointerId);
+      ev.preventDefault();
+    });
+
+    list.addEventListener('pointermove', (ev) => {
+      if (!dragging || ev.pointerId !== pointerId) return;
+      const others = rowsOf().filter((r) => r !== dragging);
+      clearMarks();
+      // 손가락 위치보다 아래에 있는 첫 줄 앞에 넣는다. 없으면 맨 뒤.
+      const next = others.find((r) => {
+        const box = r.getBoundingClientRect();
+        return ev.clientY < box.top + box.height / 2;
+      });
+      if (next) { next.classList.add('is-drop-before'); list.insertBefore(dragging, next); }
+      else { const last = others[others.length - 1]; if (last) { last.classList.add('is-drop-after'); list.appendChild(dragging); } }
+    });
+
+    const finish = async (ev) => {
+      if (!dragging || ev.pointerId !== pointerId) return;
+      dragging.classList.remove('is-dragging');
+      clearMarks();
+      const order = rowsOf().map((r) => r.dataset.id);
+      dragging = null; pointerId = null;
+      const before = fields.map((f) => f.id).join('|');
+      if (order.join('|') === before) return;          // 제자리에 놓았다
+      fields = order.map((id) => fields.find((f) => f.id === id)).filter(Boolean);
+      render();
+      try {
+        await api.reorderFields(order);
+        toast('순서를 바꿨습니다.', 'ok');
+      } catch (err) { toast(err.message, 'err'); await reload(); }
+    };
+    list.addEventListener('pointerup', finish);
+    list.addEventListener('pointercancel', finish);
+  }
+
   async function onClick(ev) {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
@@ -103,17 +153,6 @@ export async function fieldsView(view) {
     if (act === 'add') { openEditor(null); return; }
     if (act === 'edit') { openEditor(fields.find((f) => f.id === btn.dataset.id)); return; }
 
-    if (act === 'up' || act === 'down') {
-      const idx = Number(btn.dataset.idx);
-      const swap = act === 'up' ? idx - 1 : idx + 1;
-      if (swap < 0 || swap >= fields.length) return;
-      [fields[idx], fields[swap]] = [fields[swap], fields[idx]];
-      render();
-      try {
-        await api.reorderFields(fields.map((f) => f.id));
-      } catch (err) { toast(err.message, 'err'); await reload(); }
-      return;
-    }
 
     if (act === 'del') {
       const field = fields.find((f) => f.id === btn.dataset.id);
@@ -137,7 +176,6 @@ export async function fieldsView(view) {
           <label>항목명<span class="req">*</span></label>
           <input class="input" id="fLabel" value="${h(field ? field.fieldLabel : '')}"
                  placeholder="예) 모터 캘리브레이션 전압값" />
-          <span class="hint">구글 시트 2행에 이 이름이 그대로 들어갑니다.</span>
         </div>
         <div class="grid-2">
           <div class="field">

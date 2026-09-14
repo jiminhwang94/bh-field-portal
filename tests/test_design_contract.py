@@ -115,8 +115,10 @@ guides = read("web/js/views/guides.js")
 fields = read("web/js/views/fields.js")
 check("가이드 목록은 디자인의 한 줄 행이다",
       'class="row" href=' in guides and 'row__code' in guides)
+# v3.23 — ↑↓ 대신 손잡이(≡)를 잡고 끌어 옮긴다. 줄 구조는 같다.
 check("항목 설정도 같은 한 줄 행이다",
-      'class="row">' in fields and 'order-btns' in fields)
+      'class="row" data-id=' in fields and 'order-btns' in fields
+      and 'class="drag-handle"' in fields)
 
 # 디자인이 쓰는 이름표는 스타일이 반드시 있어야 한다 (없으면 기본 모양으로 찌그러진다)
 print()

@@ -4,6 +4,10 @@ import {
   settingsLine as updateSettingsLine, startUpdate, checkForUpdate,
   getInstallLink, loadInstallLink,
 } from '../update.js';
+import { connectionState, ensureSheetConnection } from '../connect.js';
+
+/** 주소 칸을 사람이 직접 열었는가 (이 화면에 머무는 동안만). */
+let sheetFormOpen = false;
 import { $, h, confirmDialog, copyText, loading, openSheet, toast } from '../ui.js';
 import { isOnline } from '../sync.js';
 import { formatBytes } from '../sheets.js';
@@ -74,7 +78,11 @@ export async function settingsView(view) {
     if (box) box.innerHTML = installLinkHtml(getInstallLink());
   }).catch(() => {});
   loading(view);
-  const [settings, build] = await Promise.all([api.getSettings(), api.version()]);
+  const [settings, build, conn] = await Promise.all([
+    api.getSettings(), api.version(), connectionState(),
+  ]);
+  // 주소 칸은 연결에 실패했을 때, 또는 사람이 직접 열었을 때만 보인다.
+  const showSheetForm = Boolean(conn.error) || sheetFormOpen;
   await refreshState();
   const state = getSyncState();
   const install = installStateLabel();
@@ -96,88 +104,58 @@ export async function settingsView(view) {
       </div>
 
       <div class="settings-list">
-      <form id="sheetsForm" autocomplete="off">
-        <div class="panel">
-          <h2 class="panel__title">구글 시트 연결</h2>
-          <div class="row" style="gap:8px;margin-bottom:14px">
-            <span class="badge ${settings.sheetsReady ? 'badge--ok' : 'badge--danger'}">
-              ${settings.sheetsReady ? '연결됨' : '연결 필요'}
-            </span>
-            ${settings.spreadsheetUrl ? `<a class="badge" href="${h(settings.spreadsheetUrl)}"
-               target="_blank" rel="noopener">스프레드시트 열기 ↗</a>` : ''}
-          </div>
+      <div class="panel" id="sheetPanel">
+        <h2 class="panel__title">구글 시트</h2>
+        <div class="row" style="gap:8px;margin-bottom:${showSheetForm ? '14px' : '0'};flex-wrap:wrap">
+          <span class="badge ${conn.error ? 'badge--danger' : (conn.verifiedAt ? 'badge--ok' : '')}">
+            ${conn.error ? '연결 안 됨' : (conn.verifiedAt ? '연결됨' : '확인 전')}
+          </span>
+          ${settings.spreadsheetUrl ? `<a class="badge" href="${h(settings.spreadsheetUrl)}"
+             target="_blank" rel="noopener">스프레드시트 열기 ↗</a>` : ''}
+          <span class="page-head__spacer"></span>
+          <button class="btn btn-secondary btn--sm" data-act="sheet-recheck" type="button">다시 확인</button>
+          ${showSheetForm ? '' : `<button class="btn btn--ghost btn--sm" data-act="show-sheet-form" type="button">주소 직접 입력</button>`}
+        </div>
+        ${conn.error ? `<p class="hint" style="color:var(--color-danger);margin:8px 0 0">${h(conn.error)}</p>` : ''}
 
+        ${showSheetForm ? `
+        <form id="sheetsForm" autocomplete="off">
+          <div class="divider"></div>
           <div class="field">
-            <label>Apps Script 웹 앱 URL<span class="req">*</span></label>
+            <label>Apps Script 웹 앱 URL</label>
             <input class="input mono" id="sWebapp" value="${h(settings.sheets_webapp_url)}"
                    placeholder="https://script.google.com/macros/s/.../exec"
                    autocapitalize="off" spellcheck="false" />
-            <span class="hint">
-              팀 공용 주소가 <strong>미리 들어 있습니다.</strong> 새 태블릿도 바로 연결됩니다.
-              다른 스프레드시트로 옮길 때만 바꾸세요. (구글 계정·토큰을 앱에 넣지 않습니다)
-            </span>
           </div>
-
           <div class="field">
             <label>스프레드시트 ID / 링크</label>
             <input class="input mono" id="sSheetId" value="${h(settings.sheets_spreadsheet_id)}"
                    placeholder="링크를 붙여넣으면 ID만 자동 추출" />
-            <span class="hint">기록 위치 확인용입니다. 실제 기록은 위 웹 앱이 담당합니다.</span>
           </div>
-
-          <p class="muted" style="margin:0 0 14px;font-size:.9rem;line-height:1.65">
-            시트가 연결되어 있으면 <strong>차량 재고도 스프레드시트의 [차량재고] 탭과
-            자동 동기화</strong>됩니다. 수량 변경은 즉시 시트에 기록되고,
-            시트에서 직접 고친 내용(차량 이름·품목·수량)도 재고 화면을 열 때 반영됩니다.
-          </p>
-
           <div class="form-actions">
             <button class="btn btn--ghost" data-act="sheets-help" type="button">설치 방법</button>
             <button class="btn btn--ghost" data-act="sheets-test" type="button">연결 테스트</button>
             <button class="btn btn--primary" type="submit">저장</button>
           </div>
-        </div>
-      </form>
+        </form>` : ''}
+      </div>
 
       <div class="panel" id="testResult" style="display:none"></div>
 
-      <details class="panel panel--fold">
-        <summary class="panel__title">기록 방식</summary>
-        <ul class="muted" style="line-height:1.9;padding-left:20px;margin:0">
-          <li>리포트를 업로드하면 <strong>월마다 새 시트</strong>가 만들어집니다. (시트 이름 = <span class="mono">YYYY-MM</span>)</li>
-          <li><strong>1행은 비워 두고</strong>, <strong>2행에 항목명</strong>, <strong>3행부터</strong> 리포트가 한 줄씩 쌓입니다.</li>
-          <li>열 순서는 <a class="link" href="#/fields">항목 설정</a> 순서를 그대로 따릅니다. (앞에 작성일시·작성자 2열)</li>
-          <li><strong>사진·영상은 구글 드라이브</strong>의 [현장 리포트 첨부] 폴더에 저장되고,
-              시트 칸에는 링크가 들어갑니다. 이력 화면에서 미리보기로 볼 수 있습니다.</li>
-          <li>첨부 크기는 한 개 20MB, 리포트 하나당 25MB 까지입니다.</li>
-        </ul>
-      </details>
 
       <div class="panel">
         <h2 class="panel__title">리포트 항목 설정</h2>
-        <p class="muted" style="margin:0 0 14px;line-height:1.65">
-          리포트 입력 항목과 구글 시트 열 순서를 정합니다.
-          <strong>항목은 팀 공통</strong>입니다 — 바꾸면 자동으로 시트의
-          [리포트 항목] 탭을 통해 <strong>모든 기기가 같은 항목</strong>을 씁니다.
-          항목이 바뀌면 그 달 리포트는 <strong>새 탭</strong>에 이어 쌓이고,
-          이미 쌓인 줄은 그대로 남습니다.
-        </p>
-        <a class="btn btn--ghost" href="#/fields">항목 설정 열기</a>
+        <a class="btn btn-secondary" href="#/fields">항목 설정 열기</a>
       </div>
 
       <div class="panel">
         <h2 class="panel__title">올리기 · 받기 상태</h2>
-        <p class="muted" style="margin:0 0 14px;line-height:1.65">
-          <strong>올리기는 자동</strong>입니다 — 재고·리포트·가이드·항목·운행일지를 바꾸면
-          인터넷이 되는 순간 곧바로 시트로 올라갑니다 (오프라인이면 쌓였다가 연결되면
-          올라갑니다). 다른 사람이 바꾼 내용을 받아오려면
-          <strong>화면 오른쪽 위 [새로고침]</strong>을 누르세요.
-        </p>
+        ${state.failed || waiting ? `
         <div class="row" style="gap:8px;margin-bottom:14px">
-          <span class="badge ${state.failed ? 'badge--danger' : (waiting ? 'badge--warn' : 'badge--ok')}">
-            ${state.failed ? `올리지 못한 것 ${waiting}건` : (waiting ? `올리는 중 ${waiting}건` : '시트와 같은 내용')}
+          <span class="badge ${state.failed ? 'badge--danger' : 'badge--warn'}">
+            ${state.failed ? `올리지 못한 것 ${waiting}건` : `올리는 중 ${waiting}건`}
           </span>
-        </div>
+        </div>` : ''}
         <p class="muted" style="margin:0 0 14px;font-size:.9rem">${h(syncSummaryText())}</p>
 
         <div class="divider"></div>
@@ -189,9 +167,7 @@ export async function settingsView(view) {
             <button class="btn btn--primary" data-act="save-name" type="button">등록</button>
           </div>
           <span class="hint" id="nameHint">
-            ${deviceName()
-              ? `지금 <strong>${h(deviceName())}</strong> 로 등록되어 있습니다. 리포트에 작성자로 들어갑니다.`
-              : '아직 등록되지 않았습니다. 이름을 넣고 [등록]을 누르세요. 리포트에 작성자로 들어갑니다.'}
+            ${deviceName() ? `등록됨 · <strong>${h(deviceName())}</strong>` : '아직 등록되지 않았습니다'}
           </span>
         </div>
       </div>
@@ -285,7 +261,7 @@ export async function settingsView(view) {
       }
       setDeviceName(name);
       const hint = $('#nameHint');
-      if (hint) hint.innerHTML = `지금 <strong>${h(name)}</strong> 로 등록되어 있습니다.`;
+      if (hint) hint.innerHTML = `등록됨 · <strong>${h(name)}</strong>`;
       // 화면 머리의 "기기 …" 표시도 함께 맞춘다 (다시 그리지 않고 그 부분만).
       const head = document.querySelector('.page-head__meta');
       if (head) head.innerHTML = head.innerHTML.replace(/기기 [^·]*·/, `기기 ${h(name)} ·`);
@@ -294,6 +270,16 @@ export async function settingsView(view) {
     }
 
     if (act === 'app-update') { startUpdate(); return; }
+    if (act === 'sheet-recheck') {
+      btn.disabled = true;
+      btn.textContent = '확인 중…';
+      const result = await ensureSheetConnection({ force: true });
+      if (result && result.error) toast(result.error, 'err');
+      else if (!result) toast('오프라인입니다. 인터넷이 되는 곳에서 다시 눌러 주세요.', 'err');
+      settingsView(view);
+      return;
+    }
+    if (act === 'show-sheet-form') { sheetFormOpen = true; settingsView(view); return; }
     if (act === 'sheets-test') {
       btn.disabled = true;
       btn.textContent = '테스트 중…';
@@ -329,7 +315,8 @@ export async function settingsView(view) {
     document.querySelector('[data-act="save-name"]').click();
   });
 
-  $('#sheetsForm').addEventListener('submit', async (ev) => {
+  const sheetsForm = $('#sheetsForm');
+  if (sheetsForm) sheetsForm.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const name = $('#sDevice').value.trim();
     setDeviceName(name);

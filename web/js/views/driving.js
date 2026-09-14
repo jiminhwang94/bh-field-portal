@@ -145,10 +145,6 @@ export async function drivingView(view) {
       <div id="pageRoot">
         <div class="page-head">
           <h1 class="page-head__title">차량 운행 일지</h1>
-          <span class="page-head__meta">
-            ③사용일자는 <strong>오늘 날짜가 자동</strong>으로 들어갑니다 ·
-            ⑦주행거리는 ⑥−⑤ 로 자동 계산됩니다
-          </span>
           <span class="page-head__spacer"></span>
           ${current ? `
             ${sheetMode ? `
@@ -293,7 +289,6 @@ export async function drivingView(view) {
             <label>③사용일자<span class="req">*</span>
               <strong id="drvWeekday">(${h(store.weekdayOf(date))})</strong></label>
             <input class="input" id="drvDate" type="date" value="${h(date)}" />
-            <span class="hint">오늘 날짜가 미리 들어가 있습니다 — 그대로 두면 됩니다.</span>
           </div>
           <div class="field">
             <label>④부서</label>
@@ -304,7 +299,6 @@ export async function drivingView(view) {
               ${dept && !options.depts.includes(dept)
                 ? `<option value="${h(dept)}" selected>${h(dept)}</option>` : ''}
             </select>
-            <span class="hint">목록은 [항목 관리]에서 만들고 고치고 지웁니다.</span>
           </div>
         </div>
 
@@ -319,8 +313,6 @@ export async function drivingView(view) {
             <label>⑤주행 전 계기판의 거리(㎞)<span class="req">*</span></label>
             <input class="input tnum" id="drvBefore" inputmode="numeric" autocomplete="off"
                    value="${comma(before)}" placeholder="15,000" />
-            ${isNew && lastOdo !== null
-              ? '<span class="hint">지난번 ⑥주행 후 거리를 넣어 두었습니다.</span>' : ''}
           </div>
           <div class="field">
             <label>⑥주행 후 계기판의 거리(㎞)<span class="req">*</span></label>
@@ -333,7 +325,6 @@ export async function drivingView(view) {
           <label>⑦주행거리(㎞)</label>
           <input class="input tnum" id="drvDistance" value="${comma(row ? row.distance : '')}"
                  readonly aria-readonly="true" />
-          <span class="hint">⑥에서 ⑤를 뺀 값이 저절로 들어갑니다 — 직접 적지 않습니다.</span>
         </div>
 
         <div class="grid-2">
@@ -432,12 +423,7 @@ export async function drivingView(view) {
     return `
       ${optionListHtml('depts', '④부서', options.depts, '예) BS')}
       ${optionListHtml('places', '⑧출발지 · ⑨도착지', options.places, '예) 언주사무실')}
-      <p class="muted" style="font-size:.9rem;line-height:1.65;margin:0">
-        ※ 이 목록은 <strong>팀 공통</strong>입니다. 인터넷이 되는 순간 시트의
-        [운행일지 항목] 탭으로 올라가 모든 기기에 적용됩니다.<br />
-        이름을 고쳐도 <strong>이미 적어 둔 운행 기록은 그대로</strong> 둡니다 —
-        지난 장부를 나중에 바꾸면 안 되기 때문입니다.
-      </p>`;
+      `;
   }
 
   function openOptionManager() {
@@ -516,7 +502,6 @@ export async function drivingView(view) {
         <div class="field">
           <label>②자동차등록번호</label>
           <input class="input" id="vinfoPlate" value="${h(info.plate)}" placeholder="예) 845누5868" />
-          <span class="hint">운행 일지 서식 맨 위에 들어갑니다. 시트 탭에도 같이 적힙니다.</span>
         </div>
         <div class="row" style="margin-top:6px">
           <button class="btn btn-primary" type="submit">저장</button>

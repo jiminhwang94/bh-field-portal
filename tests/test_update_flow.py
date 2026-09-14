@@ -93,7 +93,16 @@ check("URL 이 실제 배포 주소다 (/exec 로 끝나는 script.google.com)",
       and "/exec';" in store_js.split("TEAM_WEBAPP_URL = ")[1][:200])
 check("빈 값·예전 기본값이면 지금 기본값을 따라간다",
       "PAST_WEBAPP_URLS.includes(url)) merged.sheetsWebappUrl = TEAM_WEBAPP_URL" in store_js)
-check("설정 화면이 '미리 들어 있다' 고 말한다", "미리 들어 있습니다" in settings)
+# v3.23 — 말하는 대신 **한다.** 처음 켤 때 공용 주소를 설정에 적어 넣고 연결을 확인한다.
+connect = read("web", "js", "connect.js")
+check("처음 켤 때 공용 주소를 설정에 적어 넣는다",
+      "export async function registerDefaultUrl()" in connect
+      and "await store.saveSettings({ sheetsWebappUrl: store.TEAM_WEBAPP_URL });" in connect)
+check("연결을 확인하고 '연결됐습니다' 를 한 번 알린다",
+      "구글 시트에 연결됐습니다" in connect and "sheetVerifiedAt" in connect)
+check("부팅 때 부른다", "c.ensureSheetConnection()" in read("web", "js", "app.js"))
+check("설정은 주소 칸을 실패했을 때만 보인다",
+      "const showSheetForm = Boolean(conn.error) || sheetFormOpen;" in settings)
 check("빌드가 기록하는 시트 주소와 앱 기본값이 같은 배포다",
       "AKfycbzYFUuzAiKQGTo1QhHw2VvdJD3fs4n0Ab37-ucY_9e3WLecAsSTX8PH1OYS62KK0zAnBg" in store_js)
 
@@ -171,10 +180,9 @@ check("판정이 한 곳(isLow)에만 있다",
       and inv.count("isLow(item)") == 2 and "items.filter(isLow)" in inv
       and "!isLow(i)" in inv)
 check("최소보유 0 은 판정하지 않는다 (안 쓰는 부품)", "i.minQuantity > 0 &&" in inv)
-check("화면 안내도 '적으면' 이라고 적는다",
-      "최소보유보다 적으면 강조 표시됩니다" in inv)
-check("품목 수정 칸이 '같으면 표시하지 않습니다' 를 알려 준다",
-      "(같으면 표시하지 않습니다)" in inv)
+# v3.23 — 설명 문구를 줄였다. 품목 수정 칸의 '보다 적어지면' 한 마디만 남긴다.
+check("품목 수정 칸이 '보다 적어지면' 이라고 적는다",
+      "보다 적어지면</strong> [보충 필요]" in inv)
 
 print()
 print("== 10. 사람에게 보내는 설치 링크 — 주소가 바뀌지 않는다")

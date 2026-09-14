@@ -123,7 +123,8 @@ check("화면이 한도를 sheets.js 에서 가져온다 (숫자를 두 곳에 �
       "import { MEDIA_FILE_LIMIT, MEDIA_TOTAL_LIMIT" in view_js
       and "from '../sheets.js'" in view_js
       and "20 * 1024 * 1024" not in view_js)
-check("[동영상 찍기] 버튼이 있다", 'data-act="record"' in view_js)
+check("[영상 촬영] 타일이 있다", 'data-act="${act}" data-field="${fieldId}"' in view_js
+      and "tile('record', '영상 촬영', ICON_VIDEO)" in view_js)
 check("동영상 촬영 입력은 카메라를 바로 연다",
       'id="mediaRecord" accept="video/*" capture="environment"' in view_js)
 check("고르는 순간 크기를 확인한다 (저장 때 조용히 빼지 않는다)",
@@ -139,8 +140,9 @@ check("붙인 첨부에 크기를 남긴다 (전체 한도 계산용)",
       "originalName: media.originalName, size: media.size," in view_js)
 # 20초는 카메라가 실제로 멈추는 한도다(MainActivity 의 EXTRA_DURATION_LIMIT).
 # 그래서 시간 안내를 써도 거짓이 아니다. 용량 한도는 그대로 함께 적는다.
+# v3.23 — 설명은 한 줄로 줄였지만 한도 둘은 그대로 적는다 (거짓이 아니어야 한다).
 check("안내 문구에 진짜 한도 둘(최대 20초 · 파일당 20MB)이 함께 있다",
-      "동영상은 <strong>최대 20초</strong> · 파일당 ${MEDIA_FILE_LIMIT_TEXT} 까지" in view_js
+      "영상 최대 20초 · 파일 ${MEDIA_FILE_LIMIT_TEXT}" in view_js
       and "EXTRA_DURATION_LIMIT, VIDEO_SECONDS_LIMIT" in read("android", "app", "src", "main", "java",
           "com", "beyondhoneycomb", "fieldportal", "MainActivity.java")
       and "VIDEO_SECONDS_LIMIT = 20" in read("android", "app", "src", "main", "java",

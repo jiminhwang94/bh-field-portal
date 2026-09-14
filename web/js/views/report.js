@@ -19,6 +19,12 @@ import {
 const OLD_DRAFT_KEYS = ['bh_report_draft', 'bh_report_edit_draft'];
 const SEED_KEY = 'bh_report_seed';   // 이력에서 [이어서 작성] 로 넘겨받는 값
 
+const ICON = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+const ICON_CAMERA = ICON('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>');
+const ICON_VIDEO = ICON('<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/>');
+const ICON_ALBUM = ICON('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/>');
+
 /** 이력의 한 건을 새 리포트의 출발점으로 넘긴다. */
 export function seedFromEntry(entry, { edit = false } = {}) {
   sessionStorage.setItem(SEED_KEY, JSON.stringify({
@@ -124,18 +130,42 @@ export async function reportFormView(view) {
   }
 
   /** 이미 드라이브에 있는 첨부 — 새로 올리지 않고 링크만 유지한다. */
+  /**
+   * 이미 올라가 있는 첨부.
+   * 예전에는 <a> 안에 ✕ 버튼이 들어 있었다 — 링크 안의 버튼은 브라우저마다
+   * 어느 쪽이 눌리는지 달라서 "인식 범위가 이상하다" 로 느껴졌다. 열기는 타일을
+   * 덮는 링크 한 장, 지우기는 그 위에 따로 올린 버튼으로 나눈다.
+   */
   function keptTile(fieldId, link, idx) {
     return `
-      <a class="media-tile" href="${h(link.url)}" target="_blank" rel="noopener">
+      <div class="media-tile">
         ${link.id
           ? `<img src="${h(thumbUrl(link.id, 300))}" alt="${h(link.label)}"
                   loading="lazy" onerror="this.classList.add('is-broken')" />`
           : ''}
         <span class="media-tile__none">올라간 첨부</span>
+        <a class="media-tile__open" href="${h(link.url)}" target="_blank" rel="noopener"
+           aria-label="${h(link.label || '첨부')} 열기"></a>
         <button class="media-tile__del" data-act="del-kept" data-field="${fieldId}"
                 data-idx="${idx}" type="button" aria-label="첨부 빼기">✕</button>
         <span class="media-tile__name">${h(link.label || '이미 올림')}</span>
-      </a>`;
+      </div>`;
+  }
+
+  /**
+   * 첨부 붙이기 — 카메라 · 비디오 · 앨범 타일 셋.
+   * 예전에는 글자 버튼 셋이라 입력칸 사이에서 글자처럼 보였다. 첨부는 리포트에서
+   * 가장 자주 하는 일인데 가장 약하게 그려져 있었다.
+   */
+  function mediaPickHtml(fieldId) {
+    const tile = (act, label, icon) => `
+      <button class="media-pick__tile" data-act="${act}" data-field="${fieldId}" type="button">
+        ${icon}<span>${label}</span></button>`;
+    return `<div class="media-pick">
+      ${tile('capture', '사진 촬영', ICON_CAMERA)}
+      ${tile('record', '영상 촬영', ICON_VIDEO)}
+      ${tile('pick', '앨범 · 파일', ICON_ALBUM)}
+    </div>`;
   }
 
   function fieldHtml(field) {
@@ -146,27 +176,13 @@ export async function reportFormView(view) {
       return `
         <div class="field field--wide" data-field-id="${field.id}">
           ${label}
-          <div class="row">
-            <button class="btn btn--ghost" data-act="capture" data-field="${field.id}" type="button">사진 촬영</button>
-            <button class="btn btn--ghost" data-act="record" data-field="${field.id}" type="button">영상 촬영</button>
-            <button class="btn btn--ghost" data-act="pick" data-field="${field.id}" type="button">앨범 · 파일</button>
-            <span class="badge">${state.kept.length + state.media.length}개 첨부</span>
-          </div>
-          <p class="hint" style="margin:6px 0 0">
-            사진은 자동으로 줄여 올립니다 ·
-            동영상은 <strong>최대 20초</strong> · 파일당 ${MEDIA_FILE_LIMIT_TEXT} 까지
-            · 리포트 전체 ${MEDIA_TOTAL_LIMIT_TEXT}
-          </p>
+          ${mediaPickHtml(field.id)}
+          <span class="hint" style="margin-top:6px">영상 최대 20초 · 파일 ${MEDIA_FILE_LIMIT_TEXT} · 첨부 ${state.kept.length + state.media.length}개</span>
           ${state.kept.length || state.media.length ? `
             <div class="media-grid">
               ${state.kept.map((l, i) => keptTile(field.id, l, i)).join('')}
               ${state.media.map((m, i) => mediaTile(field.id, m, i)).join('')}
             </div>` : ''}
-          ${state.kept.length ? `<span class="hint">
-            이미 올라가 있는 첨부 ${state.kept.length}개는 그대로 유지됩니다.
-            빼려면 ✕ 를 누르세요.</span>` : ''}
-          <span class="hint">사진·영상은 <strong>구글 드라이브에 저장</strong>되고 시트에는 링크가 들어갑니다.
-            이력 화면에서 미리보기로 볼 수 있습니다. (한 개 20MB, 리포트당 25MB 까지)</span>
         </div>`;
     }
     if (field.fieldType === 'TEXTAREA') {
@@ -193,9 +209,7 @@ export async function reportFormView(view) {
       <div id="pageRoot">
         <div class="page-head">
           <h1 class="page-head__title">${editingLink ? '리포트 수정' : '새 현장 리포트'}</h1>
-          <span class="page-head__meta">${editingLink
-            ? `${h(editingLink.sheetName)} 시트 <span class="tnum">${editingLink.row}</span>행을 고쳐 씁니다 — 새 줄이 생기지 않습니다`
-            : '새 리포트는 언제나 빈 화면에서 시작합니다'}</span>
+          ${editingLink ? `<span class="page-head__meta">${h(editingLink.sheetName)} 시트 <span class="tnum">${editingLink.row}</span>행 수정</span>` : ''}
           <span class="page-head__spacer"></span>
           <a class="btn btn-secondary" href="#/fields">항목 설정</a>
         </div>
@@ -208,8 +222,7 @@ export async function reportFormView(view) {
 
             <div class="form-actions">
               <span class="page-head__meta" style="margin-right:auto">
-                ${sheetsReady
-                  ? '올리면 공유 스프레드시트의 이번 달 시트에 한 줄로 기록됩니다'
+                ${sheetsReady ? ''
                   : '<span style="color:var(--color-danger);font-weight:600">구글 시트 연결이 아직 없습니다 — 설정에서 먼저 연결하세요</span>'}
               </span>
               <button class="btn btn-secondary" data-act="save-draft" type="button">임시보관</button>
@@ -277,9 +290,6 @@ export async function reportFormView(view) {
               </button>`;
           }).join('')}
         </div>
-        <p class="hint" style="margin:10px 0 0">
-          눌러서 그때 무엇을 했는지 볼 수 있습니다. 기기에 받아 둔 이력에서 찾으므로 오프라인에서도 됩니다.
-        </p>
       </div>`;
     box.querySelectorAll('[data-act="visit"]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -403,7 +413,6 @@ export async function reportFormView(view) {
       return;
     }
     if (act === 'del-kept') {
-      ev.preventDefault();          // <a> 안의 버튼이라 링크 이동을 막는다
       values[btn.dataset.field].kept.splice(Number(btn.dataset.idx), 1);
       render();
       return;
@@ -417,7 +426,7 @@ export async function reportFormView(view) {
       btn.disabled = true;
       const saved = await persist({ requireComplete: false });
       if (saved) {
-        toast('저장했습니다. [ 리포트]에서 다시 열 수 있습니다.', 'ok');
+        toast('기기에 저장했습니다. [이력] 에서 다시 열 수 있습니다.', 'ok');
       }
       btn.disabled = false;
       return;
@@ -916,7 +925,7 @@ export async function reportListView(view) {
       <div id="pageRoot" style="display:flex;flex-direction:column;gap:var(--space-4);flex:1;min-height:0">
         <div class="page-head">
           <h1 class="page-head__title">리포트 이력</h1>
-          <span class="page-head__meta">구글 시트의 팀 전체 기록 · <span id="histMeta"></span></span>
+          <span class="page-head__meta"><span id="histMeta"></span></span>
           <span class="page-head__spacer"></span>
           <select class="select" id="histMonth" aria-label="월 선택"></select>
         </div>
@@ -929,7 +938,7 @@ export async function reportListView(view) {
         <div id="histBody" style="display:flex;flex-direction:column;gap:var(--space-3);flex:1;min-height:0"></div>
 
         <div class="page-head">
-          <span class="page-head__meta">상태 변경은 시트에 즉시 기록 · 오프라인이면 대기 후 자동 전송</span>
+          <span class="page-head__meta"></span>
           <span class="page-head__spacer"></span>
           <span class="tag tag-neutral" id="histSync"></span>
         </div>
@@ -1076,7 +1085,6 @@ export async function reportDetailView(view, reportId) {
     <div id="pageRoot">
       <div class="page-head">
         <div>
-          <a class="back" href="#/reports">← 리포트 이력</a>
           <h1 class="page-head__title">${h(report.title)}</h1>
         </div>
         <span class="page-head__meta">

@@ -20,6 +20,7 @@ const routes = [
   [/^\/search$/, searchView],
   [/^\/guides\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD)$/, (m) => guideListView(view, m[1])],
   [/^\/guides\/new\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD)$/, (m) => guideEditView(view, null, m[1])],
+  [/^\/guides\/new$/, () => guideEditView(view, null, null)],   // 종류는 폼 안에서 고른다
   [new RegExp(`^/guides/edit/(${HEX})$`), (m) => guideEditView(view, m[1])],
   [new RegExp(`^/guides/(${HEX})$`), (m) => guideDetailView(view, m[1])],
   [/^\/inventory$/, () => inventoryView(view)],
@@ -53,17 +54,41 @@ function paintTabs(path) {
   });
 }
 
+/**
+ * 상단바 오른쪽 — 새 리포트 화면에서는 [새로고침] 자리에 [구글 시트로 업로드] 가 온다.
+ *
+ * 업로드 버튼이 폼 맨 아래에만 있어 항목이 많으면 스크롤해 내려가야 보였다.
+ * 그 화면에서 새로고침은 쓸 일이 거의 없으므로 자리를 내준다. 글자는 폼의
+ * 실제 버튼에서 가져온다 (새 리포트 '구글 시트로 업로드' · 수정 '시트에 저장').
+ */
+function paintTopAction(path) {
+  const onReport = path.startsWith('/report/');
+  const action = $('#btn-topaction');
+  const refresh = $('#btn-update');
+  if (action) action.hidden = !onReport;
+  if (refresh) refresh.hidden = onReport;
+}
+
+/** 폼이 그려진 뒤 상단바 버튼 글자를 폼의 버튼과 맞춘다. */
+function syncTopActionLabel() {
+  const action = $('#btn-topaction');
+  const submit = document.querySelector('#reportForm button[type=submit]');
+  if (action && submit) action.textContent = submit.textContent.trim();
+}
+
 async function render() {
   const { path, query } = parseHash();
   closeModal();   // 화면을 이동하면 열려 있던 모달/시트를 닫는다
   $('#backBtn').hidden = (path === '/' || path === '');
   paintTabs(path);
+  paintTopAction(path);
   view.scrollTop = 0;
   for (const [pattern, handler] of routes) {
     const match = pattern.exec(path);
     if (match) {
       try {
         await handler(match, query);
+        syncTopActionLabel();
       } catch (err) {
         console.error(err);
         errorView(view, err.message || '알 수 없는 오류가 발생했습니다.');
@@ -101,10 +126,8 @@ async function mainView() {
                enterkeyhint="search" aria-label="통합 검색"
                placeholder="오류 코드 · 부품명 · 증상 · 명령어" />
         <button class="btn btn-primary" type="submit">검색</button>
+        <a class="btn btn-secondary" href="#/guides/new">＋ 가이드 작성</a>
       </form>
-      <div class="search-hint">
-        코드 · 부품명 · 증상 · 명령어를 한 칸에서 함께 찾습니다 · 오프라인에서도 동작
-      </div>
     </section>
 
     ${codes.length ? `
@@ -229,7 +252,6 @@ async function searchView(_match, query) {
   view.innerHTML = `
     <div class="page-head">
       <div>
-        <a class="back" href="#/">← 홈</a>
         <h1 class="page-head__title">검색 결과</h1>
       </div>
       <span class="page-head__meta">"${h(q)}" · <span class="tnum">${items.length}</span>건 — 코드 · 요약 · 공구 · 단계 · 명령어를 전부 훑습니다</span>
@@ -254,6 +276,15 @@ $('#backBtn').addEventListener('click', () => {
   else location.hash = '#/';
 });
 
+// 상단바의 [구글 시트로 업로드] — 폼 아래 버튼을 대신 눌러 준다.
+// 저장 규칙(필수 칸·첨부 한도)은 폼 쪽 한 곳에만 있어야 어긋나지 않는다.
+$('#btn-topaction').addEventListener('click', () => {
+  const submit = document.querySelector('#reportForm button[type=submit]');
+  if (!submit) return;
+  if (submit.disabled) { toast('저장 중입니다. 잠시만 기다려 주세요.'); return; }
+  submit.click();
+});
+
 window.addEventListener('hashchange', render);
 
 // 화면을 **먼저** 띄운다. 시트에서 받아오는 일은 뒤에서 한다.
@@ -264,54 +295,15 @@ window.addEventListener('hashchange', render);
   render();
   if (added) render();                     // 붙박이 항목이 방금 들어왔으면 한 번 더
   catchUpFromSheet();                      // 시트 최신본은 뒤에서 조용히
+  // 시트 연결 — 주소가 비어 있으면 공용 주소를 적어 넣고, 처음이면 확인해 알린다.
+  import('./connect.js').then((c) => c.ensureSheetConnection()).catch(() => {});
 })();
 registerServiceWorker();       // 오프라인에서 앱이 열리도록
 initUpdateBanner();            // 새 버전 안내 띠 (지난번 받아 둔 정보로 먼저 그린다)
 initNetStatus();               //  오프라인 표시 + 대기 작업 자동 처리
 initSyncButton();
 initInstallBanner();
-showFirstRunGuide();
 
-/** 처음 쓰는 사람에게 "올리기는 자동, 새로고침은 받기" 를 1회만 설명한다. */
-function showFirstRunGuide() {
-  const KEY = 'bh_intro_done';
-  if (localStorage.getItem(KEY)) return;
-  setTimeout(() => {
-    if (localStorage.getItem(KEY) || document.querySelector('.modal')) return;
-    const body = openSheet('처음 오셨네요', `
-      <p class="muted" style="margin:0 0 14px;line-height:1.7">
-        이 앱은 <strong>가이드·재고·리포트·항목</strong>을 팀이 구글 시트 하나로 함께 씁니다.
-        딱 두 가지만 알면 됩니다.
-      </p>
-      <div class="sub-card" style="margin-bottom:10px">
-        <strong>내가 고친 내용은 자동으로 올라갑니다</strong>
-        <p class="muted" style="margin:6px 0 0;font-size:.9rem">
-          가이드·재고·리포트·항목을 바꾸면 인터넷이 되는 순간 바로 시트로 올라가요.
-          따로 누를 것이 없습니다. 오프라인이면 쌓였다가 연결되면 올라갑니다.
-        </p>
-      </div>
-      <div class="sub-card" style="margin-bottom:10px">
-        <strong>상단 [새로고침] 은 다른 사람이 바꾼 것을 받아옵니다</strong>
-        <p class="muted" style="margin:6px 0 0;font-size:.9rem">
-          앱을 열 때 한 번 받아옵니다. 그 뒤로는 <strong>이 버튼을 누를 때만</strong> 받아와요 —
-          적는 중에 화면이 저절로 바뀌지 않게 하기 위해서입니다.
-        </p>
-      </div>
-      <div class="sub-card">
-        <strong>상단의 작은 칩은 밀린 것이 있을 때만 숫자를 보입니다</strong>
-        <p class="muted" style="margin:6px 0 0;font-size:.9rem">
-          오프라인이거나 올리기가 실패했을 때예요. 누르면 무엇이 밀려 있는지 보고, 되돌릴 수 있습니다.
-        </p>
-      </div>
-      <div class="form-actions">
-        <button class="btn btn--primary btn--xl" type="button" data-act="close">
-          알겠습니다
-        </button>
-      </div>`);
-    localStorage.setItem(KEY, '1');
-    return body;
-  }, 1500);
-}
 
 /** 앱 화면 파일을 기기에 담아 두어 인터넷 없이도 앱이 열리게 한다. */
 async function registerServiceWorker() {

@@ -132,8 +132,10 @@ check("시트가 비어 있어도 기기 것을 지우지 않는다",
       "if (!rows.length && !vehicleName) return { changed, added, removed };" in sheet)
 check("받은 차량 범위 안에서만 견준다 (다른 차량을 지우지 않게)",
       "scope.includes(r.vehicleName)" in sheet)
+# 화면에서는 이 사실을 글로 말하지 않는다 (v3.23 — 설명 문구 정리). 동작으로만 지킨다.
 check("선택지는 팀 공통이다 (시트 [운행일지 항목] 탭)",
-      "DRIVING_OPTION_SHEET = '운행일지 항목'" in gs and "팀 공통" in view)
+      "DRIVING_OPTION_SHEET = '운행일지 항목'" in gs
+      and "type: 'drivesheet-options'" in store)
 
 print()
 print("== 6. 화면에 붙어 있다")

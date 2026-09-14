@@ -104,8 +104,8 @@ export async function inventoryView(view) {
   function countText() {
     const shown = visibleItems().length;
     const filtering = Boolean(query.trim()) || lowOnly;
-    return `${sheetMode ? '시트 연결됨' : '기기에만 저장'} · 품목 `
-      + (filtering ? `${shown} / ${items.length}종` : `${items.length}종`);
+    // '시트 연결됨' 은 적지 않는다 — 정상은 말할 필요가 없다 (상단바가 문제만 알린다).
+    return `품목 ${filtering ? `${shown} / ${items.length}종` : `${items.length}종`}`;
   }
 
   /**
@@ -134,7 +134,6 @@ export async function inventoryView(view) {
       <div id="pageRoot">
         <div class="page-head">
           <h1 class="page-head__title">차량 재고</h1>
-          <span class="page-head__meta">수량을 바꾸면 바로 시트에 올라갑니다 — 따로 누를 것이 없습니다</span>
           <span class="page-head__spacer"></span>
           ${current ? `
             ${sheetMode ? `
@@ -163,7 +162,7 @@ export async function inventoryView(view) {
 
           <div class="page-head">
             <span class="page-head__meta">
-              ${lowCount ? `보충 필요 <span class="tnum is-low">${lowCount}</span>건 · ` : ''}최소보유보다 적으면 강조 표시됩니다
+              ${lowCount ? `보충 필요 <span class="tnum is-low">${lowCount}</span>건` : ''}
             </span>
             <span class="page-head__spacer"></span>
             <span class="tag tag-neutral" id="invCount">${countText()}</span>
@@ -369,8 +368,7 @@ export async function inventoryView(view) {
           <div class="field">
             <label>최소 보유 수량</label>
             <input class="input" id="invMin" type="number" min="0" inputmode="numeric" value="${item ? item.minQuantity : 0}" />
-            <span class="hint">이 수량<strong>보다 적어지면</strong> [보충 필요]로 표시됩니다 (같으면 표시하지 않습니다).
-              (바꾸면 시트에 자동으로 올라갑니다)</span>
+            <span class="hint">이 수량<strong>보다 적어지면</strong> [보충 필요]</span>
           </div>
         </div>
         <div class="form-actions">

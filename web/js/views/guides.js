@@ -91,11 +91,8 @@ export async function guideListView(view, categoryType) {
 
   view.innerHTML = `
     <div class="page-head">
-      <div>
-        <a class="back" href="#/">← 홈</a>
-        <h1 class="page-head__title">${h(meta.label)}</h1>
-      </div>
-      <span class="page-head__meta">${h(meta.desc)} · 총 <span class="tnum">${items.length}</span>건</span>
+      <h1 class="page-head__title">${h(meta.label)}</h1>
+      <span class="page-head__meta"><span class="tnum">${items.length}</span>건</span>
       <span class="page-head__spacer"></span>
       <a class="btn btn-primary" href="#/guides/new/${categoryType}">＋ 가이드 작성</a>
     </div>
@@ -167,7 +164,6 @@ export async function guideDetailView(view, guideId) {
     <div id="pageRoot">
     <div class="page-head">
       <div>
-        <a class="back" href="#/guides/${guide.categoryType}">← ${h(meta.label)}</a>
         <h1 class="page-head__title">${h(guide.codeOrTitle)}</h1>
       </div>
       <span class="page-head__spacer"></span>
@@ -392,34 +388,31 @@ export async function guideEditView(view, guideId, categoryType) {
   function render() {
     view.innerHTML = `
       <div class="page-head">
-        <div>
-          <a class="back" href="#/guides/${state.categoryType}">← 목록</a>
-          <h1 class="page-head__title">${guideId ? '가이드 수정' : '새 가이드 작성'}</h1>
-        </div>
-        <span class="page-head__meta">저장 즉시 모든 기기에 공유됩니다</span>
+        <h1 class="page-head__title">${guideId ? '가이드 수정' : '새 가이드 작성'}</h1>
       </div>
       <form id="guideForm" autocomplete="off">
         <div class="panel">
-          <div class="grid-2">
-            <div class="field">
-              <label>카테고리<span class="req">*</span></label>
-              <select class="select" id="gCategory">
-                ${Object.entries(CATEGORY).map(([type, meta]) =>
-                  `<option value="${type}" ${state.categoryType === type ? 'selected' : ''}>${meta.emoji} ${h(meta.label)}</option>`).join('')}
-              </select>
+          <div class="field">
+            <label>종류<span class="req">*</span></label>
+            <!-- 홈의 [＋ 가이드 작성] 으로 바로 들어오면 여기서 고른다.
+                 작은 선택칸 대신 손가락 크기의 버튼 셋 — 첫 칸에서 헤매지 않게. -->
+            <input type="hidden" id="gCategory" value="${h(state.categoryType)}" />
+            <div class="type-pick">
+              ${Object.entries(CATEGORY).map(([type, meta]) => `
+                <button class="btn btn-secondary${state.categoryType === type ? ' is-on' : ''}"
+                        data-act="pick-type" data-type="${type}" type="button"
+                        aria-pressed="${state.categoryType === type}">${h(meta.label)}</button>`).join('')}
             </div>
-            <div class="field">
-              <label>오류 코드 / 제목<span class="req">*</span></label>
-              <input class="input" id="gTitle" value="${h(state.codeOrTitle)}"
-                     placeholder="예) E-101 로더 모터 과전류" />
-            </div>
+          </div>
+          <div class="field">
+            <label>오류 코드 / 제목<span class="req">*</span></label>
+            <input class="input" id="gTitle" value="${h(state.codeOrTitle)}"
+                   placeholder="예) E-101 로더 모터 과전류" />
           </div>
           <div class="field">
             <label>준비 공구 · 부품</label>
             <input class="input" id="gTools" value="${h(state.requiredTools)}"
                    placeholder="쉼표로 구분 · 예) 멀티미터, 육각 렌치 3mm" />
-            <span class="hint">쉼표(,)로 구분해 적으세요.
-              상세 화면에서 태그로 보이고, <strong>아래 단계마다 여기서 골라</strong> 씁니다.</span>
           </div>
         </div>
 
@@ -478,7 +471,7 @@ export async function guideEditView(view, guideId, categoryType) {
                     <button class="btn btn--ghost btn--sm" data-act="step-pick" data-idx="${i}" type="button">앨범 · 파일</button>
                     ${s.imageUrl ? `<button class="btn btn--danger btn--sm" data-act="clear-image" data-idx="${i}" type="button">첨부 제거</button>` : ''}
                   </div>
-                  <span class="hint">단계마다 하나씩 붙습니다 · 영상은 <strong>최대 20초</strong></span>
+                  <span class="hint">영상 최대 20초</span>
                 </div>
               </div>`).join('')}
           </div>
@@ -545,6 +538,15 @@ export async function guideEditView(view, guideId, categoryType) {
       collect();
       [state.steps[idx + 1], state.steps[idx]] = [state.steps[idx], state.steps[idx + 1]];
       render();
+    }
+    if (act === 'pick-type') {
+      $('#gCategory').value = btn.dataset.type;
+      $$('.type-pick .btn').forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-pressed', String(on));
+      });
+      return;
     }
     if (act === 'clear-image') { collect(); state.steps[idx].imageUrl = ''; render(); }
     // 리포트와 같은 세 가지 — 찍기(사진) · 찍기(영상) · 앨범에서 고르기.

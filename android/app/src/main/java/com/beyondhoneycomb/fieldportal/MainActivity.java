@@ -158,16 +158,43 @@ public class MainActivity extends AppCompatActivity {
             webView.restoreState(savedInstanceState);
         }
 
-        // 뒤로가기: 앱 안에서 먼저 뒤로 이동하고, 더 없으면 앱을 닫는다.
+        // 뒤로가기.
+        //  · 홈이 아니면 앱 안에서 뒤로 (화면 기록을 따라간다)
+        //  · 홈이면 "한 번 더 누르면 종료" 를 띄우고, 2초 안에 다시 누르면 닫는다
+        // 예전에는 기록이 없을 때만 닫았는데, 이 앱은 화면을 옮길 때마다 기록이 쌓여
+        // 그 순간이 거의 오지 않았다 — 몇 번을 눌러도 홈 근처를 맴돌았다.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            private long lastHomeBackAt = 0L;
+
             @Override
             public void handleOnBackPressed() {
-                if (webView.canGoBack()) {
+                if (!isOnHome() && webView.canGoBack()) {
                     webView.goBack();
-                } else {
+                    return;
+                }
+                if (!isOnHome()) {
+                    webView.loadUrl(APP_URL);          // 기록이 없으면 홈으로
+                    return;
+                }
+                long now = System.currentTimeMillis();
+                if (now - lastHomeBackAt < 2000L) {
                     setEnabled(false);
                     getOnBackPressedDispatcher().onBackPressed();
+                    return;
                 }
+                lastHomeBackAt = now;
+                android.widget.Toast.makeText(MainActivity.this,
+                        "한 번 더 누르면 앱이 종료됩니다", android.widget.Toast.LENGTH_SHORT).show();
+            }
+
+            /** 주소의 해시가 없거나 #/ 이면 홈이다 (앱은 해시 라우터를 쓴다). */
+            private boolean isOnHome() {
+                String url = webView.getUrl();
+                if (url == null) return true;
+                int hash = url.indexOf('#');
+                if (hash < 0) return true;
+                String route = url.substring(hash + 1);
+                return route.isEmpty() || route.equals("/") || route.startsWith("/?");
             }
         });
     }
