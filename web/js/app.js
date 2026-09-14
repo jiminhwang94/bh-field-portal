@@ -131,7 +131,7 @@ async function mainView() {
     </section>
 
     ${codes.length ? `
-      <section class="quick-block">
+      <section class="quick-block home-card">
         <div class="label">자주 찾는 코드</div>
         <div class="code-grid">
           ${codes.map((g) => `
@@ -141,11 +141,11 @@ async function mainView() {
       </section>` : ''}
 
     ${month ? `
-      <section class="quick-block">
+      <section class="quick-block home-card">
         <div class="label">${h(month.name)} 처리 현황</div>
         <div class="home-stats">
           ${month.tiles.map((t) => `
-            <a class="stat ${t.n && t.open ? 'is-active' : ''}" href="#/reports">
+            <a class="stat" data-track="${t.cls}" href="#/reports">
               <span class="stat__n tnum">${t.n}</span>
               <span class="stat__label">${h(t.label)}</span>
             </a>`).join('')}
@@ -155,13 +155,13 @@ async function mainView() {
     <hr class="hr" />
 
     <div class="home-split">
-      <section class="recent">
+      <section class="recent home-card">
         <div class="label">최근 수정된 가이드</div>
         ${recent.length ? `<div class="recent__list">${recent.map(recentRow).join('')}</div>`
           : '<div class="empty">등록된 가이드가 없습니다.</div>'}
       </section>
 
-      <section class="scope">
+      <section class="scope home-card">
         <div class="label">가이드 종류</div>
         <div class="seg" style="grid-template-columns:1fr">
           ${Object.entries(CATEGORY).map(([type, meta]) => `
@@ -201,6 +201,8 @@ async function monthSummary() {
     if (!cached || !(cached.entries || []).length) return null;
 
     const order = ['조치 진행 중', '교체 예정', '모니터링', '조치 완료'];
+    // 이력 화면의 상태 색과 같은 이름표 — 같은 뜻에 같은 색.
+    const cls = { '조치 진행 중': 'doing', '교체 예정': 'swap', '모니터링': 'watch', '조치 완료': 'done' };
     const count = {};
     for (const entry of cached.entries) {
       count[entry.status] = (count[entry.status] || 0) + 1;
@@ -209,7 +211,7 @@ async function monthSummary() {
       name,
       // 아직 안 끝난 것을 왼쪽에 둔다 — 홈에서 먼저 눈에 들어와야 하는 값이다.
       tiles: order.map((label) => ({
-        label, n: count[label] || 0, open: label !== '조치 완료',
+        label, n: count[label] || 0, open: label !== '조치 완료', cls: cls[label],
       })),
     };
   } catch {

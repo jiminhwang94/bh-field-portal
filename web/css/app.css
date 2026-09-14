@@ -1116,6 +1116,28 @@ iframe.step__img--edit, video.step__img--edit { width: 260px; height: 150px; }
 /* 11-나. 상단바 칩은 문제가 있을 때만 보인다. */
 .sync[hidden] { display: none; }
 
+/* 홈 — 구획마다 흰 카드. 바탕과 같은 색이라 '자주 찾는 코드' '최근 수정된 가이드'
+   '가이드 종류' 가 어디서 시작하고 끝나는지 보이지 않았다. */
+.home-card {
+  background: var(--color-bg); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: 18px 20px;
+  box-shadow: var(--shadow-raise);
+}
+.home-card > .label { color: var(--color-text); font-size: 15px; }
+.hr { display: none; }                       /* 카드가 구획을 나누므로 가로선은 뺀다 */
+.home-split { gap: var(--space-4); }
+.recent__row { background: var(--color-surface); border-radius: var(--radius-md); }
+.recent__row:hover { background: var(--color-accent-tint); }
+.scope .seg-opt { background: var(--color-surface); }
+/* 처리 현황 — 이력 화면과 같은 상태 색 띠. 첫 타일만 파랗던 규칙은 뺀다. */
+.home-stats .stat:first-child { background: var(--color-bg); }
+.home-stats .stat:first-child .stat__n, .home-stats .stat:first-child .stat__label { color: inherit; }
+.home-stats .stat[data-track] .stat__n { color: var(--color-text); }
+.home-stats .stat[data-track="doing"] .stat__n { color: var(--color-warn); }
+.home-stats .stat[data-track="swap"]  .stat__n { color: var(--color-danger); }
+.home-stats .stat[data-track="watch"] .stat__n { color: var(--color-accent); }
+.home-stats .stat[data-track="done"]  .stat__n { color: var(--color-ok); }
+
 /* 남이 올린 새 내용이 있다 — [새로고침] 에 점. 누를 때까지 화면은 그대로다. */
 .btn-update.has-new::before {
   content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
