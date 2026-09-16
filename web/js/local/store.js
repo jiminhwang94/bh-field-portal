@@ -1126,7 +1126,7 @@ export async function compactOutbox() {
  * 바꿀 수 있고, 그때는 시트도 **새 탭**에 새로 시작한다 (기존 탭은 그대로 둔다).
  */
 export const DEFAULT_FIELDS = [
-  { fieldLabel: '방문 식당명', fieldType: 'TEXT', options: null, isRequired: true },
+  { fieldLabel: '매장명', fieldType: 'TEXT', options: null, isRequired: true },
   { fieldLabel: '로봇 시리얼', fieldType: 'TEXT', options: null, isRequired: true },
   { fieldLabel: '오류 코드', fieldType: 'TEXT', options: null, isRequired: false },
   { fieldLabel: '증상 요약', fieldType: 'TEXTAREA', options: null, isRequired: true },

@@ -505,7 +505,7 @@ check('여러 번 왕복해도 건수가 늘지 않는다', twice.items.length =
 
 // ─────────────────────────────────────────────── 리포트 이력
 
-const HEADERS = ['작성일시', '작성자', '방문 식당명', '오류 코드', '현장 사진', '상태'];
+const HEADERS = ['작성일시', '작성자', '매장명', '오류 코드', '현장 사진', '상태'];
 result = call({
   sheetName: '2026-09', headers: HEADERS,
   row: ['2026-09-02 10:00', '황지민', '미트로 강남점', 'E-101', '', '조치 진행 중'],
@@ -553,8 +553,8 @@ check('올린 리포트를 지울 수 있다', result.ok === true, result.error 
 result = call({ reports: 'pull', sheetName: '2026-09' });
 check('지운 뒤 한 건만 남는다', result.rows.length === 1, `${result.rows.length}건`);
 check('남은 것은 지우지 않은 쪽이다',
-      result.rows[0].cells[HEADERS.indexOf('방문 식당명')] === '버거킹 판교점',
-      result.rows[0].cells[HEADERS.indexOf('방문 식당명')]);
+      result.rows[0].cells[HEADERS.indexOf('매장명')] === '버거킹 판교점',
+      result.rows[0].cells[HEADERS.indexOf('매장명')]);
 check('지운 뒤 줄 번호가 다시 매겨진다', result.rows[0].row === 3,
       `${result.rows[0].row}행`);
 
@@ -637,7 +637,7 @@ check('사진을 영상으로 잘못 보지 않는다',
 // 수정할 때 기존 첨부를 지키고 새 것만 덧붙인다
 const NL = String.fromCharCode(10);
 const splitLines = (cell) => String(cell).split(NL).filter(Boolean);
-const MEDIA_HEADERS = ['작성일시', '작성자', '방문 식당명', '현장 사진', '상태'];
+const MEDIA_HEADERS = ['작성일시', '작성자', '매장명', '현장 사진', '상태'];
 result = call({
   sheetName: '2026-10', headers: MEDIA_HEADERS,
   row: ['2026-10-01 09:00', '황지민', '옥동식 서초점', '', '조치 진행 중'],
