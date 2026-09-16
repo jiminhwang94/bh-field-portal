@@ -41,6 +41,12 @@ export async function ensureFirstData() {
   // 깔면 항목이 하나도 없었다.
   const added = await store.ensureDefaultFields();
   if (added) toast(`리포트 항목 ${added}개를 준비했습니다.`, 'ok');
+  // 기본 순서를 한 번 맞춘다 (그 뒤로는 기기에서 옮긴 순서를 지킨다).
+  // 갑자기 칸 자리가 바뀌면 놀라므로, 실제로 바뀐 경우에만 알려 준다.
+  const moved = await store.applyDefaultFieldOrderOnce();
+  if (!added && moved) {
+    toast('리포트 항목을 기본 순서로 맞췄습니다. 원하는 대로 다시 옮길 수 있습니다.', 'ok');
+  }
   return added;
 }
 

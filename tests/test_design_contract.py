@@ -205,6 +205,14 @@ check("항목 순서는 기기에만 남는다 (시트로 올리지 않는다)",
       "queueFieldSheetPushIfOn" not in _reorder
       and "displayOrder: found ? found.displayOrder" in _fieldsheet,
       "순서를 올리면 남이 옮길 때 내 양식이 날아간다")
+check("리포트 번호가 첫 칸이다 (기본 순서)",
+      _store_js.index("fieldLabel: '리포트 번호'") < _store_js.index("fieldLabel: '매장명'"),
+      "접수 건을 먼저 골라야 나머지 칸이 정해진다")
+check("기본 순서는 한 번만 깔고 그 뒤 기기 순서를 지킨다",
+      "applyDefaultFieldOrderOnce" in _store_js
+      and "applyDefaultFieldOrderOnce" in read("web/js/net.js")
+      and "FIELD_ORDER_BASELINE_KEY" in _store_js,
+      "매번 깔면 기기에서 옮긴 순서가 다시 날아간다")
 check("항목을 더하고 지우는 것은 팀 공통이다",
       "queueFieldSheetPushIfOn" in _store_js and "const removed = new Set(edits" in _fieldsheet,
       "순서만 빼는 것이지 추가·삭제까지 끊으면 안 된다")
