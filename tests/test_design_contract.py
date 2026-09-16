@@ -189,14 +189,19 @@ check("비어 있을 때만 채운다",
 check("첫 실행에 기본 항목을 넣는다", "store.ensureDefaultFields()" in read("web/js/net.js"))
 
 gs = read("google-apps-script.gs")
-# v3.11: 한 달은 탭 하나. 항목이 달라지면 탭을 새로 만들지 않고
-# 같은 탭 맨 아래에 새 항목 줄을 넣고 그 아래로 쌓는다.
+# v3.11: 한 달은 탭 하나. 항목이 달라지면 탭을 새로 만들지 않는다.
+# v3.26: 표도 하나다 — 항목 이름으로 열을 맞추고, 새 항목은 제자리에 열을
+# 끼워 넣는다. 예전 판이 갈라 놓은 항목 묶음은 업로드 때 하나로 합친다.
 check("한 달은 탭 하나다 (갈라 만들지 않는다)",
       "function openMonthSheet" in gs and "function pickReportSheet" not in gs
       and "baseName + ' (' + n + ')'" not in gs,
       "예전에는 2026-09 (2) 처럼 탭을 갈랐다")
-check("항목이 달라지면 같은 탭에 새 항목 줄을 넣는다",
-      "function placeForRow" in gs and "writeHeaders(sheet, headers, headRow)" in gs)
+check("항목이 달라져도 표는 하나다 (이름으로 열을 맞춘다)",
+      "function placeForRow" in gs and "sheetHead.indexOf(name)" in gs
+      and "insertColumnAfter" in gs,
+      "예전에는 항목이 바뀔 때마다 탭 아래에 새 항목 줄을 만들었다")
+check("갈라진 탭은 업로드 때 표 하나로 합쳐진다",
+      "function consolidateIfSplit" in gs and "consolidateIfSplit(sheet)" in gs)
 check("항목 줄은 첫 칸이 작성일시 인 것으로 알아본다",
       "function isHeaderRow" in gs and "REPORT_FIRST_HEADER" in gs,
       "자료 줄의 첫 칸은 실제 시각이라 헷갈리지 않는다")
