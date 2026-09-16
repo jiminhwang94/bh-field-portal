@@ -187,6 +187,16 @@ check("비어 있을 때만 채운다",
       "export async function ensureDefaultFields" in store_js
       and "if ((await idb.count('fields')) > 0) return 0;" in store_js)
 check("첫 실행에 기본 항목을 넣는다", "store.ensureDefaultFields()" in read("web/js/net.js"))
+# 항목은 ID 가 아니라 **이름**이 기준이다. ID 로만 맞추면 기기마다 ID 가 달라
+# 같은 항목이 시트에 두 줄로 쌓인다 ([로봇 모델] 이 실제로 그랬다).
+_fieldsheet = read("web/js/fieldsheet.js")
+check("같은 이름의 항목은 시트에 두 줄로 쌓이지 않는다",
+      "function dedupeFieldsByLabel" in read("google-apps-script.gs")
+      and "labelKey" in _fieldsheet,
+      "ID 로만 맞추면 기기마다 ID 가 달라 같은 항목이 갈라진다")
+check("기기가 항목 ID 를 새로 지어내지 않는다 (시트 ID 를 따른다)",
+      "id: row.id || (found ? found.id : store.newId())" in _fieldsheet,
+      "기기마다 ID 가 갈라지면 다음 업로드에서 또 중복이 된다")
 
 gs = read("google-apps-script.gs")
 # v3.11: 한 달은 탭 하나. 항목이 달라지면 탭을 새로 만들지 않는다.

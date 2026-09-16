@@ -30,6 +30,16 @@ export async function pushFields(changes = null) {
   }, 60000);
 }
 
+/**
+ * 항목을 알아보는 기준은 **이름**이다.
+ *
+ * ID 로만 맞추면 안 된다. 기기마다 같은 항목에 다른 ID 를 들고 있을 수 있고,
+ * 그러면 "시트에 없는 항목" 으로 보여 **같은 이름이 두 줄로 쌓인다.**
+ * (실제로 [로봇 모델] 이 선택지만 다른 두 줄로 갈라졌다.)
+ * 띄어쓰기 차이도 같은 항목으로 본다.
+ */
+const labelKey = (f) => String((f && f.fieldLabel) || '').replace(/\s/g, '');
+
 async function mergeWithSheet(local, changes) {
   if (!changes || !changes.length) return local;
   let sheet;
@@ -37,22 +47,37 @@ async function mergeWithSheet(local, changes) {
   catch { return local; }
   if (!sheet.length) return local;
 
-  const mine = new Map(local.map((f) => [f.id, f]));
   const touched = new Set(changes.map((c) => c.id));
+  const mineById = new Map(local.map((f) => [f.id, f]));
+  const mineByLabel = new Map(local.map((f) => [labelKey(f), f]));
+
   const out = [];
-  const seen = new Set();
+  const usedLabels = new Set();
+  const usedIds = new Set();
+  /** 같은 이름·같은 ID 는 한 번만 넣는다 (시트에 이미 중복이 있어도). */
+  const add = (f) => {
+    const key = labelKey(f);
+    if (!key || usedLabels.has(key) || usedIds.has(f.id)) return;
+    usedLabels.add(key);
+    usedIds.add(f.id);
+    out.push(f);
+  };
+
+  const handled = new Set();      // 시트 줄에 짝지어진 내 항목
   for (const row of sheet) {
-    const id = row.id;
-    if (id && seen.has(id)) continue;
-    if (id) seen.add(id);
-    if (id && touched.has(id)) {
-      if (mine.has(id)) out.push(mine.get(id));
-      continue;
-    }
-    out.push(id && mine.has(id) ? mine.get(id) : row);
+    const mineHere = (row.id && mineById.get(row.id)) || mineByLabel.get(labelKey(row));
+    if (!mineHere) { add(row); continue; }
+    handled.add(mineHere.id);
+    // 방금 고친 항목이면 내 것으로 덮되 **ID 는 시트를 따른다** — 기기마다
+    // ID 가 달라지지 않아야 다음 번에 또 갈라지지 않는다.
+    // 안 고친 항목은 시트 것을 그대로 둔다.
+    add(touched.has(mineHere.id)
+      ? { ...mineHere, id: row.id || mineHere.id }
+      : row);
   }
+  // 내가 새로 만든 항목만 뒤에 붙인다 (시트에 같은 이름이 없을 때만)
   for (const f of local) {
-    if (touched.has(f.id) && !seen.has(f.id)) out.push(f);
+    if (touched.has(f.id) && !handled.has(f.id)) add(f);
   }
   return out;
 }
@@ -81,17 +106,26 @@ export async function pullFields() {
   const byId = new Map(local.map((f) => [f.id, f]));
   // 예전 시트에는 ID 열이 비어 있을 수 있다. 그때 ID 만 믿으면 매번
   // "새 항목" 으로 보고 같은 항목이 두 줄씩 쌓인다 (가이드에서 그랬다).
-  const byLabel = new Map(local.map((f) => [f.fieldLabel.trim(), f]));
+  const byLabel = new Map(local.map((f) => [labelKey(f), f]));
 
   const seen = new Set();
+  const seenLabels = new Set();
   let changed = 0;
   let added = 0;
   const stamp = store.now();
 
   for (const row of rows) {
-    const found = (row.id && byId.get(row.id)) || byLabel.get(row.fieldLabel.trim());
+    // 시트에 같은 이름이 두 줄 있어도 기기에는 하나만 둔다.
+    const key = labelKey(row);
+    if (!key || seenLabels.has(key)) continue;
+    seenLabels.add(key);
+
+    const found = (row.id && byId.get(row.id)) || byLabel.get(key);
     const next = {
-      id: found ? found.id : store.newId(),
+      // **ID 는 시트를 따른다.** 예전에는 시트 줄을 못 알아보면 기기가 ID 를
+      // 새로 지어냈다. 그러면 기기마다 같은 항목의 ID 가 달라지고, 올릴 때
+      // 서로 "시트에 없는 항목" 으로 보여 같은 이름이 두 줄로 쌓였다.
+      id: row.id || (found ? found.id : store.newId()),
       fieldLabel: row.fieldLabel,
       fieldType: row.fieldType,
       options: row.options || null,
@@ -101,7 +135,10 @@ export async function pullFields() {
     };
     seen.add(next.id);
     if (!found) { await idb.put('fields', next); added += 1; continue; }
-    const same = found.fieldLabel === next.fieldLabel
+    // ID 가 시트 것으로 바뀌는 경우도 다시 써야 한다. 안 그러면 옛 ID 짜리가
+    // 아래 정리에서 지워지면서 항목이 통째로 사라진다.
+    const same = found.id === next.id
+      && found.fieldLabel === next.fieldLabel
       && found.fieldType === next.fieldType
       && (found.options || null) === next.options
       && !!found.isRequired === next.isRequired

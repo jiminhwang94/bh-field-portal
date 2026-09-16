@@ -689,14 +689,40 @@ function handleFields(ss, body) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    writeFieldSheet(ss, body.items || []);
-    return json({ ok: true, count: (body.items || []).length });
+    // count 는 **실제로 적은 줄 수** 다 (같은 이름은 합쳐지므로 보낸 수와 다를 수 있다)
+    var written = writeFieldSheet(ss, body.items || []);
+    return json({ ok: true, count: written });
   } finally {
     lock.releaseLock();
   }
 }
 
+/**
+ * 같은 이름의 항목을 하나로 합친다 — **중복이 시트에 들어오는 마지막 문턱.**
+ *
+ * 항목을 알아보는 기준은 ID 가 아니라 **이름**이다. 기기마다 같은 항목에
+ * 다른 ID 를 들고 있을 수 있고, 그러면 서로 "시트에 없는 항목" 으로 보여
+ * 같은 이름이 두 줄로 쌓인다 ([로봇 모델] 이 선택지만 다른 두 줄이 됐다).
+ *
+ * 자리는 **처음 나온 곳**, 내용은 **나중 것** 을 쓴다 — 나중에 온 것이
+ * 방금 고친 쪽이라 선택지가 최신이다.
+ */
+function dedupeFieldsByLabel(items) {
+  var order = [];
+  var byKey = {};
+  for (var i = 0; i < items.length; i++) {
+    var key = String((items[i] && items[i].fieldLabel) || '').replace(/\s/g, '');
+    if (!key) continue;
+    if (!Object.prototype.hasOwnProperty.call(byKey, key)) order.push(key);
+    byKey[key] = items[i];
+  }
+  var out = [];
+  for (var k = 0; k < order.length; k++) out.push(byKey[order[k]]);
+  return out;
+}
+
 function writeFieldSheet(ss, items) {
+  items = dedupeFieldsByLabel(items || []);
   var sheet = ss.getSheetByName(FIELD_SHEET);
   if (!sheet) sheet = ss.insertSheet(FIELD_SHEET);
 
@@ -727,6 +753,7 @@ function writeFieldSheet(ss, items) {
   if (rows.length) {
     sheet.getRange(3, 1, rows.length, FIELD_HEADER.length).setValues(rows);
   }
+  return rows.length;
 }
 
 function readFieldSheet(sheet) {
@@ -747,7 +774,11 @@ function readFieldSheet(sheet) {
       displayOrder: i + 1,                      // 시트에 적힌 순서가 곧 열 순서
     });
   }
-  return out;
+  // 이미 중복이 쌓여 있는 탭도 읽을 때 하나로 보여 준다 — 기기가 중복을
+  // 받아 가면 그 기기가 다시 올릴 때 중복이 되살아난다.
+  var merged = dedupeFieldsByLabel(out);
+  for (var m = 0; m < merged.length; m++) merged[m].displayOrder = m + 1;
+  return merged;
 }
 
 // ═══════════════════════════════════════════════════════════════════

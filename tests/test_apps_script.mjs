@@ -614,6 +614,56 @@ check('매장명과 문제 내용이 딸려 온다',
       midItem && midItem.store === '테스트' && midItem.problem === '멈춰 있어요',
       JSON.stringify(midItem));
 
+// ─────────────────────────────────────────────── 리포트 항목 설정
+//
+// 항목은 팀 공통이라 [리포트 항목] 탭 하나에 둔다. 기기마다 같은 항목의 ID 가
+// 달라질 수 있어, **이름이 같으면 같은 항목**으로 보고 한 줄만 남겨야 한다.
+// (실제로 [로봇 모델] 이 선택지만 다른 두 줄로 갈라져 시트가 충돌했다.)
+
+const FIELD_ITEMS = [
+  { id: 'f-store', fieldLabel: '매장명', fieldType: 'TEXT', options: '', isRequired: true },
+  { id: 'f-model-old', fieldLabel: '로봇 모델', fieldType: 'DROPDOWN',
+    options: 'GEN.1,GEN.2(M12)', isRequired: true },
+  { id: 'f-serial', fieldLabel: '로봇 시리얼', fieldType: 'TEXT', options: '', isRequired: true },
+  // 다른 기기가 같은 항목을 다른 ID 로 올린 것 — 선택지가 더 최신이다
+  { id: 'f-model-new', fieldLabel: '로봇모델', fieldType: 'DROPDOWN',
+    options: 'GEN.1,GEN.2(M12),Frame', isRequired: true },
+];
+result = call({ fields: 'push', items: FIELD_ITEMS });
+check('항목 설정을 올릴 수 있다', result.ok === true, result.error || '');
+check('같은 이름은 한 줄로 합쳐 적는다 (4개 → 3개)', result.count === 3,
+      `${result.count}개`);
+
+result = call({ fields: 'pull' });
+const fieldLabels = result.items.map((f) => f.fieldLabel);
+check('되읽어도 같은 이름이 두 번 나오지 않는다',
+      new Set(fieldLabels.map((l) => l.replace(/\s/g, ''))).size === fieldLabels.length,
+      fieldLabels.join(' · '));
+const modelField = result.items.find((f) => f.fieldLabel.replace(/\s/g, '') === '로봇모델');
+check('합칠 때 나중 것(최신 선택지)이 남는다',
+      modelField && modelField.options === 'GEN.1,GEN.2(M12),Frame',
+      modelField && modelField.options);
+check('자리는 처음 나온 곳을 지킨다 (열 순서가 안 흔들린다)',
+      fieldLabels[1].replace(/\s/g, '') === '로봇모델', fieldLabels.join(' · '));
+
+// 이미 중복이 쌓여 있는 탭을 손으로 만들어 두고, 읽을 때 합쳐지는지 본다
+{
+  const tab = ss.getSheetByName('리포트 항목');
+  const dirty = [
+    ['매장명', 'TEXT', '', 'Y', 'f-store'],
+    ['로봇 모델', 'DROPDOWN', 'GEN.1', 'Y', 'f-model-old'],
+    ['로봇 시리얼', 'TEXT', '', 'Y', 'f-serial'],
+    ['로봇 모델', 'DROPDOWN', 'GEN.1,Frame', 'Y', 'f-model-new'],
+  ];
+  dirty.forEach((line, r) => line.forEach((v, c) => tab._set(r + 3, c + 1, v)));
+  const healed = call({ fields: 'pull' });
+  check('이미 갈라진 탭도 읽을 때 하나로 보여 준다', healed.items.length === 3,
+        healed.items.map((f) => f.fieldLabel).join(' · '));
+  check('합쳐진 순서 번호가 1부터 이어진다',
+        healed.items.every((f, i) => f.displayOrder === i + 1),
+        healed.items.map((f) => f.displayOrder).join(','));
+}
+
 // ─────────────────────────────────────────────── 첨부 저장 위치
 
 result = call({
