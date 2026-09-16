@@ -20,8 +20,16 @@
 - **google-apps-script.gs** — `{ reports: 'numbers' }` 추가
   (`handleReportNumbers`). `SpreadsheetApp.openById` 로 소비자 시트를 열고,
   탭은 이름이 아니라 **gid** 로 찾는다 (이름이 바뀌어도 동작).
-  열도 1행의 이름으로 찾는다. 조치결과에 '필드팀' 이 든 줄만, 최근 접수부터
-  최대 100건: `{ number, store, problem, receivedAt }`.
+  열도 1행의 이름으로 찾는다. 최근 접수부터 최대 100건:
+  `{ number, store, problem, receivedAt }`.
+  - 거르는 조건은 **두 가지를 모두** 만족하는 줄 (2026-09-16 추가):
+    조치결과에 '필드팀' + **콘솔 상태에 '대기'**. 콘솔에서 이미 처리한 건이
+    남아 있으면 같은 접수로 현장 리포트가 두 번 써진다.
+  - '콘솔 상태' 열은 띄어쓰기가 언제든 달라질 수 있어(`콘솔상태`/`콘솔 상태`)
+    `findConsoleStatusColumn` 이 공백을 지우고 '콘솔'·'상태' 낱말로 찾는다.
+    **못 찾으면 조건을 슬그머니 빼지 않고 `ok:false`** 로 알린다 (앱은 그때
+    입력칸으로 떨어져 그대로 쓸 수 있다). 응답의 `statusHeader` 로 어느 열을
+    보았는지 확인할 수 있다.
 - **web/js/reportsheet.js** — `pullRequestNumbers()` (받아서 기기에 저장) ·
   `cachedRequestNumbers()` (오프라인용 사본).
 - **web/js/views/report.js** — 항목 이름에 '리포트 번호' 가 든 항목을

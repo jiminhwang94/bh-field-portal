@@ -1866,14 +1866,32 @@ var MONTH_TAB = /^\d{4}-\d{2}( \(\d+\))?$/;
 /* ── 리포트 번호 목록 (소비자 앱 시트) ─────────────────────────────────
  *
  * 매장이 소비자 앱으로 접수한 리포트는 **다른 스프레드시트**(비욘드허니컴
- * 소비자용)의 [리포트] 탭에 쌓인다. 그중 조치결과가 '필드팀 요청' 인 건이
- * 현장 방문 대상이므로, 현장 리포트를 쓸 때 그 번호를 골라 적게 한다.
+ * 소비자용)의 [리포트] 탭에 쌓인다. 그중 **아직 처리되지 않은 필드팀 방문
+ * 대상**만 고를 수 있어야 한다. 두 칸을 함께 본다:
+ *   조치결과  '필드팀 요청'  — 필드팀이 가야 하는 건
+ *   콘솔 상태 '대기'         — 콘솔에서 아직 손대지 않은 건
+ * 둘 다 맞아야 목록에 넣는다. 콘솔에서 이미 처리한 건이 목록에 남아 있으면
+ * 같은 접수로 현장 리포트가 두 번 써진다.
  *
  *  { reports: 'numbers' } → [{ number, store, problem, receivedAt }] 최근 것부터
  */
 var CONSUMER_SS_ID = '1ZUsgwFVX1O97778MKoedU2f-UsnShRcrI85o5WNICwo';
 var CONSUMER_REPORT_GID = 1882930844;     // [리포트] 탭 — 이름이 바뀌어도 gid 는 그대로
 var CONSUMER_REQUEST_MARK = '필드팀';     // '조치결과' 칸에 이 말이 들어 있으면 필드팀 요청 건
+var CONSUMER_WAITING_MARK = '대기';       // '콘솔 상태' 칸이 이 말이면 아직 처리 전
+
+/**
+ * '콘솔 상태' 열 찾기.
+ * 띄어쓰기('콘솔상태' / '콘솔 상태')가 언제든 달라질 수 있어 **낱말로** 찾는다.
+ * 못 찾으면 -1 — 부르는 쪽이 조건을 슬그머니 빼지 않고 오류로 알린다.
+ */
+function findConsoleStatusColumn(head) {
+  for (var i = 0; i < head.length; i++) {
+    var name = String(head[i] || '').replace(/\s/g, '');
+    if (name.indexOf('콘솔') >= 0 && name.indexOf('상태') >= 0) return i;
+  }
+  return -1;
+}
 
 function handleReportNumbers() {
   var sheet = null;
@@ -1900,13 +1918,19 @@ function handleReportNumbers() {
   var iProblem = head.indexOf('선택한 문제');
   var iResult = head.indexOf('조치결과');
   var iWhen = head.indexOf('접수시각');
+  var iConsole = findConsoleStatusColumn(head);
   if (iNum < 0 || iResult < 0) {
     return json({ ok: false, error: '소비자 시트에서 리포트번호/조치결과 열을 찾지 못했습니다.' });
+  }
+  if (iConsole < 0) {
+    return json({ ok: false,
+                  error: "소비자 시트에서 '콘솔 상태' 열을 찾지 못했습니다." });
   }
 
   var items = [];
   for (var r = 1; r < values.length; r++) {
     if (String(values[r][iResult] || '').indexOf(CONSUMER_REQUEST_MARK) < 0) continue;
+    if (String(values[r][iConsole] || '').indexOf(CONSUMER_WAITING_MARK) < 0) continue;
     var number = String(values[r][iNum] || '').trim();
     if (!number) continue;
     var when = iWhen < 0 ? '' : values[r][iWhen];
@@ -1918,7 +1942,8 @@ function handleReportNumbers() {
     });
   }
   items.reverse();                       // 최근 접수가 앞
-  return json({ ok: true, items: items.slice(0, 100) });
+  // statusHeader — 어느 열을 '콘솔 상태' 로 보았는지 (시트가 바뀌었을 때 확인용)
+  return json({ ok: true, items: items.slice(0, 100), statusHeader: head[iConsole] });
 }
 
 function handleReports(ss, body) {

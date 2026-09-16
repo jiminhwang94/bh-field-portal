@@ -368,12 +368,16 @@ const CONSUMER_ID = '1ZUsgwFVX1O97778MKoedU2f-UsnShRcrI85o5WNICwo';
 const consumerSS = new FakeSpreadsheet();
 {
   const tab = new FakeSheet('아무 이름', 1882930844);
+  // '콘솔상태' 는 일부러 띄어쓰기 없이 둔다 — 낱말로 찾는지 함께 본다.
   const rows = [
-    ['접수시각', '리포트번호', '매장명', '작성 내용', '선택한 문제', '문제ID', '조치결과'],
-    ['2026. 9. 12', 'P260912-01', '홍기와', '', '바퀴에서 소리가 나요', 'wheel', '필드팀 요청'],
-    ['2026. 9. 13', 'P260913-01', '옥동식', '', '와이파이가 끊겨요', 'net', '현장 해결'],
-    ['2026. 9. 14', 'P260914-01', '테스트', '', '멈춰 있어요', 'stall', '필드팀 요청'],
-    ['2026. 9. 15', '', '빈번호', '', '번호가 없는 줄', 'x', '필드팀 요청'],
+    ['접수시각', '리포트번호', '매장명', '작성 내용', '선택한 문제', '문제ID',
+     '조치결과', '콘솔상태'],
+    ['2026. 9. 12', 'P260912-01', '홍기와', '', '바퀴에서 소리가 나요', 'wheel', '필드팀 요청', '대기'],
+    ['2026. 9. 13', 'P260913-01', '옥동식', '', '와이파이가 끊겨요', 'net', '현장 해결', '대기'],
+    ['2026. 9. 14', 'P260914-01', '테스트', '', '멈춰 있어요', 'stall', '필드팀 요청', '대기'],
+    ['2026. 9. 15', '', '빈번호', '', '번호가 없는 줄', 'x', '필드팀 요청', '대기'],
+    // 필드팀 요청이지만 콘솔에서 이미 손댄 건 — 목록에 들어오면 안 된다
+    ['2026. 9. 15', 'P260915-09', '처리된곳', '', '이미 처리됨', 'done', '필드팀 요청', '조치 완료'],
   ];
   rows.forEach((line, r) => line.forEach((v, c) => tab._set(r + 1, c + 1, v)));
   consumerSS.sheets.push(tab);
@@ -591,10 +595,14 @@ check('없는 줄 삭제는 거절한다', result.ok === false, result.error || 
 
 result = call({ reports: 'numbers' });
 check('리포트 번호 목록을 받는다', result.ok === true, result.error || '');
-check('필드팀 요청 건만 온다 (현장 해결 · 빈 번호 제외)',
+check('필드팀 요청 + 콘솔 대기 건만 온다 (현장 해결 · 빈 번호 · 조치 완료 제외)',
       result.items.length === 2
         && result.items.every((it) => it.number.startsWith('P2609')),
       JSON.stringify(result.items));
+check('콘솔에서 이미 처리한 건은 빠진다',
+      !result.items.some((it) => it.number === 'P260915-09'));
+check("'콘솔상태' 처럼 붙여 쓴 열 이름도 찾는다",
+      result.statusHeader === '콘솔상태', String(result.statusHeader));
 check('최근 접수가 앞에 온다', result.items[0].number === 'P260914-01',
       result.items[0] && result.items[0].number);
 check('매장명과 문제 내용이 딸려 온다',
