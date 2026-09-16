@@ -1863,7 +1863,69 @@ var REPORT_DATA_ROW = 3;
 // 목록에는 계속 보여 준다 — 이미 쌓인 리포트를 못 보게 하면 안 된다.
 var MONTH_TAB = /^\d{4}-\d{2}( \(\d+\))?$/;
 
+/* ── 리포트 번호 목록 (소비자 앱 시트) ─────────────────────────────────
+ *
+ * 매장이 소비자 앱으로 접수한 리포트는 **다른 스프레드시트**(비욘드허니컴
+ * 소비자용)의 [리포트] 탭에 쌓인다. 그중 조치결과가 '필드팀 요청' 인 건이
+ * 현장 방문 대상이므로, 현장 리포트를 쓸 때 그 번호를 골라 적게 한다.
+ *
+ *  { reports: 'numbers' } → [{ number, store, problem, receivedAt }] 최근 것부터
+ */
+var CONSUMER_SS_ID = '1ZUsgwFVX1O97778MKoedU2f-UsnShRcrI85o5WNICwo';
+var CONSUMER_REPORT_GID = 1882930844;     // [리포트] 탭 — 이름이 바뀌어도 gid 는 그대로
+var CONSUMER_REQUEST_MARK = '필드팀';     // '조치결과' 칸에 이 말이 들어 있으면 필드팀 요청 건
+
+function handleReportNumbers() {
+  var sheet = null;
+  try {
+    var css = SpreadsheetApp.openById(CONSUMER_SS_ID);
+    var all = css.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getSheetId() === CONSUMER_REPORT_GID) { sheet = all[i]; break; }
+    }
+  } catch (err) {
+    return json({ ok: false, error: '소비자 리포트 시트를 열 수 없습니다: ' + err });
+  }
+  if (!sheet) return json({ ok: false, error: '소비자 시트에 [리포트] 탭이 없습니다.' });
+
+  var last = sheet.getLastRow();
+  if (last < 2) return json({ ok: true, items: [] });
+  var values = sheet.getRange(1, 1, last, sheet.getLastColumn()).getValues();
+
+  // 열은 위치가 아니라 1행의 이름으로 찾는다 (열이 늘거나 옮겨져도 동작).
+  var head = [];
+  for (var c = 0; c < values[0].length; c++) head.push(String(values[0][c] || '').trim());
+  var iNum = head.indexOf('리포트번호');
+  var iStore = head.indexOf('매장명');
+  var iProblem = head.indexOf('선택한 문제');
+  var iResult = head.indexOf('조치결과');
+  var iWhen = head.indexOf('접수시각');
+  if (iNum < 0 || iResult < 0) {
+    return json({ ok: false, error: '소비자 시트에서 리포트번호/조치결과 열을 찾지 못했습니다.' });
+  }
+
+  var items = [];
+  for (var r = 1; r < values.length; r++) {
+    if (String(values[r][iResult] || '').indexOf(CONSUMER_REQUEST_MARK) < 0) continue;
+    var number = String(values[r][iNum] || '').trim();
+    if (!number) continue;
+    var when = iWhen < 0 ? '' : values[r][iWhen];
+    items.push({
+      number: number,
+      store: iStore < 0 ? '' : String(values[r][iStore] || '').trim(),
+      problem: iProblem < 0 ? '' : String(values[r][iProblem] || '').trim(),
+      receivedAt: when instanceof Date ? when.toISOString() : String(when || ''),
+    });
+  }
+  items.reverse();                       // 최근 접수가 앞
+  return json({ ok: true, items: items.slice(0, 100) });
+}
+
 function handleReports(ss, body) {
+  if (body.reports === 'numbers') {
+    return handleReportNumbers();
+  }
+
   if (body.reports === 'months') {
     var names = [];
     var all = ss.getSheets();

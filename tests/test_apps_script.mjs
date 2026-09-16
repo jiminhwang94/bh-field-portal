@@ -95,11 +95,13 @@ class FakeRange {
 }
 
 class FakeSheet {
-  constructor(name) {
+  constructor(name, sheetId = 0) {
     this.name = name;
+    this.sheetId = sheetId;
     this.cells = new Map();
     this.links = new Map();     // '행,열' → [{ start, end, url }]
   }
+  getSheetId() { return this.sheetId; }
   _key(r, c) { return `${r},${c}`; }
   _set(r, c, v) {
     if (v === '' || v === null || v === undefined) this.cells.delete(this._key(r, c));
@@ -360,9 +362,30 @@ const fakeAdvancedDrive = {
 const source = readFileSync(join(ROOT, 'google-apps-script.gs'), 'utf8');
 const ss = new FakeSpreadsheet();
 
+// 소비자 앱 스프레드시트 — 리포트 번호 목록은 여기서 읽어 간다.
+// gid 로 탭을 찾으므로 이름은 일부러 다르게 둔다.
+const CONSUMER_ID = '1ZUsgwFVX1O97778MKoedU2f-UsnShRcrI85o5WNICwo';
+const consumerSS = new FakeSpreadsheet();
+{
+  const tab = new FakeSheet('아무 이름', 1882930844);
+  const rows = [
+    ['접수시각', '리포트번호', '매장명', '작성 내용', '선택한 문제', '문제ID', '조치결과'],
+    ['2026. 9. 12', 'P260912-01', '홍기와', '', '바퀴에서 소리가 나요', 'wheel', '필드팀 요청'],
+    ['2026. 9. 13', 'P260913-01', '옥동식', '', '와이파이가 끊겨요', 'net', '현장 해결'],
+    ['2026. 9. 14', 'P260914-01', '테스트', '', '멈춰 있어요', 'stall', '필드팀 요청'],
+    ['2026. 9. 15', '', '빈번호', '', '번호가 없는 줄', 'x', '필드팀 요청'],
+  ];
+  rows.forEach((line, r) => line.forEach((v, c) => tab._set(r + 1, c + 1, v)));
+  consumerSS.sheets.push(tab);
+}
+
 const sandbox = {
   SpreadsheetApp: {
     getActiveSpreadsheet: () => ss,
+    openById: (id) => {
+      if (id === CONSUMER_ID) return consumerSS;
+      throw new Error(`열 수 없는 문서: ${id}`);
+    },
     flush: () => {},
     MimeType: { JSON: 'application/json' },
     /** 주소를 파란 링크로 넣을 때 쓰는 값 만들기 (실제 API 와 같은 모양) */
@@ -561,6 +584,22 @@ check('지운 뒤 줄 번호가 다시 매겨진다', result.rows[0].row === 3,
 // 없는 줄을 지우려 하면 거절한다
 result = call({ reports: 'delete', sheetName: '2026-09', row: 999 });
 check('없는 줄 삭제는 거절한다', result.ok === false, result.error || '');
+
+// ─────────────────────────────────────────────── 리포트 번호 목록
+//
+// 소비자 앱 시트의 [리포트] 탭에서 '필드팀 요청' 건만 골라 온다.
+
+result = call({ reports: 'numbers' });
+check('리포트 번호 목록을 받는다', result.ok === true, result.error || '');
+check('필드팀 요청 건만 온다 (현장 해결 · 빈 번호 제외)',
+      result.items.length === 2
+        && result.items.every((it) => it.number.startsWith('P2609')),
+      JSON.stringify(result.items));
+check('최근 접수가 앞에 온다', result.items[0].number === 'P260914-01',
+      result.items[0] && result.items[0].number);
+check('매장명과 문제 내용이 딸려 온다',
+      result.items[0].store === '테스트' && result.items[0].problem === '멈춰 있어요',
+      JSON.stringify(result.items[0]));
 
 // ─────────────────────────────────────────────── 첨부 저장 위치
 

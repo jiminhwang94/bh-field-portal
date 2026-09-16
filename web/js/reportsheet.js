@@ -99,6 +99,34 @@ export async function findVisits(storeName, limit = 3) {
   return found.slice(0, limit);
 }
 
+/* ── 리포트 번호 목록 ──────────────────────────────────────────────
+ *
+ * 매장이 소비자 앱으로 접수한 리포트 중 조치결과가 '필드팀 요청' 인 건.
+ * 현장 리포트를 쓸 때 이 번호를 골라 적는다. 시트가 원본이고, 받아 온
+ * 목록은 기기에 담아 두어 오프라인에서도 고를 수 있다.
+ */
+const NUMBERS_KEY = 'sheetReportNumbers';
+
+/** 마지막으로 받아 둔 목록 — 화면을 열 때 먼저 이걸로 그린다. */
+export async function cachedRequestNumbers() {
+  return (await store.getMeta(NUMBERS_KEY, [])) || [];
+}
+
+/** 시트에서 최신 목록을 받아 기기에 담고 돌려준다. */
+export async function pullRequestNumbers() {
+  const result = await callAppsScript({ reports: 'numbers' }, 30000);
+  const items = (result.items || [])
+    .map((it) => ({
+      number: String(it.number || '').trim(),
+      store: String(it.store || '').trim(),
+      problem: String(it.problem || '').trim(),
+      receivedAt: String(it.receivedAt || ''),
+    }))
+    .filter((it) => it.number);
+  await store.setMeta(NUMBERS_KEY, items);
+  return items;
+}
+
 /**
  * 이력을 못 받아 온 이유를 사람 말로 바꾼다.
  *

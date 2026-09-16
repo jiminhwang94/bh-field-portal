@@ -7,7 +7,8 @@ import {
 } from '../ui.js';
 import { reportToText, shareReport } from '../share.js';
 import {
-  describeFiles, explain as explainError, findVisits, previewUrl, thumbUrl,
+  cachedRequestNumbers, describeFiles, explain as explainError, findVisits,
+  previewUrl, pullRequestNumbers, thumbUrl,
 } from '../reportsheet.js';
 
 // **작성 중 내용을 되살리지 않는다.**
@@ -114,6 +115,13 @@ export async function reportFormView(view) {
   const storeField = fields.find(
     (f) => f.fieldLabel.includes('식당') || f.fieldLabel.includes('매장'));
 
+  // 리포트 번호는 소비자 앱 접수 건('필드팀 요청') 중에서 고른다.
+  // 받아 둔 목록으로 먼저 그리고, 최신 목록은 화면을 그린 뒤에 받아 갈아 끼운다.
+  const numberField = fields.find(
+    (f) => f.fieldLabel.replace(/\s/g, '').includes('리포트번호'));
+  let reportNumbers = numberField ? await cachedRequestNumbers() : [];
+  let manualNumber = false;   // '직접 입력…' 을 고른 뒤에는 목록으로 되돌리지 않는다
+
   const sheetsReady = !!settings.sheetsReady;
   let reportId = null;   // 저장 후 재업로드 대상
 
@@ -168,6 +176,36 @@ export async function reportFormView(view) {
     </div>`;
   }
 
+  /**
+   * 리포트 번호 셀렉트의 선택지.
+   * 접수 목록에 없는 값(직접 적었거나 옛 리포트 수정)은 잃지 않게 위에 끼운다.
+   */
+  function numberOptionsHtml(current) {
+    const cut = (t, n) => (t.length > n ? `${t.slice(0, n)}…` : t);
+    const known = reportNumbers.some((it) => it.number === current);
+    return `
+      <option value="">선택하세요</option>
+      ${current && !known
+        ? `<option value="${h(current)}" selected>${h(current)} (직접 적음)</option>` : ''}
+      ${reportNumbers.map((it) => {
+        const text = [it.number, it.store].filter(Boolean).join(' · ')
+          + (it.problem ? ` — ${cut(it.problem, 24)}` : '');
+        return `<option value="${h(it.number)}" ${current === it.number ? 'selected' : ''}>${h(text)}</option>`;
+      }).join('')}
+      <option value="__manual__">직접 입력…</option>`;
+  }
+
+  /** 번호를 고르면 그 접수의 매장명을 (매장명 칸이 비어 있을 때만) 같이 채운다. */
+  function fillStoreFromNumber(number) {
+    const item = reportNumbers.find((it) => it.number === number);
+    if (!item || !item.store || !storeField) return;
+    if (String(values[storeField.id].value || '').trim()) return;
+    values[storeField.id].value = item.store;
+    const el = view.querySelector(`[data-input="${storeField.id}"]`);
+    if (el) el.value = item.store;
+    paintPastVisits();
+  }
+
   function fieldHtml(field) {
     const state = values[field.id];
     const label = `<label>${h(field.fieldLabel)}${field.isRequired ? '<span class="req">*</span>' : ''}</label>`;
@@ -189,6 +227,14 @@ export async function reportFormView(view) {
       // 여러 줄 항목은 두 칸을 다 쓴다 (디자인의 .field--wide)
       return `<div class="field field--wide">${label}
         <textarea class="input textarea" data-input="${field.id}" placeholder="자세히 기록">${h(state.value)}</textarea></div>`;
+    }
+    // 리포트 번호 — 손으로 적지 않고 접수 목록에서 고른다 (목록이 없으면 입력칸).
+    if (numberField && field.id === numberField.id && reportNumbers.length && !manualNumber) {
+      return `<div class="field">${label}
+        <select class="select" data-input="${field.id}">
+          ${numberOptionsHtml(String(state.value || '').trim())}
+        </select>
+        <span class="hint" style="margin-top:6px">필드팀 요청 ${reportNumbers.length}건 — 고르면 매장명이 채워집니다</span></div>`;
     }
     if (field.fieldType === 'DROPDOWN') {
       const opts = (field.options || '').split(',').map((o) => o.trim()).filter(Boolean);
@@ -251,7 +297,17 @@ export async function reportFormView(view) {
     root.addEventListener('change', (ev) => {
       const id = ev.target.dataset.input;
       if (!id) return;
+      if (numberField && id === numberField.id && ev.target.value === '__manual__') {
+        // 목록에 없는 번호를 적어야 할 때 — 셀렉트를 입력칸으로 바꾼다
+        manualNumber = true;
+        values[id].value = '';
+        ev.target.outerHTML = `<input class="input" type="text" data-input="${id}"
+               value="" placeholder="리포트 번호" />`;
+        root.querySelector(`input[data-input="${id}"]`).focus();
+        return;
+      }
       values[id].value = ev.target.value;
+      if (numberField && id === numberField.id) fillStoreFromNumber(ev.target.value);
     });
     $('#reportForm').addEventListener('submit', submit);
     paintPastVisits();
@@ -498,6 +554,22 @@ export async function reportFormView(view) {
   }
 
   render();
+
+  // 최신 접수 목록을 뒤에서 받아 셀렉트만 갈아 끼운다 — 쓰던 화면은 건드리지 않는다.
+  if (numberField && sheetsReady) {
+    pullRequestNumbers().then((items) => {
+      reportNumbers = items;
+      if (manualNumber || !items.length) return;
+      const current = String(values[numberField.id].value || '').trim();
+      const sel = view.querySelector(`select[data-input="${numberField.id}"]`);
+      if (sel) { sel.innerHTML = numberOptionsHtml(current); return; }
+      // 받아 둔 목록이 없어 입력칸으로 그렸던 경우 — 비어 있으면 셀렉트로 바꾼다
+      const inp = view.querySelector(`input[data-input="${numberField.id}"]`);
+      if (inp && !current) {
+        inp.outerHTML = `<select class="select" data-input="${numberField.id}">${numberOptionsHtml('')}</select>`;
+      }
+    }).catch(() => {});
+  }
 }
 
 // ------------------------------------------------------------ 이력 목록
