@@ -197,6 +197,21 @@ check("같은 이름의 항목은 시트에 두 줄로 쌓이지 않는다",
 check("기기가 항목 ID 를 새로 지어내지 않는다 (시트 ID 를 따른다)",
       "id: row.id || (found ? found.id : store.newId())" in _fieldsheet,
       "기기마다 ID 가 갈라지면 다음 업로드에서 또 중복이 된다")
+# 항목 순서는 사람마다 손에 익은 것이 다르다. 순서까지 팀 공통으로 맞추면
+# 남이 자기 태블릿에서 옮길 때 내가 맞춰 둔 양식이 날아간다.
+_store_js = read("web/js/local/store.js")
+_reorder = _store_js.split("export async function reorderFields")[1].split("\n}")[0]
+check("항목 순서는 기기에만 남는다 (시트로 올리지 않는다)",
+      "queueFieldSheetPushIfOn" not in _reorder
+      and "displayOrder: found ? found.displayOrder" in _fieldsheet,
+      "순서를 올리면 남이 옮길 때 내 양식이 날아간다")
+check("항목을 더하고 지우는 것은 팀 공통이다",
+      "queueFieldSheetPushIfOn" in _store_js and "const removed = new Set(edits" in _fieldsheet,
+      "순서만 빼는 것이지 추가·삭제까지 끊으면 안 된다")
+check("올리기 버튼은 위아래가 같이 잠긴다",
+      "function setSubmitState" in read("web/js/views/report.js")
+      and "action.disabled = submit.disabled" in read("web/js/app.js"),
+      "한쪽만 '올리는 중' 이면 멀쩡해 보이는 쪽을 한 번 더 누른다")
 
 gs = read("google-apps-script.gs")
 # v3.11: 한 달은 탭 하나. 항목이 달라지면 탭을 새로 만들지 않는다.

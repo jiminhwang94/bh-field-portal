@@ -41,13 +41,22 @@ export async function pushFields(changes = null) {
 const labelKey = (f) => String((f && f.fieldLabel) || '').replace(/\s/g, '');
 
 async function mergeWithSheet(local, changes) {
-  if (!changes || !changes.length) return local;
   let sheet;
   try { sheet = (await callAppsScript({ fields: 'pull' }, 60000)).items || []; }
   catch { return local; }
   if (!sheet.length) return local;
 
-  const touched = new Set(changes.map((c) => c.id));
+  // **시트 순서를 그대로 둔다.** 아래에서 시트 줄 차례로 담기 때문에, 내가
+  // 기기에서 옮겨 둔 순서는 올라가지 않는다 (순서는 기기마다 따로다).
+  const edits = changes || [];
+  const touched = new Set(edits.map((c) => c.id));
+  const localIds = new Set(local.map((f) => f.id));
+  // 내가 지운 항목 — 시트에서도 빠져야 한다 (제거는 팀 공통).
+  // ID 는 기기마다 다를 수 있어 **이름**으로 알아본다.
+  const removed = new Set(edits
+    .filter((c) => c.before && !localIds.has(c.id))
+    .map((c) => labelKey(c.before)));
+
   const mineById = new Map(local.map((f) => [f.id, f]));
   const mineByLabel = new Map(local.map((f) => [labelKey(f), f]));
 
@@ -65,6 +74,7 @@ async function mergeWithSheet(local, changes) {
 
   const handled = new Set();      // 시트 줄에 짝지어진 내 항목
   for (const row of sheet) {
+    if (removed.has(labelKey(row))) continue;      // 내가 지운 항목
     const mineHere = (row.id && mineById.get(row.id)) || mineByLabel.get(labelKey(row));
     if (!mineHere) { add(row); continue; }
     handled.add(mineHere.id);
@@ -113,6 +123,11 @@ export async function pullFields() {
   let changed = 0;
   let added = 0;
   const stamp = store.now();
+  // 순서는 **이 기기 것을 지킨다.** 시트 순서로 덮으면 다른 사람이 자기
+  // 태블릿에서 항목을 옮길 때마다 내가 맞춰 둔 양식이 날아간다.
+  // 남이 새로 만든 항목만 내 목록 맨 뒤에 붙인다.
+  let lastOrder = local.reduce(
+    (max, f) => Math.max(max, Number(f.displayOrder) || 0), 0);
 
   for (const row of rows) {
     // 시트에 같은 이름이 두 줄 있어도 기기에는 하나만 둔다.
@@ -130,7 +145,7 @@ export async function pullFields() {
       fieldType: row.fieldType,
       options: row.options || null,
       isRequired: !!row.isRequired,
-      displayOrder: row.displayOrder,
+      displayOrder: found ? found.displayOrder : (lastOrder += 1),
       createdAt: found ? found.createdAt : stamp,
     };
     seen.add(next.id);

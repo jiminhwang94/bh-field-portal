@@ -71,11 +71,20 @@ function paintTopAction(path) {
   if (refresh) refresh.hidden = onReport;
 }
 
-/** 폼이 그려진 뒤 상단바 버튼 글자를 폼의 버튼과 맞춘다. */
+/**
+ * 폼이 그려진 뒤 상단바 버튼을 폼의 버튼과 맞춘다 — 글자와 **눌림 여부**까지.
+ *
+ * 올리는 동안은 폼 쪽에서 둘 다 잠그는데, 화면을 떠났다 돌아왔을 때
+ * 상단바 버튼만 잠긴 채로 남으면 다시는 못 누른다. 새 폼이 그려질 때마다
+ * 폼 버튼 상태를 그대로 따라가게 해 그런 상태가 남지 않게 한다.
+ */
 function syncTopActionLabel() {
   const action = $('#btn-topaction');
   const submit = document.querySelector('#reportForm button[type=submit]');
-  if (action && submit) action.textContent = submit.textContent.trim();
+  if (action && submit) {
+    action.textContent = submit.textContent.trim();
+    action.disabled = submit.disabled;
+  }
 }
 
 async function render() {

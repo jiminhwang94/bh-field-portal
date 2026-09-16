@@ -529,18 +529,33 @@ export async function reportFormView(view) {
     }
   }
 
+  /**
+   * 올리기 버튼은 **두 곳**에 있다 — 폼 맨 아래와 상단바(#btn-topaction).
+   * 둘은 같은 일을 하므로 늘 같은 모습이어야 한다. 예전에는 아래 것만
+   * '올리는 중' 으로 바뀌어, 위 버튼은 멀쩡해 보이니 한 번 더 누르게 됐다.
+   */
+  const idleLabel = () => (editingLink ? '시트에 저장' : '구글 시트로 업로드');
+  function setSubmitState(text, busy) {
+    const buttons = [
+      $('#reportForm button[type=submit]'),
+      document.getElementById('btn-topaction'),
+    ];
+    for (const btn of buttons) {
+      if (!btn) continue;
+      btn.textContent = text;
+      btn.disabled = busy;
+    }
+  }
+
   async function submit(ev) {
     ev.preventDefault();
-    const submitBtn = $('#reportForm button[type=submit]');
-    submitBtn.disabled = true;
-    submitBtn.textContent = '저장 중…';
+    setSubmitState('저장 중…', true);
     const saved = await persist({ requireComplete: true });
     if (!saved) {
-      submitBtn.disabled = false;
-      submitBtn.textContent = '구글 시트로 업로드';
+      setSubmitState(idleLabel(), false);
       return;
     }
-    submitBtn.textContent = '구글 시트에 올리는 중…';
+    setSubmitState('구글 시트에 올리는 중…', true);
     try {
       const result = await api.uploadReportToSheet(saved.id);
       if (result.queued) {
@@ -563,8 +578,7 @@ export async function reportFormView(view) {
       toast('리포트는 저장되었습니다. [ 리포트]에서 다시 업로드할 수 있습니다.');
       location.hash = `#/reports/${saved.id}`;
     }
-    submitBtn.disabled = false;
-    submitBtn.textContent = '구글 시트로 업로드';
+    setSubmitState(idleLabel(), false);
   }
 
   render();

@@ -1,4 +1,8 @@
-// 리포트 입력 항목 설정 — 여기서 만든 항목이 리포트 폼과 구글 시트 열 순서를 결정한다.
+// 리포트 입력 항목 설정 — 여기서 만든 항목이 리포트 폼의 칸이 된다.
+//
+// 항목을 **더하고 지우는 것은 팀 공통**이다 (시트로 오간다).
+// 항목 **순서는 이 기기에만** 남는다 — 사람마다 손에 익은 순서가 다르고,
+// 예전에는 남이 옮기면 내가 맞춰 둔 양식이 날아갔다. store.reorderFields 참고.
 import { api } from '../api.js';
 import {
   $, h, FIELD_TYPE_LABEL, closeModal, confirmDialog, loading, openSheet, toast,
@@ -138,7 +142,7 @@ export async function fieldsView(view) {
       render();
       try {
         await api.reorderFields(order);
-        toast('순서를 바꿨습니다.', 'ok');
+        toast('순서를 바꿨습니다 — 이 기기에만 적용됩니다.', 'ok');
       } catch (err) { toast(err.message, 'err'); await reload(); }
     };
     list.addEventListener('pointerup', finish);

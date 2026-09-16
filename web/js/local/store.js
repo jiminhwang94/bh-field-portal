@@ -664,15 +664,21 @@ export async function deleteField(fieldId) {
   return true;
 }
 
+/**
+ * 항목 순서를 바꾼다 — **이 기기에만 저장한다. 시트로 올리지 않는다.**
+ *
+ * 순서는 사람마다 손에 익은 것이 달라서, 팀이 같아야 할 이유가 없다.
+ * 예전에는 순서도 시트로 올려서, 다른 사람이 자기 태블릿에서 옮기면
+ * **내가 맞춰 둔 양식이 다음 동기화에 통째로 날아갔다.**
+ *
+ * 항목을 **더하거나 지우는 것은 그대로 팀 공통**이다 (그건 시트로 올린다).
+ */
 export async function reorderFields(orderedIds) {
-  const changes = [];
   for (let i = 0; i < orderedIds.length; i += 1) {
     const row = await idb.get('fields', orderedIds[i]);
     if (!row) continue;
-    if (row.displayOrder !== i + 1) changes.push({ kind: 'field', id: row.id, before: row });
     await idb.put('fields', { ...row, displayOrder: i + 1 });
   }
-  if (changes.length) await queueFieldSheetPushIfOn(changes);
   return listFields();
 }
 
