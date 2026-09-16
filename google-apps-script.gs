@@ -26,6 +26,17 @@ var IMAGE_HEIGHT = 110;      // 시트에 표시할 사진 높이(px)
 var IMAGE_GAP = 8;
 
 function doPost(e) {
+  var out = handleRequest(e);
+  // 탭 순서 고정 — 요청을 처리한 뒤 매번 맞춘다. 사람이 손으로 옮겨 놓아도
+  // 다음 기록 때 제자리로 돌아온다. 5분마다 오는 가벼운 물음(changed)은 건너뛴다.
+  try {
+    var b = (e && e.postData && e.postData.contents) ? JSON.parse(e.postData.contents) : {};
+    if (!b.changed) arrangeTabs(SpreadsheetApp.getActiveSpreadsheet());
+  } catch (err) { /* 순서 맞추기가 실패해도 응답은 그대로 간다 */ }
+  return out;
+}
+
+function handleRequest(e) {
   try {
     var body = {};
     if (e && e.postData && e.postData.contents) {
@@ -239,10 +250,76 @@ function insertImages(sheet, images, rowIndex) {
 function openMonthSheet(ss, name) {
   var sheet = ss.getSheetByName(name);
   if (sheet) return { sheet: sheet, created: false };
-  sheet = ss.insertSheet(name);
-  ss.setActiveSheet(sheet);
-  ss.moveActiveSheet(1);              // 최근 달이 앞에 오도록
+  sheet = ss.insertSheet(name, 0);    // 리포트는 매달 생기니 맨 앞 — 최근 달이 첫 탭
   return { sheet: sheet, created: true };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 탭 순서 — 사람이 정한 자리를 스크립트가 지킨다
+//
+//   [리포트 월 탭 — 최근 달이 앞]  2026-09 · 2026-08 · …
+//   [가이드]                         오류 코드 가이드 · 하드웨어 교체 SOP · SW·명령어
+//   차량재고
+//   [운행일지 — 새 해가 앞, 차량은 재고 탭의 차량 순서]
+//   운행일지 항목 · 리포트 항목 · 앱 설치 링크 · 앱 버전
+//   [그 밖의 탭 — 있던 순서 그대로 맨 뒤]
+//
+// 새 탭이 생기면(insertSheet 는 활성 탭 뒤에 끼운다) 앞쪽에 끼어들어 순서가
+// 흐트러졻다. 그래서 요청을 처리한 뒤 매번 여기서 한 번 맞춘다. 제자리에 있는
+// 탭은 건드리지 않으므로 평소에는 아무 일도 하지 않는다.
+// ═══════════════════════════════════════════════════════════════════
+var TAB_ORDER_TAIL = ['운행일지 항목', '리포트 항목', '앱 설치 링크', '앱 버전'];
+
+function arrangeTabs(ss) {
+  var sheets = ss.getSheets();
+  var byName = {};
+  var names = [];
+  for (var i = 0; i < sheets.length; i++) {
+    byName[sheets[i].getName()] = sheets[i];
+    names.push(sheets[i].getName());
+  }
+  var has = function (n) { return Object.prototype.hasOwnProperty.call(byName, n); };
+
+  // 1) 리포트 월 탭 — 최근 달이 앞
+  var months = names.filter(function (n) { return /^\d{4}-\d{2}$/.test(n); }).sort().reverse();
+
+  // 2) 가이드 — 정해진 차례
+  var guides = [GUIDE_SHEETS.ERROR_CODE, GUIDE_SHEETS.HARDWARE_SOP, GUIDE_SHEETS.SOFTWARE_CMD].filter(has);
+
+  // 3) 운행일지 — 새 해가 앞, 같은 해는 재고 탭의 차량 순서(없으면 이름순)
+  var vehicleOrder = [];
+  try {
+    if (has(INV_SHEET_NAME)) vehicleOrder = readInventory(byName[INV_SHEET_NAME]).vehicles || [];
+  } catch (err) { vehicleOrder = []; }
+  var rank = function (v) { var k = vehicleOrder.indexOf(v); return k < 0 ? 9999 : k; };
+  var driving = names.filter(function (n) {
+    return n !== DRIVING_OPTION_SHEET && drivingTabOf(n) !== null;
+  }).sort(function (a, b) {
+    var ta = drivingTabOf(a), tb = drivingTabOf(b);
+    if (ta.year !== tb.year) return tb.year.localeCompare(ta.year);          // 새 해가 앞
+    var ra = rank(ta.vehicle), rb = rank(tb.vehicle);
+    if (ra !== rb) return ra - rb;
+    return ta.vehicle.localeCompare(tb.vehicle, 'ko');
+  });
+
+  var desired = months.concat(guides);
+  if (has(INV_SHEET_NAME)) desired.push(INV_SHEET_NAME);
+  desired = desired.concat(driving).concat(TAB_ORDER_TAIL.filter(has));
+  // 4) 모르는 탭은 있던 순서 그대로 맨 뒤
+  for (var j = 0; j < names.length; j++) {
+    if (desired.indexOf(names[j]) < 0) desired.push(names[j]);
+  }
+
+  // 제자리가 아닌 것만 옮긴다
+  var moved = 0;
+  for (var k = 0; k < desired.length; k++) {
+    var now = ss.getSheets();
+    if (now[k] && now[k].getName() === desired[k]) continue;
+    ss.setActiveSheet(byName[desired[k]]);
+    ss.moveActiveSheet(k + 1);
+    moved++;
+  }
+  return moved;
 }
 
 /**

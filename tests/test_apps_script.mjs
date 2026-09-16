@@ -163,15 +163,35 @@ class FakeSheet {
 }
 
 class FakeSpreadsheet {
-  constructor() { this.sheets = []; }
+  constructor() { this.sheets = []; this.active = null; }
   getName() { return '테스트 시트'; }
   getUrl() { return 'https://docs.google.com/spreadsheets/d/test/edit'; }
   getId() { return 'testid'; }
-  getSheets() { return this.sheets; }
+  getSheets() { return [...this.sheets]; }
   getSheetByName(name) { return this.sheets.find((s) => s.name === name) || null; }
-  insertSheet(name) { const s = new FakeSheet(name); this.sheets.push(s); return s; }
-  setActiveSheet() { return this; }
-  moveActiveSheet() { return this; }
+  /**
+   * 진짜처럼 자리를 흉내 낸다 — index 가 없으면 **활성 탭 바로 뒤**에 끼운다.
+   * 예전 가짜는 늘 맨 뒤에 붙여서, 새 탭이 앞쪽에 끼어드는 실제 현상을 못 잡았다.
+   */
+  insertSheet(name, index) {
+    const s = new FakeSheet(name);
+    let at = this.sheets.length;
+    if (typeof index === 'number') at = Math.max(0, Math.min(index, this.sheets.length));
+    else if (this.active) at = this.sheets.indexOf(this.active) + 1;
+    this.sheets.splice(at, 0, s);
+    this.active = s;
+    return s;
+  }
+  setActiveSheet(sheet) { this.active = sheet; return this; }
+  moveActiveSheet(pos) {
+    const i = this.sheets.indexOf(this.active);
+    if (i < 0) return this;
+    this.sheets.splice(i, 1);
+    this.sheets.splice(Math.max(0, pos - 1), 0, this.active);
+    return this;
+  }
+  /** 검사용 — 사람이 손으로 탭을 옮긴 것처럼 순서를 뒤섭는다 */
+  _shuffle(names) { this.sheets = names.map((n) => this.getSheetByName(n)).filter(Boolean); }
 }
 
 
@@ -1365,6 +1385,51 @@ spreadsheetUpdatedAt = new Date(2026, 8, 14, 9, 5, 0);
 const c2 = call({ changed: true });
 check('시트가 바뀌면 시각도 바뀐다', c2.changedAt !== c1.changedAt);
 check('자료는 딸려 오지 않는다 (가벼운 물음)', Object.keys(c2).sort().join(',') === 'changedAt,ok');
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 탭 순서 — 사람이 정한 자리를 스크립트가 지킨다
+// ═══════════════════════════════════════════════════════════════════
+console.log('');
+console.log('── 탭 순서 고정');
+const order = () => ss.getSheets().map((s) => s.getName());
+// 지금까지의 검사로 탭이 여럿 생겼다. 아무 요청이든 한 번 지나가면 정렬된다.
+call({ fields: 'pull' });
+const o1 = order();
+check('리포트 월 탭이 맨 앞 · 최근 달이 첫 탭',
+      /^\d{4}-\d{2}$/.test(o1[0]) && o1.filter((n) => /^\d{4}-\d{2}$/.test(n)).join(',')
+        === o1.filter((n) => /^\d{4}-\d{2}$/.test(n)).sort().reverse().join(','), o1.join(' · '));
+const gi = o1.indexOf('오류 코드 가이드');
+check('가이드 셋이 월 탭 다음에 정해진 차례로',
+      gi > 0 && o1[gi + 1] === '하드웨어 교체 SOP' && o1[gi + 2] === 'SW·명령어'
+      && o1.slice(0, gi).every((n) => /^\d{4}-\d{2}$/.test(n)), o1.join(' · '));
+// 가짜 시트에 없는 탭은 건너뛰고, 있는 것들끼리의 앞뒤만 본다.
+const tail = ['차량재고', '운행일지 20', '운행일지 항목', '리포트 항목', '앱 설치 링크', '앱 버전']
+  .map((n) => o1.findIndex((x) => x.startsWith(n))).filter((i) => i >= 0);
+check('차량재고 → 운행일지 → 운행일지 항목 · 리포트 항목 · 앱 설치 링크 · 앱 버전 순',
+      tail.length >= 3 && tail.every((v, i) => i === 0 || v > tail[i - 1]), o1.join(' · '));
+const drv = o1.filter((n) => /^운행일지 \d{4} /.test(n));
+check('운행일지는 새 해가 앞', drv.length >= 2 && drv[0].includes(' 2027 ') && drv[drv.length - 1].includes(' 2026 '), drv.join(' · '));
+
+// 사람이 손으로 뒤섭어 놓았다 — 다음 요청 때 제자리로
+ss._shuffle([...o1].reverse());
+check('뒤섭인 상태다', order()[0] !== o1[0]);
+call({ fields: 'pull' });
+check('★ 손으로 옮겨도 다음 요청 때 제자리로 돌아온다', order().join(',') === o1.join(','), order().join(' · '));
+
+// 새 달 탭은 만들 때부터 맨 앞
+call({ sheetName: '2027-03', headers: ['작성일시', '작성자', '항목'], row: ['2027-03-01 09:00', '홍길동', 'x'] });
+// 앞의 검사들이 2099 년 탭을 만들어 두었으므로 "맨 앞" 은 곧 "최근 달 차례의 제자리" 다.
+const monthsNow = () => order().filter((n) => /^\d{4}-\d{2}$/.test(n));
+check('새 달 탭이 월 탭 무리 안 제자리에 생긴다 (더 최근 달 바로 뒤)',
+      order().indexOf('2027-03') === monthsNow().filter((m) => m > '2027-03').length
+      && monthsNow().join(',') === [...monthsNow()].sort().reverse().join(','), order().slice(0, 4).join(' · '));
+const settled = order();
+ss._shuffle([...settled].reverse());
+call({ changed: true });
+check('5분마다 오는 가벼운 물음(changed)은 탭을 건드리지 않는다', order().join(',') !== settled.join(','));
+call({ fields: 'pull' });
+check('그 다음 요청이 다시 맞춘다', order().join(',') === settled.join(','));
 
 console.log('='.repeat(62));
 if (failures.length) {
