@@ -217,10 +217,10 @@ check("리포트 번호는 소비자 시트의 필드팀 요청 건에서 고른
       and "pullRequestNumbers" in read("web/js/reportsheet.js")
       and "numberOptionsHtml" in read("web/js/views/report.js"),
       "번호를 손으로 적으면 접수 건과 리포트가 이어지지 않는다")
-check("콘솔에서 이미 처리한 접수는 고를 수 없다 (콘솔 상태 '대기' 만)",
-      "CONSUMER_WAITING_MARK" in gs and "function findConsoleStatusColumn" in gs
-      and "iConsole < 0" in gs,
-      "처리된 건이 남아 있으면 같은 접수로 리포트가 두 번 써진다")
+check("콘솔에서 끝난 접수는 고를 수 없다 (콘솔 상태 '대기'·'진행중' 만)",
+      "CONSUMER_OPEN_MARKS" in gs and "function isConsoleOpen" in gs
+      and "function findConsoleStatusColumn" in gs and "iConsole < 0" in gs,
+      "끝난 건이 남아 있으면 같은 접수로 리포트가 두 번 써진다")
 check("수정할 때 항목 줄을 고쳐 쓰지 않는다",
       "writeHeaders(target, body.headers)" not in gs and "var blockU = blockForRow(" in gs,
       "옛 줄이 새 머리 아래 놓여 통째로 어긋난다")

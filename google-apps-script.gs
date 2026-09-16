@@ -1866,11 +1866,11 @@ var MONTH_TAB = /^\d{4}-\d{2}( \(\d+\))?$/;
 /* ── 리포트 번호 목록 (소비자 앱 시트) ─────────────────────────────────
  *
  * 매장이 소비자 앱으로 접수한 리포트는 **다른 스프레드시트**(비욘드허니컴
- * 소비자용)의 [리포트] 탭에 쌓인다. 그중 **아직 처리되지 않은 필드팀 방문
+ * 소비자용)의 [리포트] 탭에 쌓인다. 그중 **아직 끝나지 않은 필드팀 방문
  * 대상**만 고를 수 있어야 한다. 두 칸을 함께 본다:
- *   조치결과  '필드팀 요청'  — 필드팀이 가야 하는 건
- *   콘솔 상태 '대기'         — 콘솔에서 아직 손대지 않은 건
- * 둘 다 맞아야 목록에 넣는다. 콘솔에서 이미 처리한 건이 목록에 남아 있으면
+ *   조치결과  '필드팀 요청'        — 필드팀이 가야 하는 건
+ *   콘솔 상태 '대기' 또는 '진행중' — 아직 끝나지 않은 건
+ * 둘 다 맞아야 목록에 넣는다. 콘솔에서 끝난 건이 목록에 남아 있으면
  * 같은 접수로 현장 리포트가 두 번 써진다.
  *
  *  { reports: 'numbers' } → [{ number, store, problem, receivedAt }] 최근 것부터
@@ -1878,7 +1878,18 @@ var MONTH_TAB = /^\d{4}-\d{2}( \(\d+\))?$/;
 var CONSUMER_SS_ID = '1ZUsgwFVX1O97778MKoedU2f-UsnShRcrI85o5WNICwo';
 var CONSUMER_REPORT_GID = 1882930844;     // [리포트] 탭 — 이름이 바뀌어도 gid 는 그대로
 var CONSUMER_REQUEST_MARK = '필드팀';     // '조치결과' 칸에 이 말이 들어 있으면 필드팀 요청 건
-var CONSUMER_WAITING_MARK = '대기';       // '콘솔 상태' 칸이 이 말이면 아직 처리 전
+// '콘솔 상태' 칸에 이 말들 중 하나가 들어 있으면 아직 안 끝난 건.
+// '진행' 만 본다 — '진행중' / '진행 중' 어느 쪽으로 적혀도 걸리게.
+var CONSUMER_OPEN_MARKS = ['대기', '진행'];
+
+/** 콘솔에서 아직 끝나지 않은 건인가 ('대기' · '진행중') */
+function isConsoleOpen(value) {
+  var text = String(value || '').replace(/\s/g, '');
+  for (var i = 0; i < CONSUMER_OPEN_MARKS.length; i++) {
+    if (text.indexOf(CONSUMER_OPEN_MARKS[i]) >= 0) return true;
+  }
+  return false;
+}
 
 /**
  * '콘솔 상태' 열 찾기.
@@ -1930,7 +1941,7 @@ function handleReportNumbers() {
   var items = [];
   for (var r = 1; r < values.length; r++) {
     if (String(values[r][iResult] || '').indexOf(CONSUMER_REQUEST_MARK) < 0) continue;
-    if (String(values[r][iConsole] || '').indexOf(CONSUMER_WAITING_MARK) < 0) continue;
+    if (!isConsoleOpen(values[r][iConsole])) continue;
     var number = String(values[r][iNum] || '').trim();
     if (!number) continue;
     var when = iWhen < 0 ? '' : values[r][iWhen];
