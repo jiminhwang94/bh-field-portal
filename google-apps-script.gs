@@ -118,36 +118,57 @@ function doPost(e) {
     var lock = LockService.getScriptLock();
     lock.waitLock(30000);            // 동시에 여러 명이 올려도 줄이 섞이지 않게
     try {
-      // 한 달은 **탭 하나**다. 항목이 달라지면 탭을 새로 만들지 않고,
-      // 그 탭 **맨 아래에 새 항목 줄을 넣고** 그 아래로 쌓는다.
-      // 옛 줄은 옛 항목 줄 아래 그대로 남아 어긋나지 않는다.
+      // 한 달은 **표 하나**다 (2행에 항목 줄 하나). 항목이 달라져도 표를
+      // 가르지 않고, 항목 **이름**으로 열을 맞춰 적는다. 새 항목은 그 자리에
+      // 열을 끼워 넣고, 없어진 항목의 열은 옛 기록 보존을 위해 남긴다.
       var picked = openMonthSheet(ss, sheetName);
       var sheet = picked.sheet;
       var created = picked.created;
 
-      // 쌓을 자리. 맨 아래 항목 묶음과 지금 항목이 다르면 새 항목 줄이 먼저 들어간다.
-      var target = placeForRow(sheet, headers, created);
+      // 예전 판이 갈라 놓은 항목 묶음들이 있으면 먼저 표 하나로 합친다.
+      if (!created) consolidateIfSplit(sheet);
+
+      // 쌓을 자리와 열 배치. map[i] = 앱의 i번째 칸이 갈 시트 열(1-based).
+      var placed = placeForRow(sheet, headers, created);
+      var target = placed.target;
+
+      // 앱이 보낸 값을 시트 열 배치에 맞춰 다시 늘어놓는다.
+      var aligned = [];
+      for (var fill = 0; fill < placed.width; fill++) aligned.push('');
+      for (var ri = 0; ri < row.length; ri++) {
+        var toCol = placed.map[ri] || 0;
+        if (toCol >= 1) aligned[toCol - 1] = row[ri];
+      }
 
       // 사진·영상은 드라이브 폴더에 저장하고, 칸에는 링크만 넣는다.
       // (시트에 박아 넣으면 영상이 안 되고 앱이 되읽을 수도 없다)
+      // 첨부의 열 번호도 앱 기준이므로 시트 열로 옮긴다.
       var saved = saveMediaToDrive(ss, body.media || []);
+      var mediaCols = {};              // 시트 열 → 주소 목록
       for (var col in saved.byColumn) {
-        row[Number(col) - 1] = saved.byColumn[col].join('\n');
+        var mc = placed.map[Number(col) - 1] || Number(col);
+        mediaCols[mc] = saved.byColumn[col];
+        aligned[mc - 1] = saved.byColumn[col].join('\n');
       }
 
-      sheet.getRange(target, 1, 1, row.length).setValues([row]);
-      sheet.getRange(target, 1, 1, row.length)
+      sheet.getRange(target, 1, 1, aligned.length).setValues([aligned]);
+      sheet.getRange(target, 1, 1, aligned.length)
         .setVerticalAlignment('top')
         .setWrap(true);
 
       // 첨부 칸은 **눌러서 열 수 있는 링크**로 다시 적는다.
       // 글자로만 넣으면 시트에서 검은 글씨로 보이고 눌러도 안 열린다.
-      for (var linkCol in saved.byColumn) {
-        writeLinkCell(sheet, target, Number(linkCol), saved.byColumn[linkCol]);
+      for (var linkCol in mediaCols) {
+        writeLinkCell(sheet, target, Number(linkCol), mediaCols[linkCol]);
       }
 
       // 예전 앱(빌드 9 이하)이 보낸 사진은 지금까지처럼 칸에 그림으로 삽입한다.
-      var inserted = insertImages(sheet, body.images || [], target);
+      var legacyImages = body.images || [];
+      for (var li = 0; li < legacyImages.length; li++) {
+        var lc = Number(legacyImages[li].column) || 1;
+        legacyImages[li].column = placed.map[lc - 1] || lc;
+      }
+      var inserted = insertImages(sheet, legacyImages, target);
 
       SpreadsheetApp.flush();
       return json({
@@ -277,7 +298,8 @@ function blockForRow(sheet, rowIndex) {
 function placeForRow(sheet, headers, created) {
   if (created) {
     writeHeaders(sheet, headers, REPORT_HEADER_ROW);   // 1행은 비우고 2행에 항목명
-    return REPORT_DATA_ROW;
+    return { target: REPORT_DATA_ROW,
+             map: identityMap(headers.length), width: headers.length };
   }
   var block = lastHeaderBlock(sheet);
   var lastRow = sheet.getLastRow();
@@ -285,30 +307,144 @@ function placeForRow(sheet, headers, created) {
   if (!block.row) {                    // 항목 줄이 아예 없다 (사람이 만든 빈 탭)
     var at = Math.max(lastRow + 1, REPORT_HEADER_ROW);
     writeHeaders(sheet, headers, at);
-    return at + 1;
+    return { target: at + 1,
+             map: identityMap(headers.length), width: headers.length };
   }
-  if (!headers.length || headerKey(block.headers) === headerKey(headers)) {
-    return Math.max(lastRow + 1, block.row + 1);
+  if (!headers.length) {               // 항목을 안 보낸 옛 요청 — 자리 그대로 적는다
+    var plainWidth = Math.max(block.headers.length, 1);
+    return { target: Math.max(lastRow + 1, block.row + 1),
+             map: identityMap(plainWidth), width: plainWidth };
   }
-  // 항목이 달라졌다 — 한 줄 띄우고 새 항목 줄을 넣는다 (눈으로도 구분되도록)
-  var headRow = lastRow + 2;
-  writeHeaders(sheet, headers, headRow);
-  return headRow + 1;
+
+  // 항목 이름으로 열을 맞춘다. 새 항목은 직전 항목의 오른쪽에 열을 끼워 넣는다.
+  var sheetHead = block.headers.slice();
+  var map = [];
+  var prevIdx = -1;                    // 직전 항목이 자리한 열 (0-based)
+  for (var i = 0; i < headers.length; i++) {
+    var name = String(headers[i] || '').trim();
+    var idx = sheetHead.indexOf(name);
+    if (idx < 0 && name) {
+      idx = prevIdx + 1;
+      if (prevIdx < 0) sheet.insertColumnBefore(1);
+      else sheet.insertColumnAfter(prevIdx + 1);
+      sheetHead.splice(idx, 0, name);
+      var cell = sheet.getRange(block.row, idx + 1);
+      cell.setValue(name);
+      cell.setFontWeight('bold');
+      cell.setBackground('#eef1f5');
+      if (sheet.getColumnWidth(idx + 1) < 140) sheet.setColumnWidth(idx + 1, 140);
+    }
+    map.push(idx >= 0 ? idx + 1 : 0);
+    if (idx >= 0) prevIdx = idx;
+  }
+  return { target: Math.max(sheet.getLastRow() + 1, block.row + 1),
+           map: map, width: sheetHead.length };
 }
 
-/** 항목 목록을 비교하기 좋은 한 줄로 만든다. 빈 목록은 빈 문자열. */
-function headerKey(headers) {
-  if (!headers || !headers.length) return '';
-  var parts = [];
-  for (var i = 0; i < headers.length; i++) {
-    parts.push(String(headers[i]).trim());
+/** i번째 값이 i번째 열로 가는 그대로 배치 */
+function identityMap(count) {
+  var map = [];
+  for (var i = 0; i < count; i++) map.push(i + 1);
+  return map;
+}
+
+/**
+ * 항목 묶음이 여러 개로 갈라진 탭을 **표 하나**로 합친다.
+ *
+ * v3.25 이전에는 항목이 바뀔 때마다 탭 아래에 새 항목 줄을 만들어,
+ * 항목 추가·순서 변경만 해도 한 탭에 표가 여러 개 생겼다. 이 함수가
+ * 리포트를 올릴 때 한 번 정리해 준다 (묶음이 하나면 아무것도 안 한다).
+ *
+ * 열 배치는 맨 아래(최신) 묶음의 순서를 따르고, 옛 묶음에만 있던 항목은
+ * 그 뒤에 덧붙인다. '상태'는 항상 맨 뒤. 자료 줄은 각자의 항목 이름으로
+ * 새 배치에 옮겨 담으므로 값이 어긋나지 않고, 드라이브 링크도 다시 살린다.
+ */
+function consolidateIfSplit(sheet) {
+  var blocks = headerBlocks(sheet);
+  if (blocks.length <= 1) return false;
+
+  var union = [];
+  var hasStatus = false;
+  for (var b = blocks.length - 1; b >= 0; b--) {
+    var hs = blocks[b].headers;
+    for (var i = 0; i < hs.length; i++) {
+      var name = String(hs[i] || '').trim();
+      if (!name) continue;
+      if (name === STATUS_HEADER) { hasStatus = true; continue; }
+      if (union.indexOf(name) < 0) union.push(name);
+    }
   }
-  while (parts.length && parts[parts.length - 1] === '') parts.pop();
-  return parts.join('');
+  if (hasStatus) union.push(STATUS_HEADER);
+  if (!union.length) return false;
+
+  // 자료 줄을 각자의 항목 이름으로 새 배치에 옮겨 담는다
+  var lastRow = sheet.getLastRow();
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  var current = null;
+  var out = [];
+  for (var r = 0; r < values.length; r++) {
+    var cells = values[r];
+    if (isHeaderRow(cells)) {
+      current = [];
+      for (var h = 0; h < cells.length; h++) current.push(String(cells[h] || '').trim());
+      continue;
+    }
+    if (!current) continue;            // 항목 줄보다 위의 줄은 무시
+    var empty = true;
+    for (var e = 0; e < cells.length; e++) {
+      if (String(cells[e] || '').trim()) { empty = false; break; }
+    }
+    if (empty) continue;               // 묶음 사이 여백 줄
+    var line = [];
+    for (var f = 0; f < union.length; f++) line.push('');
+    for (var c = 0; c < current.length && c < cells.length; c++) {
+      if (!current[c]) continue;
+      var to = union.indexOf(current[c]);
+      if (to >= 0) line[to] = cells[c];
+    }
+    out.push(line);
+  }
+
+  sheet.clearContents();
+  writeHeaders(sheet, union, REPORT_HEADER_ROW);
+  if (out.length) {
+    var range = sheet.getRange(REPORT_DATA_ROW, 1, out.length, union.length);
+    range.setValues(out);
+    range.setVerticalAlignment('top');
+    range.setWrap(true);
+    for (var r2 = 0; r2 < out.length; r2++) {
+      relinkDriveCells(sheet, REPORT_DATA_ROW + r2, out[r2]);
+    }
+  }
+  return true;
+}
+
+/** 드라이브 주소가 든 칸들을 다시 **누를 수 있는 링크**로 만든다. */
+function relinkDriveCells(sheet, rowIndex, line) {
+  for (var c = 0; c < line.length; c++) {
+    var text = String(line[c] || '');
+    if (text.indexOf('drive.google.com') < 0) continue;
+    var parts = text.split(NEWLINE);
+    var urls = [];
+    for (var p = 0; p < parts.length; p++) {
+      var one = parts[p].trim();
+      if (one.indexOf('http') === 0) urls.push(one);
+    }
+    if (urls.length) writeLinkCell(sheet, rowIndex, c + 1, urls);
+  }
+}
+
+
+/** 시트의 열 수가 모자라면 늘린다 (기본 26열을 넘는 항목 구성 대비). */
+function ensureColumns(sheet, count) {
+  var max = sheet.getMaxColumns();
+  if (max < count) sheet.insertColumnsAfter(max, count - max);
 }
 
 function writeHeaders(sheet, headers, atRow) {
   if (!headers || !headers.length) return;
+  ensureColumns(sheet, headers.length);
   var row = Math.floor(atRow || REPORT_HEADER_ROW);
   var range = sheet.getRange(row, 1, 1, headers.length);
   range.setValues([headers]);
@@ -1778,9 +1914,15 @@ function handleReports(ss, body) {
       }
 
       // 첨부를 새로 올렸으면 드라이브에 저장하고 그 칸만 바꾼다.
+      // 첨부의 열 번호는 앱의 항목 순서 기준이라, 그 줄의 항목 배치로 옮긴다.
       var savedU = saveMediaToDrive(ss, body.media || []);
       for (var colU in savedU.byColumn) {
         var idx = Number(colU) - 1;
+        if (blockU && (body.headers || []).length) {
+          var labelU = String(body.headers[idx] || '').trim();
+          var toIdx = blockU.headers.indexOf(labelU);
+          if (toIdx >= 0) idx = toIdx;
+        }
         var had = String(line[idx] || '').trim();
         line[idx] = (had ? had + NEWLINE : '') + savedU.byColumn[colU].join(NEWLINE);
       }
@@ -1788,6 +1930,8 @@ function handleReports(ss, body) {
       target.getRange(rowIndex, 1, 1, line.length).setValues([line]);
       target.getRange(rowIndex, 1, 1, line.length)
         .setVerticalAlignment('top').setWrap(true);
+      // setValues 는 글자로만 적으므로, 첨부 칸을 다시 파란 링크로 살린다.
+      relinkDriveCells(target, rowIndex, line);
       SpreadsheetApp.flush();
       return json({ ok: true, sheetName: body.sheetName, row: rowIndex,
                     media: savedU.count, mediaSkipped: savedU.skipped,

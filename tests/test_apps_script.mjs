@@ -137,6 +137,27 @@ class FakeSheet {
     this.cells = next;
     return this;
   }
+  getMaxColumns() { return Math.max(this.getLastColumn(), 26); }
+  insertColumnsAfter() { return this; }     // 가짜 그리드는 폭 제한이 없다
+  /**
+   * 열 끼워 넣기 — 새 리포트 항목이 제자리에 열을 만들 때 쓴다.
+   * at번째 열 자리에 빈 열이 생기고, at 이상이던 열은 오른쪽으로 한 칸 민다.
+   * 가짜에 없으면 이걸 쓰는 코드가 "is not a function" 으로 터진다.
+   */
+  insertColumnBefore(at) {
+    const shift = (map) => {
+      const next = new Map();
+      for (const [k, v] of map) {
+        const [r, c] = k.split(',').map(Number);
+        next.set(`${r},${c >= at ? c + 1 : c}`, v);
+      }
+      return next;
+    };
+    this.cells = shift(this.cells);
+    this.links = shift(this.links);
+    return this;
+  }
+  insertColumnAfter(pos) { return this.insertColumnBefore(pos + 1); }
 }
 
 class FakeSpreadsheet {
@@ -656,14 +677,16 @@ check('뺀 첨부만 빠진다', finalLinks.length === 1 && finalLinks[0] === af
       `${finalLinks.length}개`);
 
 // ────────────────────────────────────────────────────────────────────
-// 항목이 바뀌어도 **같은 탭**에 쌓는다 (v3.11)
+// 항목이 바뀌어도 표는 **하나**다 (v3.26)
 //
-// 예전에는 `2026-09 (2)` 처럼 탭을 갈랐다. 한 달을 여러 탭에서 찾아야 해서
-// 불편했다. 이제 같은 탭 맨 아래에 **새 항목 줄**을 넣고 그 아래로 쌓는다.
-// 옛 줄은 옛 항목 줄 아래 그대로 남아 어긋나지 않는다.
+// 예전에는 항목이 달라지면 탭 아래에 새 항목 줄을 만들었다. 항목을 하나만
+// 더하거나 순서만 바꿔도 한 탭에 표가 여러 개 생겼다(실제로 그렇게 보였다).
+// 이제 항목 **이름**으로 열을 맞춰 적는다. 새 항목은 제자리에 열이 생기고,
+// 없어진 항목의 열은 옛 기록 보존을 위해 남는다.
 // ────────────────────────────────────────────────────────────────────
 const H1 = ['작성일시', '작성자', '식당명', '오류 코드', '상태'];
-const H2 = ['작성일시', '작성자', '식당명', '오류 코드', '조치 내용', '상태'];
+const H2 = ['작성일시', '작성자', '식당명', '오류 코드', '조치 내용', '상태'];  // 항목 추가
+const H3 = ['작성일시', '작성자', '오류 코드', '식당명', '조치 내용', '상태'];  // 순서만 이동
 
 call({ sheetName: '2099-01', headers: H1,
        row: ['2099-01-05 10:00', '김현장', '옥동식', 'E-1', '조치 완료'] });
@@ -671,61 +694,107 @@ call({ sheetName: '2099-01', headers: H1,
        row: ['2099-01-06 10:00', '김현장', '미트로', 'E-2', '조치 완료'] });
 
 const tab = ss.getSheetByName('2099-01');
+const headerRowsOf = (sheet) => {
+  const rows = [];
+  for (let r = 1; r <= sheet.getLastRow(); r += 1) {
+    if (String(sheet.getRange(r, 1).getValue() || '').trim() === '작성일시') rows.push(r);
+  }
+  return rows;
+};
+const headerOf = (sheet) => {
+  const line = sheet.getRange(2, 1, 1, sheet.getLastColumn()).getValues()[0]
+    .map((v) => String(v || '').trim());
+  while (line.length && !line[line.length - 1]) line.pop();
+  return line;
+};
 check('같은 항목이면 이어 붙인다', tab.getLastRow() === 4, `${tab.getLastRow()}행`);
 check('항목 줄은 2행이다',
       tab.getRange(2, 1, 1, 1).getValues()[0][0] === '작성일시');
 
-// 항목을 하나 더한 채로 올린다 → **같은 탭**에 새 항목 줄이 생겨야 한다
+// 항목을 하나 더한 채로 올린다 → 표는 그대로 하나, 그 자리에 **열이 끼워진다**
 const moved = call({ sheetName: '2099-01', headers: H2,
                      row: ['2099-01-07 10:00', '김현장', '한솔', 'E-3', '패드 교체', '모니터링'] });
 check('탭을 새로 만들지 않는다', !ss.getSheetByName('2099-01 (2)'),
       ss.getSheets().map((x) => x.getName()).join(' | '));
 check('응답의 탭 이름이 그대로다', moved.sheetName === '2099-01', String(moved.sheetName));
-check('옛 항목 줄을 건드리지 않는다',
-      tab.getRange(2, 1, 1, H1.length).getValues()[0].join('|') === H1.join('|'),
-      tab.getRange(2, 1, 1, H1.length).getValues()[0].join('|'));
+check('항목 줄은 여전히 하나다', headerRowsOf(tab).length === 1,
+      headerRowsOf(tab).join(', '));
+check('2행 항목 줄에 새 항목이 제자리에 끼워진다',
+      headerOf(tab).join('|') === H2.join('|'), headerOf(tab).join('|'));
+const stateCol = headerOf(tab).indexOf('상태') + 1;
+check('옛 줄의 상태 값이 상태 열로 함께 옮겨진다',
+      tab.getRange(3, stateCol).getValue() === '조치 완료',
+      String(tab.getRange(3, stateCol).getValue()));
+check('옛 줄의 새 항목 칸은 비어 있다',
+      String(tab.getRange(3, headerOf(tab).indexOf('조치 내용') + 1).getValue() || '') === '');
+check('새 줄은 새 항목 칸이 채워진다',
+      tab.getRange(5, headerOf(tab).indexOf('조치 내용') + 1).getValue() === '패드 교체');
 
-// 같은 탭 안에 항목 줄이 두 개
-const headerRows = [];
-for (let r = 1; r <= tab.getLastRow(); r += 1) {
-  if (String(tab.getRange(r, 1).getValue() || '').trim() === '작성일시') headerRows.push(r);
-}
-check('같은 탭에 항목 줄이 두 개다', headerRows.length === 2, headerRows.join(', '));
-check('새 항목 줄이 새 항목이다',
-      tab.getRange(headerRows[1], 1, 1, H2.length).getValues()[0].join('|') === H2.join('|'));
+// 항목 **순서만** 바꿔 올리면 시트는 그대로 두고 값만 이름에 맞춰 적는다
+call({ sheetName: '2099-01', headers: H3,
+       row: ['2099-01-08 10:00', '김현장', 'E-4', '옥동식', '점검', '조치 완료'] });
+check('순서 이동은 항목 줄을 만들지 않는다', headerRowsOf(tab).length === 1,
+      headerRowsOf(tab).join(', '));
+check('순서 이동은 시트 열 배치를 바꾸지 않는다',
+      headerOf(tab).join('|') === H2.join('|'), headerOf(tab).join('|'));
+check('값은 이름에 맞는 열로 들어간다',
+      tab.getRange(6, headerOf(tab).indexOf('오류 코드') + 1).getValue() === 'E-4'
+      && tab.getRange(6, headerOf(tab).indexOf('식당명') + 1).getValue() === '옥동식',
+      `${tab.getRange(6, 4).getValue()} · ${tab.getRange(6, 3).getValue()}`);
 
-// 읽으면 줄마다 자기 항목이 딸려 온다
+// 읽으면 모든 줄이 같은 항목으로 온다
 let read = call({ reports: 'pull', sheetName: '2099-01' });
-check('세 줄 모두 읽힌다', (read.rows || []).length === 3,
+check('네 줄이 모두 읽힌다', (read.rows || []).length === 4,
       `${(read.rows || []).length}줄`);
-const withNew = read.rows.filter((r) => (r.headers || []).length === H2.length);
-const withOld = read.rows.filter((r) => (r.headers || []).length === H1.length);
-check('줄마다 자기 항목이 함께 온다', withOld.length === 2 && withNew.length === 1,
-      `옛 ${withOld.length} · 새 ${withNew.length}`);
+check('모든 줄의 항목이 하나로 같다',
+      read.rows.every((r) => (r.headers || []).join('|') === H2.join('|')));
 check('항목 줄은 자료로 읽지 않는다',
       read.rows.every((r) => r.cells[0] !== '작성일시'));
 
-// 다시 옛 항목으로 올리면 맨 아래(새 항목 묶음)에 또 항목 줄이 생긴다
-call({ sheetName: '2099-01', headers: H1,
-       row: ['2099-01-08 10:00', '김현장', '옥동식', 'E-4', '조치 완료'] });
-read = call({ reports: 'pull', sheetName: '2099-01' });
-check('옛 항목으로 돌아가도 같은 탭이다', !ss.getSheetByName('2099-01 (2)'));
-check('네 줄이 모두 읽힌다', (read.rows || []).length === 4, `${(read.rows || []).length}줄`);
-
-// 상태 변경 — 항목이 바뀐 뒤의 줄도 제 칸에 적혀야 한다
-const newRow = read.rows.find((r) => (r.headers || []).length === H2.length);
+// 상태 변경도 합쳐진 항목 기준으로 제 칸에 적힌다
+const newRow = read.rows[read.rows.length - 1];
 const st = call({ reports: 'status', sheetName: '2099-01',
                   row: newRow.row, status: '교체 예정' });
-check('상태를 그 줄의 항목 기준으로 적는다', st.ok === true && st.column === H2.length,
-      `열 ${st.column} (기대 ${H2.length})`);
+check('상태를 합쳐진 항목 기준으로 적는다', st.ok === true && st.column === stateCol,
+      `열 ${st.column} (기대 ${stateCol})`);
 check('시트에 실제로 적혔다',
-      tab.getRange(newRow.row, H2.length).getDisplayValues()[0][0] === '교체 예정',
-      tab.getRange(newRow.row, H2.length).getDisplayValues()[0][0]);
+      tab.getRange(newRow.row, stateCol).getDisplayValues()[0][0] === '교체 예정',
+      tab.getRange(newRow.row, stateCol).getDisplayValues()[0][0]);
 
 // 월 목록은 여전히 한 달 하나
 const months = call({ reports: 'months' }).months || [];
 check('월 목록에 갈라진 탭이 없다', !months.some((m) => /\(\d+\)/.test(m)),
       months.join(' | '));
+
+// ── 예전 판이 갈라 놓은 탭은 다음 업로드 때 표 하나로 합쳐진다 (자가 치유)
+const splitTab = ss.insertSheet('2099-02');
+splitTab.getRange(2, 1, 1, H1.length).setValues([H1]);
+splitTab.getRange(3, 1, 1, H1.length).setValues(
+  [['2099-02-01 09:00', 'ben', '옥동식', 'E-9', '조치 완료']]);
+// 한 줄 띄우고 두 번째 항목 묶음 (옛 동작 그대로 흉내)
+splitTab.getRange(5, 1, 1, H2.length).setValues([H2]);
+splitTab.getRange(6, 1, 1, H2.length).setValues(
+  [['2099-02-02 09:00', 'ben', '미트로', 'E-10',
+    'https://drive.google.com/file/d/abc123abc123abc123abc/view', '모니터링']]);
+
+call({ sheetName: '2099-02', headers: H2,
+       row: ['2099-02-03 09:00', 'ben', '한솔', 'E-11', '점검', '조치 완료'] });
+check('갈라졌던 탭의 항목 줄이 하나로 합쳐진다', headerRowsOf(splitTab).length === 1,
+      headerRowsOf(splitTab).join(', '));
+check('합쳐진 항목은 최신 순서를 따른다',
+      headerOf(splitTab).join('|') === H2.join('|'), headerOf(splitTab).join('|'));
+check('여백 줄 없이 이어 붙는다', splitTab.getLastRow() === 5, `${splitTab.getLastRow()}행`);
+check('옛 줄 값이 이름 기준으로 옮겨진다',
+      splitTab.getRange(3, headerOf(splitTab).indexOf('오류 코드') + 1).getValue() === 'E-9'
+      && splitTab.getRange(4, headerOf(splitTab).indexOf('오류 코드') + 1).getValue() === 'E-10');
+check('옛 줄의 드라이브 주소가 살아 있고 다시 링크가 된다',
+      String(splitTab.getRange(4, headerOf(splitTab).indexOf('조치 내용') + 1).getValue())
+        .includes('drive.google.com')
+      && splitTab.links.has(`4,${headerOf(splitTab).indexOf('조치 내용') + 1}`),
+      String(splitTab.getRange(4, headerOf(splitTab).indexOf('조치 내용') + 1).getValue()).slice(0, 60));
+const readSplitTab = call({ reports: 'pull', sheetName: '2099-02' });
+check('합쳐진 뒤 세 줄이 모두 읽힌다', (readSplitTab.rows || []).length === 3,
+      `${(readSplitTab.rows || []).length}줄`);
 
 // ────────────────────────────────────────────────────────────────────
 // 가이드 단계 사진 — 드라이브 저장 + 시트로 공유 (v3.11)
