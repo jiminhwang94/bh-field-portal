@@ -195,6 +195,20 @@ export async function reportFormView(view) {
       <option value="__manual__">직접 입력…</option>`;
   }
 
+  /**
+   * 목록이 바뀐 뒤 리포트 번호 칸을 다시 그린다 (그 칸 하나만).
+   *
+   * 목록과 화면이 어긋나면 안 된다. 고를 것이 없어졌는데 셀렉트가 남아 있으면
+   * 골라도 매장명이 안 채워지고, 없는 번호를 고른 것처럼 보인다.
+   * 적어 둔 값은 어느 쪽으로 바뀌든 지킨다.
+   */
+  function repaintNumberField() {
+    if (!numberField) return;
+    const el = view.querySelector(`[data-input="${numberField.id}"]`);
+    const box = el && el.closest('.field');
+    if (box) box.outerHTML = fieldHtml(numberField);   // 적어 둔 값은 values 에 있다
+  }
+
   /** 번호를 고르면 그 접수의 매장명을 (매장명 칸이 비어 있을 때만) 같이 채운다. */
   function fillStoreFromNumber(number) {
     const item = reportNumbers.find((it) => it.number === number);
@@ -301,9 +315,9 @@ export async function reportFormView(view) {
         // 목록에 없는 번호를 적어야 할 때 — 셀렉트를 입력칸으로 바꾼다
         manualNumber = true;
         values[id].value = '';
-        ev.target.outerHTML = `<input class="input" type="text" data-input="${id}"
-               value="" placeholder="리포트 번호" />`;
-        root.querySelector(`input[data-input="${id}"]`).focus();
+        repaintNumberField();
+        const inp = root.querySelector(`input[data-input="${id}"]`);
+        if (inp) inp.focus();
         return;
       }
       values[id].value = ev.target.value;
@@ -555,20 +569,13 @@ export async function reportFormView(view) {
 
   render();
 
-  // 최신 접수 목록을 뒤에서 받아 셀렉트만 갈아 끼운다 — 쓰던 화면은 건드리지 않는다.
+  // 최신 접수 목록을 뒤에서 받아 그 칸만 갈아 끼운다 — 쓰던 화면은 건드리지 않는다.
   if (numberField && sheetsReady) {
     pullRequestNumbers().then((items) => {
+      if (manualNumber) return;    // 직접 적고 있는 중이면 끼어들지 않는다
       reportNumbers = items;
-      if (manualNumber || !items.length) return;
-      const current = String(values[numberField.id].value || '').trim();
-      const sel = view.querySelector(`select[data-input="${numberField.id}"]`);
-      if (sel) { sel.innerHTML = numberOptionsHtml(current); return; }
-      // 받아 둔 목록이 없어 입력칸으로 그렸던 경우 — 비어 있으면 셀렉트로 바꾼다
-      const inp = view.querySelector(`input[data-input="${numberField.id}"]`);
-      if (inp && !current) {
-        inp.outerHTML = `<select class="select" data-input="${numberField.id}">${numberOptionsHtml('')}</select>`;
-      }
-    }).catch(() => {});
+      repaintNumberField();
+    }).catch(() => {});            // 못 받아오면 받아 둔 목록 그대로 쓴다
   }
 }
 
