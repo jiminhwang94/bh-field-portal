@@ -152,11 +152,6 @@ img { display: block; max-width: 100%; }
 [hidden] { display: none !important; }
 
 .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
-.kicker {
-  font-size: 13px; font-weight: 600;
-  letter-spacing: 0.14em; text-transform: uppercase;
-  color: var(--color-accent);
-}
 .label { font-size: 14px; font-weight: 600; color: var(--color-muted); }
 .muted { color: var(--color-muted); }
 .mono { font-family: var(--font-mono); }
@@ -195,11 +190,6 @@ img { display: block; max-width: 100%; }
   padding: var(--space-4) 10px;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
-}
-.tabbar__mark { flex: none; height: 44px; margin-bottom: 10px; display: grid; place-items: center; }
-.tabbar__mark::before {
-  content: ""; width: 11px; height: 11px;
-  background: var(--color-accent); border-radius: 2px;
 }
 .tab {
   position: relative;
@@ -588,11 +578,14 @@ img { display: block; max-width: 100%; }
  * 예전에는 그냥 흰 선택칸이라 '모니터링' 과 '조치 완료' 가 한눈에 구분되지
  * 않았고 글씨도 작았다. 목록을 훑을 때 **색으로 먼저** 읽히게 한다.
  * 색은 상태 알약(.pill--*)과 같은 것을 쓴다 — 같은 뜻에 같은 색.
+ *
+ * 선 두께는 여기서 정하지 않는다 — `.select` 의 1px 을 그대로 쓴다.
+ * 한때 2px 이었는데, 화면에서 이 칸만 선이 굵어 다른 버튼과 겉돌았다.
+ * 구분은 **색**이 하는 일이므로 두께를 더할 이유가 없다.
  */
 .status-select {
   min-height: 48px; flex: none;
   font-size: 16px; font-weight: 700; letter-spacing: -0.01em;
-  border: 2px solid var(--color-border-strong);
   padding-right: 34px;
 }
 .status-select--done  { background: var(--color-ok-tint); color: var(--color-ok); border-color: var(--color-ok); }
@@ -996,7 +989,6 @@ iframe.step__img--edit, video.step__img--edit { width: 260px; height: 150px; }
   }
   .tab { flex: 1; height: 64px; }
   .tab[data-tab="settings"] { margin-top: 0; }
-  .tabbar__mark { display: none; }
 
   .search-row .input { min-height: 68px; font-size: 21px; padding: 0 var(--space-4); }
   .search-row .btn { min-height: 68px; min-width: 96px; font-size: 17px; }

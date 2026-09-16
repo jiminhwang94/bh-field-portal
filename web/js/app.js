@@ -128,7 +128,6 @@ async function mainView() {
 
   view.innerHTML = `
     <section class="search-block">
-      <div class="kicker">무엇을 찾고 있습니까</div>
       <form class="search-row" id="searchForm" role="search">
         <input class="input" id="searchInput" type="search" autocomplete="off"
                enterkeyhint="search" aria-label="통합 검색"
