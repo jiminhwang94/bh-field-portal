@@ -1,4 +1,9 @@
 // 스타리아 차량 수동 재고 관리 (차량 추가/삭제 + 품목 수량 조절)
+//
+// 품목은 **분류**(케이블 · 패드 · 보드 …)로 묶여 접히고 펴진다. 케이블만 해도
+// C to C · USB to C · 1m · 2m 로 줄이 늘어, 묶지 않으면 표가 한 화면을 넘는다.
+// 순서는 손잡이(≡)를 잡고 끌어 바꾼다 — 묶음 안에서 품목을, 묶음끼리 묶음을.
+// 품목 목록과 순서는 차량 공용이다 (1호차에서 옮기면 2호차도 같은 순서).
 import { api } from '../api.js';
 import { isEnabled as sheetInvEnabled, pullInventory } from '../invsheet.js';
 import {
@@ -6,12 +11,11 @@ import {
 } from '../ui.js';
 
 const VEHICLE_KEY = 'bh_last_vehicle';
+const COLLAPSED_KEY = 'bh_inv_collapsed';     // 접어 둔 분류 — 기기에 기억
+const NONE_LABEL = '분류 없음';
 
 export async function inventoryView(view) {
   loading(view);
-  // 시트에서 받아오는 데 몇 초가 걸린다. 그 동안 빈 화면을 보고 기다리지 않도록
-  // **기기에 있는 내용을 먼저 그려 두고**, 시트는 뒤에서 받아 조용히 다시 그린다.
-  // (시트에서 직접 고친 차량 이름·품목·수량은 받아온 뒤에 반영된다)
   const sheetMode = await sheetInvEnabled();
   let vehicles = (await api.listVehicles()).items;   // [{name, itemCount}]
   let current = localStorage.getItem(VEHICLE_KEY);
@@ -22,22 +26,69 @@ export async function inventoryView(view) {
   let lowOnly = false;
   let query = '';          // 부품 이름 검색어. 차량을 바꿔도 그대로 둔다
                            // (같은 부품을 차량별로 견줘 보는 일이 잦다)
+  let collapsed = new Set();
+  try { collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]')); } catch { collapsed = new Set(); }
+  const saveCollapsed = () => {
+    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed])); } catch { /* 비공개 창 */ }
+  };
 
   /**
    * 보충이 필요한가.
    *
    * 최소보유와 **같은 수량은 아직 모자란 것이 아니다.** 예전에는 '이하'로 봐서
-   * 딱 맞게 채워 둔 부품까지 빨갛게 떴다. 최소보유보다 적을 때만 표시한다.
+   * 딱 맞게 채워 둔 부품까지 빨갗게 떴다. 최소보유보다 적을 때만 표시한다.
    */
   const isLow = (i) => i.minQuantity > 0 && i.quantity < i.minQuantity;
+  const catOf = (i) => String(i.category || '').trim();
+  const catKey = (c) => c || '';                    // '' = 분류 없음
+
+  /** 지금 등록된 분류 이름들 (품목 수정 창의 고르기 태그에 쓴다). */
+  const categories = () => {
+    const out = [];
+    for (const i of items) { const c = catOf(i); if (c && !out.includes(c)) out.push(c); }
+    return out;
+  };
+
+  /** [부족 항목만] 과 검색어를 함께 적용한 목록. */
+  function visibleItems() {
+    const q = query.trim().toLowerCase();
+    return items.filter((i) => {
+      if (lowOnly && !isLow(i)) return false;
+      if (q && !`${i.partName} ${catOf(i)}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }
+
+  /**
+   * 보이는 품목을 분류로 묶는다. 순서는 품목 순서(저장소가 분류끼리 모아 준다)를
+   * 그대로 따르고, '분류 없음' 은 맨 뒤다.
+   */
+  function groupsOf(list) {
+    const groups = [];
+    const byKey = new Map();
+    for (const i of list) {
+      const key = catKey(catOf(i));
+      if (!byKey.has(key)) {
+        const g = { key, label: key || NONE_LABEL, items: [], all: items.filter((x) => catKey(catOf(x)) === key) };
+        byKey.set(key, g);
+        groups.push(g);
+      }
+      byKey.get(key).items.push(i);
+    }
+    return groups;
+  }
 
   /** 표의 한 줄. 디자인의 `.table--touch` 구조를 그대로 쓴다. */
-  function itemRow(item) {
+  function itemRow(item, groupKey) {
     const low = isLow(item);
     const name = h(item.partName);
     return `
-      <tr data-id="${item.id}" class="${low ? 'is-low-row' : ''}">
-        <td>
+      <tr data-id="${item.id}" data-group="${h(groupKey)}" data-part="${name}" class="inv-item ${low ? 'is-low-row' : ''}">
+        <td class="drag-td">
+          <button class="drag-handle" type="button" data-drag="item"
+                  aria-label="${name} 순서 옮기기 (잡고 끌기)">≡</button>
+        </td>
+        <td class="name-cell">
           ${name}
           ${low ? '<span class="tag tag--low">보충 필요</span>' : ''}
           ${item.pending ? '<span class="tag tag-neutral">반영 대기</span>' : ''}
@@ -64,15 +115,27 @@ export async function inventoryView(view) {
       </tr>`;
   }
 
-
-  /** [부족 항목만] 과 검색어를 함께 적용한 목록. */
-  function visibleItems() {
-    const q = query.trim().toLowerCase();
-    return items.filter((i) => {
-      if (lowOnly && !isLow(i)) return false;
-      if (q && !String(i.partName || '').toLowerCase().includes(q)) return false;
-      return true;
-    });
+  /**
+   * 묶음 머리줄. 종수와 부족 건수는 **접혀 있어도** 보여야 한다 — 안 그러면
+   * 접어 둔 묶음 안의 '보충 필요' 를 놓친다.
+   */
+  function groupRow(g, open) {
+    const low = g.all.filter(isLow).length;
+    return `
+      <tr class="grp-row" data-group="${h(g.key)}">
+        <td class="drag-td">
+          <button class="drag-handle" type="button" data-drag="group"
+                  aria-label="${h(g.label)} 묶음 순서 옮기기 (잡고 끌기)">≡</button>
+        </td>
+        <td colspan="5">
+          <button class="grp-toggle" type="button" data-act="toggle-group" data-group="${h(g.key)}"
+                  aria-expanded="${open}">
+            <span class="grp-chevron" aria-hidden="true">${open ? '▾' : '▸'}</span>
+            <span class="grp-name">${h(g.label)}</span>
+            <span class="grp-count tnum">${g.all.length}종${low ? ` · <span class="is-low">부족 ${low}</span>` : ''}</span>
+          </button>
+        </td>
+      </tr>`;
   }
 
   /** 표 자리만 만드는 조각. 검색할 때 이 부분만 다시 그린다. */
@@ -85,10 +148,17 @@ export async function inventoryView(view) {
           : '등록된 품목이 없습니다. [＋ 품목 추가]로 등록하세요.');
       return `<div class="empty">${why}</div>`;
     }
+    // 검색 중이거나 부족만 볼 때는 전부 펼친다 — 찾은 것이 접힌 묶음 안에 숨으면 안 된다.
+    const forceOpen = Boolean(query.trim()) || lowOnly;
+    const rows = groupsOf(visible).map((g) => {
+      const open = forceOpen || !collapsed.has(g.key);
+      return groupRow(g, open) + (open ? g.items.map((i) => itemRow(i, g.key)).join('') : '');
+    }).join('');
     return `
-      <table class="table table--touch">
+      <table class="table table--touch inv-table">
         <thead>
           <tr>
+            <th class="drag-td"></th>
             <th>부품</th>
             <th style="text-align:right">보유</th>
             <th style="text-align:right">최소보유</th>
@@ -96,7 +166,7 @@ export async function inventoryView(view) {
             <th style="text-align:right">항목</th>
           </tr>
         </thead>
-        <tbody>${visible.map(itemRow).join('')}</tbody>
+        <tbody id="invRows">${rows}</tbody>
       </table>`;
   }
 
@@ -104,7 +174,6 @@ export async function inventoryView(view) {
   function countText() {
     const shown = visibleItems().length;
     const filtering = Boolean(query.trim()) || lowOnly;
-    // '시트 연결됨' 은 적지 않는다 — 정상은 말할 필요가 없다 (상단바가 문제만 알린다).
     return `품목 ${filtering ? `${shown} / ${items.length}종` : `${items.length}종`}`;
   }
 
@@ -114,7 +183,7 @@ export async function inventoryView(view) {
    */
   function paintBody() {
     const body = $('#invBody');
-    if (body) body.innerHTML = bodyHtml();
+    if (body) { body.innerHTML = bodyHtml(); bindDrag(); }
     const count = $('#invCount');
     if (count) count.textContent = countText();
   }
@@ -154,9 +223,11 @@ export async function inventoryView(view) {
         ${current ? `
           <div class="toolbar" style="margin-bottom:var(--space-3)">
             <input class="input" id="invQ" type="search" style="flex:1"
-                   placeholder="부품 이름으로 찾기 (패드, 베어링)"
+                   placeholder="부품 · 분류로 찾기 (패드, 케이블)"
                    aria-label="${h(current)} 부품 검색" />
             <button class="btn btn-secondary" data-act="clear-q" type="button">지우기</button>
+            <button class="btn btn-secondary" data-act="fold-all" type="button">모두 접기</button>
+            <button class="btn btn-secondary" data-act="unfold-all" type="button">모두 펴기</button>
           </div>
           <div class="scroll" id="invBody">${bodyHtml()}</div>
 
@@ -175,6 +246,7 @@ export async function inventoryView(view) {
       </div>`;
 
     $('#pageRoot').addEventListener('click', onClick);
+    bindDrag();
 
     const box = $('#invQ');
     if (box) {
@@ -204,6 +276,99 @@ export async function inventoryView(view) {
     cell.classList.toggle('is-low', isLow(item));
   }
 
+  // ------------------------------------------------------------ 끌어 옮기기
+  //
+  // 리포트 항목 설정과 같은 방식 — **손잡이(≡)만** 잡힌다. 줄 어디서나 끌리면
+  // 표를 넘기려던 손가락이 품목을 옮겨 버린다. 끄는 동안은 화면(DOM)만 옮기고,
+  // 놓았을 때 새 순서를 한 번 저장한다. 품목은 자기 묶음 안에서만 움직인다
+  // (묶음을 바꾸는 것은 [수정] 창의 분류 칸으로).
+  function bindDrag() {
+    const tbody = $('#invRows');
+    if (!tbody || tbody.dataset.dragBound) return;
+    tbody.dataset.dragBound = '1';
+    let dragging = null;      // { kind: 'item'|'group', rows: [tr...], group }
+    let pointerId = null;
+
+    const itemRowsOf = (group) => Array.from(tbody.querySelectorAll(`tr.inv-item[data-group="${CSS.escape(group)}"]`));
+    const groupHeads = () => Array.from(tbody.querySelectorAll('tr.grp-row'));
+    const blockOf = (head) => [head, ...itemRowsOf(head.dataset.group)];
+    const clearMarks = () => tbody.querySelectorAll('.is-drop-before, .is-drop-after')
+      .forEach((r) => r.classList.remove('is-drop-before', 'is-drop-after'));
+
+    tbody.addEventListener('pointerdown', (ev) => {
+      const handle = ev.target.closest('[data-drag]');
+      if (!handle) return;
+      const tr = handle.closest('tr');
+      if (handle.dataset.drag === 'item') {
+        dragging = { kind: 'item', rows: [tr], group: tr.dataset.group };
+      } else {
+        dragging = { kind: 'group', rows: blockOf(tr), group: tr.dataset.group };
+      }
+      pointerId = ev.pointerId;
+      dragging.rows.forEach((r) => r.classList.add('is-dragging'));
+      try { handle.setPointerCapture(pointerId); } catch { /* 일부 기기 */ }
+      ev.preventDefault();
+    });
+
+    tbody.addEventListener('pointermove', (ev) => {
+      if (!dragging || ev.pointerId !== pointerId) return;
+      clearMarks();
+      if (dragging.kind === 'item') {
+        const others = itemRowsOf(dragging.group).filter((r) => r !== dragging.rows[0]);
+        const next = others.find((r) => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
+        if (next) { next.classList.add('is-drop-before'); tbody.insertBefore(dragging.rows[0], next); }
+        else if (others.length) {
+          const last = others[others.length - 1];
+          last.classList.add('is-drop-after');
+          last.after(dragging.rows[0]);
+        }
+      } else {
+        const heads = groupHeads().filter((r) => r !== dragging.rows[0]);
+        const next = heads.find((r) => {
+          const block = blockOf(r);
+          const top = r.getBoundingClientRect().top;
+          const bottom = block[block.length - 1].getBoundingClientRect().bottom;
+          return ev.clientY < top + (bottom - top) / 2;
+        });
+        const frag = document.createDocumentFragment();
+        dragging.rows.forEach((r) => frag.appendChild(r));
+        if (next) { next.classList.add('is-drop-before'); tbody.insertBefore(frag, next); }
+        else if (heads.length) {
+          const lastBlock = blockOf(heads[heads.length - 1]);
+          lastBlock[lastBlock.length - 1].classList.add('is-drop-after');
+          lastBlock[lastBlock.length - 1].after(frag);
+        }
+      }
+    });
+
+    const finish = async (ev) => {
+      if (!dragging || ev.pointerId !== pointerId) return;
+      dragging.rows.forEach((r) => r.classList.remove('is-dragging'));
+      clearMarks();
+      dragging = null; pointerId = null;
+
+      // 화면에 보이는 순서로 새 품목 순서를 만든다. 접힌 묶음(줄이 안 보이는 것)은
+      // 저장소의 순서를 그대로 이어 붙인다 — 보이지 않는 것을 잃으면 안 된다.
+      const domOrder = [];
+      for (const head of groupHeads()) {
+        const shown = itemRowsOf(head.dataset.group).map((r) => r.dataset.part);
+        const all = items.filter((i) => catKey(catOf(i)) === head.dataset.group).map((i) => i.partName);
+        for (const p of shown) if (!domOrder.includes(p)) domOrder.push(p);
+        for (const p of all) if (!domOrder.includes(p)) domOrder.push(p);
+      }
+      for (const i of items) if (!domOrder.includes(i.partName)) domOrder.push(i.partName);
+      const before = items.map((i) => i.partName).join('|');
+      if (domOrder.join('|') === before) return;          // 제자리에 놓았다
+      try {
+        await api.reorderInventory(domOrder);
+        await reload();
+        toast('순서를 바꿨습니다.', 'ok');
+      } catch (err) { toast(err.message, 'err'); await reload(); }
+    };
+    tbody.addEventListener('pointerup', finish);
+    tbody.addEventListener('pointercancel', finish);
+  }
+
   async function onClick(ev) {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
@@ -224,6 +389,18 @@ export async function inventoryView(view) {
       paintBody();
       return;
     }
+    if (act === 'toggle-group') {
+      const key = btn.dataset.group;
+      if (collapsed.has(key)) collapsed.delete(key); else collapsed.add(key);
+      saveCollapsed();
+      paintBody();
+      return;
+    }
+    if (act === 'fold-all') {
+      for (const g of groupsOf(items)) collapsed.add(g.key);
+      saveCollapsed(); paintBody(); return;
+    }
+    if (act === 'unfold-all') { collapsed.clear(); saveCollapsed(); paintBody(); return; }
     if (act === 'manage-vehicles') { openVehicleManager(); return; }
 
     if (act === 'sheet-refresh') {
@@ -354,11 +531,23 @@ export async function inventoryView(view) {
 
   // ------------------------------------------------------------ 품목 편집
   function openEditor(item) {
+    const cats = categories();
     const body = openSheet(item ? '품목 수정' : '품목 추가', `
       <form id="invForm">
         <div class="field">
           <label>부품명<span class="req">*</span></label>
           <input class="input" id="invName" value="${h(item ? item.partName : '')}" placeholder="예) 그리퍼 실리콘 패드" />
+        </div>
+        <div class="field">
+          <label>분류</label>
+          <input class="input" id="invCat" value="${h(item ? catOf(item) : '')}"
+                 placeholder="아래에서 누르거나 직접 적으세요 (비우면 '분류 없음')" autocomplete="off" />
+          ${cats.length ? `
+            <div class="tag-list" style="margin-top:8px">
+              ${cats.map((c) => `
+                <button class="tag tag-neutral" data-cat="${h(c)}" type="button">${h(c)}</button>`).join('')}
+            </div>` : ''}
+          <span class="hint">같은 분류끼리 한 묶음으로 접힙니다 · 모든 차량에 같이 적용</span>
         </div>
         <div class="grid-2">
           <div class="field">
@@ -377,10 +566,19 @@ export async function inventoryView(view) {
         </div>
       </form>`);
 
+    body.addEventListener('click', (ev) => {
+      const tag = ev.target.closest('[data-cat]');
+      if (!tag) return;
+      const field = $('#invCat', body);
+      field.value = tag.dataset.cat;
+      field.focus();
+    });
+
     $('#invName', body).focus();
     $('#invForm', body).addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const partName = $('#invName', body).value.trim();
+      const category = $('#invCat', body).value.trim();
       const quantity = Number($('#invQty', body).value || 0);
       const minQuantity = Number($('#invMin', body).value || 0);
       if (!partName) { toast('부품명을 입력하세요.', 'err'); return; }
@@ -389,12 +587,15 @@ export async function inventoryView(view) {
           // **손대지 않은 칸은 보내지 않는다.** 최소보유만 고쳤는데 보유 수량까지
           // 함께 보내면, 창을 연 사이에 바뀐 실제 수량을 창에 적혀 있던 옛 값으로
           // 덮어쓴다. 실제로 보유 수량이 엉뚱하게 바뀌는 일이 있었다.
-          const patch = { partName, minQuantity };
+          const patch = { partName, minQuantity, category };
           if (quantity !== item.quantity) patch.quantity = quantity;
           await api.patchInventory(item.id, patch);
         } else {
-          await api.addInventory({ vehicleName: current, partName, quantity, minQuantity });
+          await api.addInventory({ vehicleName: current, partName, category, quantity, minQuantity });
         }
+        // 새로 만든 분류는 펴져 있어야 방금 넣은 품목이 보인다.
+        collapsed.delete(catKey(category));
+        saveCollapsed();
         closeModal();
         toast('저장했습니다.', 'ok');
         await reload();
@@ -404,9 +605,6 @@ export async function inventoryView(view) {
 
   render();
 
-  // 시트에서 받아오는 일은 **사람이 누를 때만** 한다.
-  //
-  // 예전에는 화면을 열면 뒤에서 받아 와 잠시 뒤 다시 그렸다. 검색칸에 글자를
-  // 치고 있거나 목록을 내려 본 뒤였으면 그게 다 날아갔다. 받으려면 위의
-  // [시트에서 받기] 나 오른쪽 위 [새로고침] 을 누른다.
+  // 시트에서 받아오는 일은 **사람이 누를 때만** 한다 — 위의 [시트에서 받기] 나
+  // 오른쪽 위 [새로고침]. 화면을 열 때 뒤에서 받아 다시 그리면 적던 것이 날아간다.
 }

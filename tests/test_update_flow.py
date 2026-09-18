@@ -152,7 +152,8 @@ print()
 print("== 8. 차량 재고 — 부품 검색")
 inv = read("web", "js", "views", "inventory.js")
 check("차량마다 검색칸이 있다", 'id="invQ"' in inv and 'type="search"' in inv)
-check("부품 이름으로 거른다", "String(i.partName || '').toLowerCase().includes(q)" in inv)
+# v3.27 — 분류 이름으로도 걸러진다 ("케이블" 을 치면 케이블 묶음 전체).
+check("부품 이름 · 분류로 거른다", "`${i.partName} ${catOf(i)}`.toLowerCase().includes(q)" in inv)
 check("[부족 항목만] 과 함께 걸러진다",
       "if (lowOnly && !isLow(i)) return false;" in inv
       and "function visibleItems()" in inv)

@@ -465,6 +465,7 @@ const wrapper = `
   return { doPost: doPost, readGuideSheet: readGuideSheet,
            GUIDE_HEADER: GUIDE_HEADER, GUIDE_SHEETS: GUIDE_SHEETS,
            RELEASE_HEADER: RELEASE_HEADER, compareVersions: compareVersions,
+           readInventory: readInventory,
            isReleasePublic: isReleasePublic };
 `;
 const factory = new Function(...Object.keys(sandbox), wrapper);
@@ -1430,6 +1431,61 @@ call({ changed: true });
 check('5분마다 오는 가벼운 물음(changed)은 탭을 건드리지 않는다', order().join(',') !== settled.join(','));
 call({ fields: 'pull' });
 check('그 다음 요청이 다시 맞춘다', order().join(',') === settled.join(','));
+
+
+// ═══════════════════════════════════════════════════════════════════
+// 차량재고 — 분류 열 · 줄 순서 · 옛 배치 읽기 · 옛 앱이 올려도 분류를 지킨다
+// ═══════════════════════════════════════════════════════════════════
+console.log('');
+console.log('── 차량재고 분류 · 순서');
+const invTab = () => ss.getSheetByName('차량재고');
+const invRows = () => { const sh = invTab(); const n = sh.getLastRow(); return n < 3 ? [] : sh.getRange(3, 1, n - 2, sh.getLastColumn()).getValues(); };
+call({ inventory: 'push', vehicles: ['1호차', '2호차'], items: [
+  { vehicleName: '1호차', partName: 'C to C 2m', category: '케이블', quantity: 0, minQuantity: 1 },
+  { vehicleName: '2호차', partName: 'C to C 2m', category: '케이블', quantity: 2, minQuantity: 1 },
+  { vehicleName: '1호차', partName: 'C to C 1m', category: '케이블', quantity: 3, minQuantity: 2 },
+  { vehicleName: '2호차', partName: 'C to C 1m', category: '케이블', quantity: 1, minQuantity: 2 },
+  { vehicleName: '1호차', partName: '진공 패드', category: '', quantity: 3, minQuantity: 2 },
+  { vehicleName: '2호차', partName: '진공 패드', category: '', quantity: 3, minQuantity: 2 },
+] });
+check('머리줄이 부품명 · 분류 · 최소보유 · 차량… 이다',
+      JSON.stringify(invTab().getRange(2, 1, 1, 5).getValues()[0]) === JSON.stringify(['부품명', '분류', '최소보유', '1호차', '2호차']));
+check('줄 순서가 올린 순서 그대로다 (이름순으로 바꾸지 않는다)',
+      invRows().map((r) => r[0]).join(',') === 'C to C 2m,C to C 1m,진공 패드', invRows().map((r) => r[0]).join(','));
+check('분류가 적힌다', invRows()[0][1] === '케이블' && invRows()[2][1] === '');
+const invPull = call({ inventory: 'pull' });
+check('읽을 때 분류가 함께 온다 · 줄 순서 그대로',
+      invPull.items[0].partName === 'C to C 2m' && invPull.items[0].category === '케이블'
+      && invPull.items[invPull.items.length - 1].partName === '진공 패드' && invPull.items[invPull.items.length - 1].category === '');
+
+// 예전 앱(분류를 모른다)이 올린다 — 분류와 순서를 지켜야 한다
+call({ inventory: 'push', vehicles: ['1호차', '2호차'], items: [
+  { vehicleName: '1호차', partName: 'C to C 1m', quantity: 5, minQuantity: 2 },
+  { vehicleName: '1호차', partName: 'C to C 2m', quantity: 0, minQuantity: 1 },
+  { vehicleName: '1호차', partName: '진공 패드', quantity: 3, minQuantity: 2 },
+  { vehicleName: '1호차', partName: '새 부품', quantity: 1, minQuantity: 0 },
+] });
+check('★ 옛 앱이 올려도 분류가 지워지지 않는다', invRows()[0][1] === '케이블' && invRows()[1][1] === '케이블');
+check('★ 옛 앱이 올려도 줄 순서가 흐트러지지 않는다 · 새 부품은 뒤에',
+      invRows().map((r) => r[0]).join(',') === 'C to C 2m,C to C 1m,진공 패드,새 부품', invRows().map((r) => r[0]).join(','));
+check('수량은 옛 앱 것이 반영된다', invRows()[1][3] === 5);
+
+// 옛 배치(분류 열 없음) 탭도 읽는다
+const legacyInv = ss.insertSheet('차량재고 옛것');
+legacyInv.getRange(2, 1, 1, 3).setValues([['부품명', '최소보유', '1호차']]);
+legacyInv.getRange(3, 1, 1, 3).setValues([['베어링', 2, 4]]);
+const legacyRead = gs.readInventory(legacyInv);
+check('옛 배치(분류 열 없음)도 읽는다', legacyRead.vehicles.join(',') === '1호차'
+      && legacyRead.items[0].partName === '베어링' && legacyRead.items[0].minQuantity === 2
+      && legacyRead.items[0].quantity === 4 && legacyRead.items[0].category === '');
+
+// 수량 한 칸 고치기가 새 배치에서도 맞는 열을 찾는다
+call({ inventory: 'qty', ops: [{ type: 'quantity', vehicleName: '2호차', partName: 'C to C 1m', quantity: 9 }] });
+check('수량 고치기가 차량 열을 바로 찾는다 (분류 열을 차량으로 착각하지 않는다)', invRows()[1][4] === 9
+      && invTab().getRange(2, 2).getValue() === '분류');
+call({ inventory: 'qty', ops: [{ type: 'quantity', vehicleName: '1호차', partName: '완전 새 부품', quantity: 2 }] });
+const lastInv = invRows()[invRows().length - 1];
+check('없던 품목의 수량을 고치면 줄이 생기고 최소보유는 세 번째 칸에', lastInv[0] === '완전 새 부품' && lastInv[2] === 0 && lastInv[3] === 2);
 
 console.log('='.repeat(62));
 if (failures.length) {

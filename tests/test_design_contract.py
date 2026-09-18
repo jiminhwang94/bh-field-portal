@@ -105,7 +105,7 @@ print("디자인이 정한 구조를 쓴다")
 
 inventory = read("web/js/views/inventory.js")
 check("재고는 카드가 아니라 표다",
-      'class="table table--touch"' in inventory and '<thead>' in inventory)
+      'class="table table--touch inv-table"' in inventory and '<thead>' in inventory)
 
 report = read("web/js/views/report.js")
 check("새 리포트 입력은 2열 격자다", 'class="form-grid"' in report)

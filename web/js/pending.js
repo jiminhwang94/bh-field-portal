@@ -11,14 +11,16 @@ import { closeModal, h, openSheet, toast, when } from './ui.js';
 
 /** changes 를 "만듦 N · 고침 N · 지움 N" 으로 요약한다. */
 function summarize(changes) {
-  let created = 0; let touched = 0;
+  let created = 0; let touched = 0; let ordered = 0;
   for (const c of changes || []) {
-    if (c.before === null || c.before === undefined) created += 1;
+    if (c.kind === 'order') ordered += 1;
+    else if (c.before === null || c.before === undefined) created += 1;
     else touched += 1;
   }
   const parts = [];
   if (created) parts.push(`새로 만듦 ${created}`);
   if (touched) parts.push(`고치거나 지움 ${touched}`);
+  if (ordered) parts.push('순서 바꿈');
   return parts.join(' · ') || '변경';
 }
 
@@ -132,6 +134,10 @@ async function undo(op) {
   }
   if (op.type === 'invsheet-push') {
     for (const c of op.changes || []) {
+      if (c.kind === 'order') {                       // 품목 순서 — 바꾸기 전 순서로
+        await store.setMeta('partOrder', c.before || []);
+        continue;
+      }
       if (c.kind === 'vehicle') {
         if (c.before) await idb.put('vehicles', c.before);
         else await idb.remove('vehicles', c.id);

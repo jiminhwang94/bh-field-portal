@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.26.5';
+export const APP_VERSION = '3.27.0';
 
 export const deviceId = sync.deviceId;
 
@@ -71,7 +71,8 @@ export const api = {
   }),
   addInventory: async (payload) => {
     const item = await store.addInventoryItem(
-      payload.vehicleName, payload.partName, payload.quantity, payload.minQuantity);
+      payload.vehicleName, payload.partName, payload.quantity, payload.minQuantity,
+      payload.category || '');
     flushSoon();
     return item;
   },
@@ -79,6 +80,12 @@ export const api = {
     const item = await store.updateInventoryItem(id, payload);
     flushSoon();
     return item;
+  },
+  /** 품목 순서 — 손잡이로 끌어 놓은 결과. 차량 공용. */
+  reorderInventory: async (order) => {
+    const next = await store.reorderParts(order);
+    flushSoon();
+    return next;
   },
   deleteInventory: async (id) => {
     const ok = await store.deleteInventoryItem(id);

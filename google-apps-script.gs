@@ -554,7 +554,19 @@ function writeHeaders(sheet, headers, atRow) {
 var INV_SHEET_NAME = '차량재고';
 var INV_HEADER_ROW = 2;
 var INV_DATA_ROW = 3;
-var INV_FIXED = 2;                 // 고정 열: 부품명 · 최소보유
+var INV_FIXED = 2;                 // 고정 열(옛 배치): 부품명 · 최소보유
+var INV_CATEGORY_HEADER = '분류';
+
+/**
+ * 탭의 열 배치를 머리줄로 알아본다.
+ *   새 배치: 부품명 · 분류 · 최소보유 · 차량…
+ *   옛 배치: 부품명 · 최소보유 · 차량…          (v3.26 이전이 만든 탭)
+ * 둘 다 읽는다 — 배치는 새 앱이 처음 올릴 때 새것으로 바뀐다.
+ */
+function invLayout(header) {
+  var hasCat = String((header || [])[1] || '').trim() === INV_CATEGORY_HEADER;
+  return { hasCat: hasCat, fixed: hasCat ? 3 : INV_FIXED, catCol: hasCat ? 1 : -1, minCol: hasCat ? 2 : 1 };
+}
 
 function handleInventory(ss, body) {
   var lock = LockService.getScriptLock();
@@ -592,7 +604,23 @@ function writeInventory(sheet, vehicles, items) {
     if (v && names.indexOf(v) < 0) names.push(v);
   }
 
-  var parts = [];                    // 부품명 등장 순서 유지
+  // 예전 앱(분류를 모르는 3.26 이하)이 올리면 **있던 분류와 줄 순서를 지킨다.**
+  // 그대로 덮어쓰면 새 앱에서 정해 둔 분류·순서가 한 번에 지워진다.
+  var legacyClient = true;
+  for (var l = 0; l < items.length; l++) {
+    if (items[l] && Object.prototype.hasOwnProperty.call(items[l], 'category')) { legacyClient = false; break; }
+  }
+  var existing = readInventory(sheet);
+  var keepCat = {};
+  var keepOrder = [];
+  for (var e = 0; e < (existing.items || []).length; e++) {
+    var ex = existing.items[e];
+    if (keepOrder.indexOf(ex.partName) < 0) keepOrder.push(ex.partName);
+    if (ex.category && !keepCat[ex.partName]) keepCat[ex.partName] = ex.category;
+  }
+
+  var parts = [];                    // 부품명 등장 순서 = 시트 줄 순서 = 앱 순서
+  var catByPart = {};
   var minByPart = {};                // 부품별 최소보유 (차량별 값 중 최댓값)
   var qty = {};                      // '<차량>+<부품>' → 수량
   for (var j = 0; j < items.length; j++) {
@@ -602,13 +630,23 @@ function writeInventory(sheet, vehicles, items) {
     if (!vehicle || !part) continue;
     if (names.indexOf(vehicle) < 0) names.push(vehicle);
     if (parts.indexOf(part) < 0) parts.push(part);
+    var cat = legacyClient ? (keepCat[part] || '') : String(item.category || '').trim();
+    if (cat && !catByPart[part]) catByPart[part] = cat;
     var minq = Math.max(0, Math.floor(Number(item.minQuantity) || 0));
     if (!(part in minByPart) || minq > minByPart[part]) minByPart[part] = minq;
     qty[vehicle + '\u0000' + part] = Math.max(0, Math.floor(Number(item.quantity) || 0));
   }
+  if (legacyClient && keepOrder.length) {
+    // 있던 줄 순서 먼저, 새 부품은 뒤에
+    parts.sort(function (a, b) {
+      var ka = keepOrder.indexOf(a), kb = keepOrder.indexOf(b);
+      if (ka < 0) ka = 1e9; if (kb < 0) kb = 1e9;
+      return ka - kb;
+    });
+  }
 
   sheet.clearContents();
-  var header = ['부품명', '최소보유'].concat(names);
+  var header = ['부품명', INV_CATEGORY_HEADER, '최소보유'].concat(names);
   var range = sheet.getRange(INV_HEADER_ROW, 1, 1, header.length);
   range.setValues([header]);
   range.setFontWeight('bold');
@@ -621,7 +659,7 @@ function writeInventory(sheet, vehicles, items) {
   if (parts.length) {
     var rows = [];
     for (var p = 0; p < parts.length; p++) {
-      var row = [parts[p], minByPart[parts[p]] || 0];
+      var row = [parts[p], catByPart[parts[p]] || '', minByPart[parts[p]] || 0];
       for (var n = 0; n < names.length; n++) {
         var key = names[n] + '\u0000' + parts[p];
         row.push(key in qty ? qty[key] : 0);
@@ -641,9 +679,10 @@ function readInventory(sheet) {
   }
 
   var header = sheet.getRange(INV_HEADER_ROW, 1, 1, lastCol).getValues()[0];
+  var layout = invLayout(header);
   var columns = [];                  // [{name, index(0-based)}]
   var vehicles = [];
-  for (var c = INV_FIXED; c < header.length; c++) {
+  for (var c = layout.fixed; c < header.length; c++) {
     var name = String(header[c] || '').trim();
     if (!name) continue;
     columns.push({ name: name, index: c });
@@ -657,7 +696,8 @@ function readInventory(sheet) {
     for (var r = 0; r < data.length; r++) {
       var part = String(data[r][0] || '').trim();
       if (!part) continue;
-      var minq = Math.max(0, Math.floor(Number(data[r][1]) || 0));
+      var category = layout.hasCat ? String(data[r][layout.catCol] || '').trim() : '';
+      var minq = Math.max(0, Math.floor(Number(data[r][layout.minCol]) || 0));
       for (var i = 0; i < columns.length; i++) {
         // 품목은 모든 차량 공용 — 빈 칸은 수량 0 으로 읽는다.
         var cell = data[r][columns[i].index];
@@ -666,6 +706,7 @@ function readInventory(sheet) {
         items.push({
           vehicleName: columns[i].name,
           partName: part,
+          category: category,
           quantity: qtyValue,
           minQuantity: minq,
         });
@@ -686,8 +727,9 @@ function applyQuantityOps(sheet, ops) {
 
     var lastCol = Math.max(sheet.getLastColumn(), INV_FIXED);
     var header = sheet.getRange(INV_HEADER_ROW, 1, 1, lastCol).getValues()[0];
+    var layout = invLayout(header);
     var col = -1;
-    for (var c = INV_FIXED; c < header.length; c++) {
+    for (var c = layout.fixed; c < header.length; c++) {
       if (String(header[c] || '').trim() === vehicle) { col = c + 1; break; }
     }
     if (col < 0) {                   // 시트에 없는 차량이면 열을 추가한다
@@ -713,7 +755,7 @@ function applyQuantityOps(sheet, ops) {
     if (row < 0) {                   // 시트에 없는 품목이면 줄을 추가한다
       row = Math.max(lastRow + 1, INV_DATA_ROW);
       sheet.getRange(row, 1).setValue(part);
-      sheet.getRange(row, 2).setValue(0);
+      sheet.getRange(row, layout.minCol + 1).setValue(0);
     }
 
     sheet.getRange(row, col).setValue(Math.max(0, Math.floor(Number(op.quantity) || 0)));

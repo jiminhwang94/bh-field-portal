@@ -64,7 +64,9 @@ async function mergeWithSheet(mine, changes) {
   for (const row of await (await import('./local/idb.js')).getAll('inventory')) {
     mineIds.set(row.id, row);
   }
+  let reordered = false;
   for (const c of changes) {
+    if (c.kind === 'order') { reordered = true; continue; }
     if (c.kind === 'vehicle') { touchedVehicles.add(String(c.id).trim()); continue; }
     if (c.before) touchedKeys.add(key(c.before.vehicleName, c.before.partName));
     const cur = mineIds.get(c.id);
@@ -100,6 +102,15 @@ async function mergeWithSheet(mine, changes) {
   }
   for (const name of mine.vehicles) if (!vehicles.includes(name)) vehicles.push(name);
   for (const i of items) if (!vehicles.includes(i.vehicleName)) vehicles.push(i.vehicleName);
+
+  // 내가 순서를 바꿨으면 **내 순서**로 늘어놓는다. 내가 모르는 부품(남이 그새 만든 것)은
+  // 시트에 있던 자리 순서대로 뒤에 붙는다. 줄 자체는 하나도 잃지 않는다.
+  if (reordered) {
+    const seq = [];
+    for (const i of mine.items) if (!seq.includes(i.partName)) seq.push(i.partName);
+    const rank = (p) => { const k = seq.indexOf(p); return k < 0 ? 1e9 : k; };
+    items.sort((a, b) => rank(a.partName) - rank(b.partName));
+  }
   return { vehicles, items };
 }
 

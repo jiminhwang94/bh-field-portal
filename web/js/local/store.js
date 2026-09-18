@@ -293,10 +293,75 @@ export async function pendingQuantityKeys() {
     .map((r) => qtyKey(r.vehicleName, r.partName)));
 }
 
+// ------------------------------------------------ 품목 순서 · 분류
+//
+// 품목 목록은 차량 공용이므로 **순서도 공용**이다. 순서는 부품명 배열 하나
+// (meta.partOrder)로 들고 다니고, 시트의 [차량재고] 탭 줄 순서와 같다.
+// 분류(category)는 품목마다 한 칸 — 같은 부품은 모든 차량에서 같은 분류다.
+const PART_ORDER_KEY = 'partOrder';
+
+export async function partOrder() {
+  return (await getMeta(PART_ORDER_KEY, [])) || [];
+}
+
+/**
+ * 부품명을 보여 줄 순서로 늘어놓는다.
+ *  · 기본은 partOrder 순서, 거기 없는 것은 이름순으로 뒤에
+ *  · **같은 분류는 이어서** — 묶음 순서는 그 분류가 처음 나오는 자리, '분류 없음' 은 맨 뒤
+ * 시트에도 이 순서로 적히므로 사람이 시트를 열어도 분류끼리 모여 있다.
+ */
+export function orderParts(rows, order) {
+  const idx = new Map((order || []).map((n, i) => [n, i]));
+  const cat = new Map();
+  for (const r of rows) {
+    if (!cat.has(r.partName) || (r.category && !cat.get(r.partName))) cat.set(r.partName, r.category || '');
+  }
+  const base = [...new Set(rows.map((r) => r.partName))].sort((a, b) => {
+    const ia = idx.has(a) ? idx.get(a) : 1e9;
+    const ib = idx.has(b) ? idx.get(b) : 1e9;
+    return (ia - ib) || byText(a, b);
+  });
+  const groupRank = new Map();
+  for (const p of base) {
+    const c = cat.get(p) || '';
+    if (c && !groupRank.has(c)) groupRank.set(c, groupRank.size);
+  }
+  return [...base].sort((a, b) => {
+    const ca = cat.get(a) || '';
+    const cb = cat.get(b) || '';
+    if (ca !== cb) {
+      if (!ca) return 1;
+      if (!cb) return -1;
+      return groupRank.get(ca) - groupRank.get(cb);
+    }
+    return base.indexOf(a) - base.indexOf(b);
+  });
+}
+
+/**
+ * 순서를 바꾼다 (손잡이로 끌어 놓은 결과). 시트에는 줄 순서로 올라간다.
+ * 되돌리기를 위해 바꾸기 전 순서를 함께 남긴다.
+ */
+export async function reorderParts(order) {
+  const before = await partOrder();
+  const next = [];
+  for (const raw of order || []) {
+    const name = String(raw || '').trim();
+    if (name && !next.includes(name)) next.push(name);
+  }
+  if (next.join('|') === before.join('|')) return next;
+  await setMeta(PART_ORDER_KEY, next);
+  await queueSheetPushIfOn([{ kind: 'order', id: PART_ORDER_KEY, before }]);
+  return next;
+}
+
 export async function listInventory(vehicleName = null) {
-  let rows = await idb.getAll('inventory');
-  if (vehicleName) rows = rows.filter((i) => i.vehicleName === vehicleName);
-  rows.sort((a, b) => byText(a.partName, b.partName));
+  const all = await idb.getAll('inventory');
+  const sequence = orderParts(all, await partOrder());
+  const rank = new Map(sequence.map((n, i) => [n, i]));
+  let rows = vehicleName ? all.filter((i) => i.vehicleName === vehicleName) : all;
+  rows = [...rows].sort((a, b) => (rank.get(a.partName) - rank.get(b.partName))
+    || byText(a.vehicleName, b.vehicleName));
   const live = await quantityMap();
   const pending = await pendingQuantityKeys();
   return rows.map((r) => {
@@ -306,6 +371,7 @@ export async function listInventory(vehicleName = null) {
       id: r.id,
       vehicleName: r.vehicleName,
       partName: r.partName,
+      category: r.category || '',
       quantity: q ? q.quantity : r.quantity,
       minQuantity: r.minQuantity,
       updatedAt: q ? q.updatedAt : r.updatedAt,
@@ -337,9 +403,10 @@ export function addInventoryItem(...args) {
 }
 
 async function _addInventoryItem(vehicleName, partName, quantity = 0,
-                                       minQuantity = 0) {
+                                       minQuantity = 0, category = '') {
   vehicleName = (vehicleName || '').trim();
   partName = (partName || '').trim();
+  category = String(category || '').trim();
   if (!vehicleName || !partName) throw new Error('차량과 부품명은 필수입니다.');
   const rows = await idb.getAll('inventory');
   if (rows.some((r) => r.vehicleName === vehicleName && r.partName === partName)) {
@@ -352,13 +419,16 @@ async function _addInventoryItem(vehicleName, partName, quantity = 0,
   }
   const stamp = now();
   const row = {
-    id: newId(), vehicleName, partName,
+    id: newId(), vehicleName, partName, category,
     quantity: Math.max(0, Number(quantity) || 0),
     minQuantity: Math.max(0, Number(minQuantity) || 0),
     updatedAt: stamp,
   };
   await idb.put('inventory', row);
   await setQuantity(vehicleName, partName, row.quantity, stamp);
+  // 새 품목은 순서의 맨 뒤 (같은 분류 안에서 뒤) — 보여 줄 때 분류끼리 모인다.
+  const order = await partOrder();
+  if (!order.includes(partName)) await setMeta(PART_ORDER_KEY, [...order, partName]);
   const changes = [{ kind: 'item', id: row.id, before: null }];
 
   // 품목은 모든 차량 공용 — 다른 차량에도 수량 0 으로 함께 등록한다.
@@ -366,7 +436,7 @@ async function _addInventoryItem(vehicleName, partName, quantity = 0,
     if (vehicle === vehicleName) continue;
     if (rows.some((r) => r.vehicleName === vehicle && r.partName === partName)) continue;
     const sibling = {
-      id: newId(), vehicleName: vehicle, partName,
+      id: newId(), vehicleName: vehicle, partName, category,
       quantity: 0, minQuantity: row.minQuantity, updatedAt: stamp,
     };
     await idb.put('inventory', sibling);
@@ -383,7 +453,7 @@ export function updateInventoryItem(itemId, patch = {}) {
 }
 
 async function _updateInventoryItem(itemId, { delta, quantity, minQuantity,
-                                              partName } = {}) {
+                                              partName, category } = {}) {
   const row = await idb.get('inventory', itemId);
   if (!row) return null;
   const live = await quantityMap();
@@ -401,8 +471,11 @@ async function _updateInventoryItem(itemId, { delta, quantity, minQuantity,
   const nextName = (partName || '').trim() || row.partName;
   const stamp = now();
 
+  const nextCat = category === undefined || category === null
+    ? (row.category || '') : String(category).trim();
   const nameChanged = nextName !== row.partName;
   const minChanged = nextMin !== row.minQuantity;
+  const catChanged = nextCat !== (row.category || '');
   if (nameChanged) {
     const clash = (await idb.getAll('inventory'))
       .some((r) => r.partName === nextName);
@@ -415,7 +488,7 @@ async function _updateInventoryItem(itemId, { delta, quantity, minQuantity,
   const changes = siblings.map((item) => ({ kind: 'item', id: item.id, before: item }));
   for (const item of siblings) {
     await idb.put('inventory', { ...item, partName: nextName, minQuantity: nextMin,
-                                 updatedAt: stamp });
+                                 category: nextCat, updatedAt: stamp });
     if (nameChanged && item.id !== itemId) {
       const old = live.get(qtyKey(item.vehicleName, row.partName));
       await idb.remove('quantities', qtyKey(item.vehicleName, row.partName));
@@ -425,7 +498,11 @@ async function _updateInventoryItem(itemId, { delta, quantity, minQuantity,
                         old ? old.quantity : item.quantity, stamp);
     }
   }
-  if (nameChanged || minChanged) await queueSheetPushIfOn(changes);
+  if (nameChanged) {
+    const order = await partOrder();
+    await setMeta(PART_ORDER_KEY, order.map((n) => (n === row.partName ? nextName : n)));
+  }
+  if (nameChanged || minChanged || catChanged) await queueSheetPushIfOn(changes);
 
   if (nameChanged) {
     await idb.remove('quantities', qtyKey(row.vehicleName, row.partName));
@@ -433,7 +510,7 @@ async function _updateInventoryItem(itemId, { delta, quantity, minQuantity,
                     partName: row.partName });
   }
   await setQuantity(row.vehicleName, nextName, nextQty, stamp);
-  return { id: itemId, vehicleName: row.vehicleName, partName: nextName,
+  return { id: itemId, vehicleName: row.vehicleName, partName: nextName, category: nextCat,
            quantity: nextQty, minQuantity: nextMin, updatedAt: stamp, pending: true };
 }
 
@@ -473,6 +550,7 @@ export async function collectInventoryState() {
     items: items.map((i) => ({
       vehicleName: i.vehicleName,
       partName: i.partName,
+      category: i.category || '',
       quantity: i.quantity,
       minQuantity: i.minQuantity,
     })),
@@ -527,6 +605,7 @@ export async function applyInventorySheet(state) {
       id: prev ? prev.id : newId(),
       vehicleName,
       partName,
+      category: String(item.category || '').trim(),
       quantity,
       minQuantity: Math.max(0, Number(item.minQuantity) || 0),
       updatedAt: prev ? prev.updatedAt : stamp,
@@ -571,7 +650,14 @@ export async function applyInventorySheet(state) {
   // 예전에는 받아올 때마다 저장소 세 개를 통째로 다시 쓰고, 화면도 무조건
   // 다시 그렸다. 대부분은 바뀐 게 없는데도 그랬다. 그래서 화면에 들어간 뒤
   // 1~2초 있다가 내용이 한 번 덜컥 다시 그려지는 것처럼 보였다.
-  const signature = inventorySignature(vehicleRows, inventoryRows, quantityRows);
+  // 시트 줄 순서가 곧 품목 순서다. 아직 못 올린 내 순서 변경이 있으면 내 것을 지킨다.
+  const sheetOrder = [];
+  for (const r of inventoryRows) if (!sheetOrder.includes(r.partName)) sheetOrder.push(r.partName);
+  const keepMyOrder = (await idb.getAll('outbox'))
+    .some((op) => op.type === 'invsheet-push' && (op.changes || []).some((c) => c.kind === 'order'));
+  const nextOrder = keepMyOrder ? await partOrder() : sheetOrder;
+
+  const signature = inventorySignature(vehicleRows, inventoryRows, quantityRows, nextOrder);
   if (signature === (await getMeta('sheetInventorySignature', ''))) {
     await setMeta('sheetInventoryPulledAt', stamp);
     return { vehicles: names.length, items: inventoryRows.length, changed: false };
@@ -582,6 +668,7 @@ export async function applyInventorySheet(state) {
     inventory: inventoryRows,
     quantities: quantityRows,
   });
+  await setMeta(PART_ORDER_KEY, nextOrder);
   await setMeta('sheetInventorySignature', signature);
   await setMeta('sheetInventoryPulledAt', stamp);
   return { vehicles: names.length, items: inventoryRows.length, changed: true };
@@ -593,13 +680,14 @@ export async function applyInventorySheet(state) {
  * 시각(updatedAt)은 넣지 않는다. 시트에서 받을 때마다 새 시각이 붙어
  * 내용이 같아도 늘 "달라졌다" 가 되기 때문이다.
  */
-function inventorySignature(vehicles, items, quantities) {
+function inventorySignature(vehicles, items, quantities, order = []) {
   const qty = new Map(quantities.map((q) => [q.key, q.quantity]));
   const lines = items
-    .map((r) => [r.vehicleName, r.partName, qty.get(qtyKey(r.vehicleName, r.partName)),
-                 r.minQuantity].join('|'))
+    .map((r) => [r.vehicleName, r.partName, r.category || '',
+                 qty.get(qtyKey(r.vehicleName, r.partName)), r.minQuantity].join('|'))
     .sort();
-  return [vehicles.map((v) => v.name).sort().join(','), ...lines].join(String.fromCharCode(10));
+  return [vehicles.map((v) => v.name).sort().join(','), (order || []).join(','), ...lines]
+    .join(String.fromCharCode(10));
 }
 
 /**
