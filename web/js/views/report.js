@@ -229,7 +229,7 @@ export async function reportFormView(view) {
         <div class="field field--wide" data-field-id="${field.id}">
           ${label}
           ${mediaPickHtml(field.id)}
-          <span class="hint" style="margin-top:6px">영상 최대 20초 · 파일 ${MEDIA_FILE_LIMIT_TEXT} · 첨부 ${state.kept.length + state.media.length}개</span>
+          <span class="hint">첨부 ${state.kept.length + state.media.length}개 · 영상 최대 20초 · 파일 ${MEDIA_FILE_LIMIT_TEXT}</span>
           ${state.kept.length || state.media.length ? `
             <div class="media-grid">
               ${state.kept.map((l, i) => keptTile(field.id, l, i)).join('')}
@@ -239,8 +239,8 @@ export async function reportFormView(view) {
     }
     if (field.fieldType === 'TEXTAREA') {
       // 여러 줄 항목은 두 칸을 다 쓴다 (디자인의 .field--wide)
-      return `<div class="field field--wide">${label}
-        <textarea class="input textarea" data-input="${field.id}" placeholder="자세히 기록">${h(state.value)}</textarea></div>`;
+      return `<div class="field field--wide field--long">${label}
+        <textarea class="input textarea textarea--long" data-input="${field.id}" placeholder="자세히 기록">${h(state.value)}</textarea></div>`;
     }
     // 리포트 번호 — 손으로 적지 않고 접수 목록에서 고른다 (목록이 없으면 입력칸).
     if (numberField && field.id === numberField.id && reportNumbers.length && !manualNumber) {
@@ -248,7 +248,7 @@ export async function reportFormView(view) {
         <select class="select" data-input="${field.id}">
           ${numberOptionsHtml(String(state.value || '').trim())}
         </select>
-        <span class="hint" style="margin-top:6px">필드팀 요청 ${reportNumbers.length}건 — 고르면 매장명이 채워집니다</span></div>`;
+        <span class="hint">고르면 매장명이 채워집니다 · 접수 ${reportNumbers.length}건</span></div>`;
     }
     if (field.fieldType === 'DROPDOWN') {
       const opts = (field.options || '').split(',').map((o) => o.trim()).filter(Boolean);
@@ -276,7 +276,7 @@ export async function reportFormView(view) {
 
         <div id="pastVisits"></div>
 
-        <form id="reportForm" autocomplete="off">
+        <form id="reportForm" class="report-form" autocomplete="off">
           ${fields.length ? `
             <div class="form-grid">${fields.map(fieldHtml).join('')}</div>
 
@@ -648,69 +648,151 @@ function reviveBrokenThumbs(root) {
 }
 
 /**
- * 시트 한 줄의 전체 내용 + 첨부를 모달로 보여 준다.
- * 이력 화면과 새 리포트의 [지난 방문] 이 같은 모달을 쓴다.
+ * 시트 한 줄의 상세 — 현장에서 다시 볼 때 중요한 차례대로.
+ *   로봇(모델 · 시리얼 · 오류 코드) → 증상 → 조치(+처리 결과) → 사진 · 영상
+ *   → 그 밖의 항목(접힘) → 상태(맨 아래, 누르면 시트에 바로 기록) → 수정 · 이어서 · 삭제
+ * 이력 화면 오른쪽 패널과 [지난 방문] 창이 같은 모양을 쓴다.
  */
-export function showSheetEntry(entry) {
-  const t = trackOf(entry.status);
-  const body = `
-    <div class="hist-detail">
-      <div class="row" style="gap:8px">
-        <span class="pill pill--${t.cls}">${h(entry.status)}</span>
-        <span class="badge">${h(when(entry.createdAt || entry.date))}</span>
-        ${entry.author ? `<span class="badge">${h(entry.author)}</span>` : ''}
+const has = (label, ...words) => words.some((w) => String(label || '').includes(w));
+/** 안 끝난 것을 앞에 — 이력의 상태 칩과 같은 차례. */
+const STATUS_ORDER = ['조치 진행 중', '교체 예정', '모니터링', '조치 완료'];
+
+function entryParts(entry) {
+  const robot = [];
+  const symptom = [];
+  const action = [];
+  const result = [];
+  const rest = [];
+  for (const v of entry.values || []) {
+    if (has(v.label, '로봇', '시리얼') || has(v.label, '오류 코드')) robot.push(v);
+    else if (has(v.label, '증상')) symptom.push(v);
+    else if (has(v.label, '처리 결과', '결과')) result.push(v);
+    else if (has(v.label, '조치')) action.push(v);
+    else if (has(v.label, '식당', '매장')) continue;        // 제목에 이미 있다
+    else rest.push(v);
+  }
+  return { robot, symptom, action, result, rest };
+}
+
+function entryDetailHtml(entry) {
+  const p = entryParts(entry);
+  const text = (list, empty) => (list.length
+    ? list.map((v) => `<p class="hd-text">${h(v.value)}</p>`).join('')
+    : `<p class="hd-text hd-text--empty">${empty}</p>`);
+  return `
+    <div class="hd">
+      <div class="hd-head">
+        <span class="hd-meta">${h([entry.sheetName, when(entry.createdAt || entry.date), entry.author]
+          .filter((v) => v && v !== '-').join(' · '))}</span>
+        <h2 class="hd-title">${h(entry.store || '(식당명 없음)')}</h2>
       </div>
+
+      <section class="hd-sec">
+        <h3 class="hd-sec__title">로봇</h3>
+        ${p.robot.length ? `<div class="hd-facts">
+          ${p.robot.map((v) => `<span class="hd-fact"><span class="hd-fact__k">${h(v.label)}</span><b class="hd-fact__v">${h(v.value)}</b></span>`).join('')}
+        </div>` : '<p class="hd-text hd-text--empty">적힌 로봇 정보가 없습니다.</p>'}
+      </section>
+
+      <section class="hd-sec">
+        <h3 class="hd-sec__title">증상</h3>
+        ${text(p.symptom, '적힌 증상이 없습니다.')}
+      </section>
+
+      <section class="hd-sec">
+        <h3 class="hd-sec__title">조치</h3>
+        ${text(p.action, '적힌 조치가 없습니다.')}
+        ${p.result.map((v) => `<span class="hd-result">${h(v.label)} · <b>${h(v.value)}</b></span>`).join('')}
+      </section>
+
+      <section class="hd-sec">
+        <h3 class="hd-sec__title">사진 · 영상 <span class="tnum">${entry.links.length}</span></h3>
+        ${entry.links.length ? `
+          <div class="media-grid hd-media">
+            ${entry.links.map((l, i) => `
+              <button class="media-tile" data-act="view" data-idx="${i}" type="button"
+                      style="padding:0;cursor:zoom-in" aria-label="${h(l.label)} 크게 보기">
+                ${l.id
+                  ? `<img src="${h(thumbUrl(l.id, 400))}" alt="${h(l.label)}" loading="lazy"
+                          data-drive="${h(l.id)}"
+                          onerror="this.classList.add('is-broken')" />`
+                  : ''}
+                <span class="media-tile__none">열어 보기</span>
+                <span class="media-tile__name">${h(l.label)}</span>
+              </button>`).join('')}
+          </div>` : '<p class="hd-text hd-text--empty">첨부가 없습니다.</p>'}
+      </section>
+
+      ${p.rest.length ? `
+        <details class="hd-more">
+          <summary>그 밖의 항목&nbsp;<span class="tnum">${p.rest.length}</span></summary>
+          <div class="hd-facts">
+            ${p.rest.map((v) => `<span class="hd-fact"><span class="hd-fact__k">${h(v.label)}</span><b class="hd-fact__v">${h(v.value)}</b></span>`).join('')}
+          </div>
+        </details>` : ''}
+
+      <section class="hd-status">
+        <h3 class="hd-sec__title">상태 <span class="hd-status__note">누르면 시트에 바로 기록</span></h3>
+        <div class="status-pick" role="group" aria-label="상태">
+          ${STATUS_ORDER.map(trackOf).map((t) => `
+            <button class="status-pick__btn${t.value === entry.status ? ' is-on' : ''}" data-act="set-status"
+                    data-value="${h(t.value)}" data-track="${t.cls}" type="button"
+                    aria-pressed="${t.value === entry.status}">${h(t.value)}</button>`).join('')}
+        </div>
+      </section>
+
       <div class="hist-actions">
-        <button class="btn btn--ghost btn--sm" data-act="edit" type="button">수정</button>
-        <button class="btn btn--ghost btn--sm" data-act="reuse" type="button">이어서 작성</button>
-        <button class="btn btn--danger btn--sm" data-act="delete" type="button">삭제</button>
+        <button class="btn btn-secondary" data-act="edit" type="button">수정</button>
+        <button class="btn btn-secondary" data-act="reuse" type="button">이어서 작성</button>
+        <button class="btn btn--danger" data-act="delete" type="button">삭제</button>
       </div>
-      ${entry.links.length ? `
-        <div class="media-grid" id="entryMedia">
-          ${entry.links.map((l, i) => `
-            <button class="media-tile" data-act="view" data-idx="${i}" type="button"
-                    style="padding:0;cursor:zoom-in">
-              ${l.id
-                ? `<img src="${h(thumbUrl(l.id, 300))}" alt="${h(l.label)}" loading="lazy"
-                        data-drive="${h(l.id)}"
-                        onerror="this.classList.add('is-broken')" />`
-                : ''}
-              <span class="media-tile__none">열어 보기</span>
-              <span class="media-tile__name">${h(l.label)}</span>
-            </button>`).join('')}
-        </div>` : ''}
-      ${entry.values.map((v) => `
-        <div class="field">
-          <label>${h(v.label)}</label>
-          <div class="sub-card" style="white-space:pre-wrap">${h(v.value)}</div>
-        </div>`).join('')}
     </div>`;
+}
 
-  const box = openSheet(entry.store || '리포트', body);
-
-  // 어느 것이 영상인지 알아 와서 ▶ 를 붙인다. 모르면 사진으로 둔다.
-  markVideos(entry.links, box);
-  // 드라이브 썸네일이 막힌 파일은 바이트를 직접 받아 그린다.
-  reviveBrokenThumbs(box);
+/**
+ * 상세의 버튼들. onStatus 는 상태를 바꾼 뒤(성공·실패 모두) 화면을 다시 그리는 일.
+ * box 는 다시 그려져도 그대로인 바깥 칸이어야 한다 (이벤트를 한 번만 단다).
+ */
+function bindEntry(box, getEntry, { onStatus, inModal = false } = {}) {
   box.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
-    if (btn.dataset.act === 'reuse') {
+    const entry = getEntry();
+    if (!entry) return;
+    const act = btn.dataset.act;
+    if (act === 'set-status') {
+      const before = entry.status;
+      const next = btn.dataset.value;
+      if (next === before) return;
+      entry.status = next;                 // 화면은 곧바로 반응한다
+      if (onStatus) onStatus();
+      try {
+        const result = await api.setReportStatus(entry.sheetName, entry.row, next);
+        toast(result.queued
+          ? '오프라인입니다. 연결되면 시트에 반영합니다.'
+          : `상태를 '${next}' 로 바꿨습니다.`, 'ok');
+      } catch (err) {
+        entry.status = before;             // 실패하면 되돌린다
+        if (onStatus) onStatus();
+        toast(err.message, 'err');
+      }
+    }
+    if (act === 'reuse') {
       // 새 방문 — 아는 값만 채우고 시트에는 새 줄로 들어간다.
       localStorage.removeItem(NEW_DRAFT_KEY);
       seedFromEntry(entry);
-      closeModal();
+      if (inModal) closeModal();
       location.hash = '#/report/new';
       toast('지난 기록을 바탕으로 새 리포트를 엽니다.', 'ok');
     }
-    if (btn.dataset.act === 'edit') {
+    if (act === 'edit') {
       // 같은 방문을 고침 — 시트의 그 줄을 다시 쓴다.
       seedFromEntry(entry, { edit: true });
-      closeModal();
+      if (inModal) closeModal();
       location.hash = '#/report/edit';
       toast('이 리포트를 고칩니다. 저장하면 같은 줄이 바뀝니다.', 'ok');
     }
-    if (btn.dataset.act === 'delete') {
+    if (act === 'delete') {
       const ok = await confirmDialog(
         '구글 시트에서 삭제',
         [
@@ -736,10 +818,27 @@ export function showSheetEntry(entry) {
         btn.textContent = '삭제';
       }
     }
-    if (btn.dataset.act === 'view') {
+    if (act === 'view') {
       openViewer(entry.links, Number(btn.dataset.idx));
     }
   });
+}
+
+/** 상세를 칸에 그린다 — 영상 표시 · 막힌 썸네일 되살리기까지. */
+function paintEntry(box, entry) {
+  box.innerHTML = entryDetailHtml(entry);
+  markVideos(entry.links, box);
+  reviveBrokenThumbs(box);
+}
+
+/**
+ * 시트 한 줄의 상세를 창으로 보여 준다.
+ * 좁은 화면의 이력과 새 리포트의 [지난 방문] 이 쓴다.
+ */
+export function showSheetEntry(entry) {
+  const box = openSheet(entry.store || '리포트', '');
+  paintEntry(box, entry);
+  bindEntry(box, () => entry, { inModal: true, onStatus: () => paintEntry(box, entry) });
 }
 
 
@@ -853,10 +952,13 @@ const shortDate = (value) => {
 /**
  * 이력 화면 — 구글 시트의 월별 탭이 원본이다.
  *
- * 위쪽 네 칸이 상태별 건수이자 필터다. 이번 달에 아직 안 끝난 건이 몇 개인지
- * 세지 않아도 보이는 것이 이 화면의 목적이다.
+ * 왼쪽은 목록, 오른쪽은 고른 건의 상세(로봇 · 증상 · 조치 · 사진). 위쪽 칩이 상태별
+ * 건수이자 필터다. 좁은 화면에서는 줄을 누르면 상세를 창으로 띄운다.
+ * 주소의 ?q= 는 검색어, ?open= 은 바로 열 건 (홈의 최근 기록에서 넘어온다).
  */
-export async function reportListView(view) {
+const wideHist = () => window.matchMedia('(min-width: 1000px)').matches;
+
+export async function reportListView(view, params = null) {
   loading(view);
 
   const settings = await api.getSettings();
@@ -878,11 +980,13 @@ export async function reportListView(view) {
   if (!months.length) months = [thisMonth];
   if (!months.includes(thisMonth)) months = [thisMonth, ...months];
 
-  let month = months[0];
+  const openKey = params ? params.get('open') : null;
+  let month = (openKey && months.includes(openKey.split('#')[0])) ? openKey.split('#')[0] : months[0];
   let data = { entries: [], fromCache: false, error: null };
   let filter = null;          // null = 전체
-  let query = '';
+  let query = params ? (params.get('q') || '') : '';
   let localItems = [];
+  let selectedKey = openKey;
 
   async function load({ refresh = true } = {}) {
     data = await api.sheetReports(month, refresh);
@@ -910,16 +1014,19 @@ export async function reportListView(view) {
     return out;
   }
 
+  /** 상태 칩 — 전체 + 상태 넷. 안 끝난 것(진행 중 · 교체 예정)을 앞에 둔다. */
   function tilesHtml() {
     const c = counts();
-    return `<div class="stat-grid">
-      ${TRACK.map((t) => `
-        <button class="stat ${filter === t.value ? 'is-active' : ''}"
-                data-track="${t.cls}" data-act="filter" data-value="${h(t.value)}"
-                type="button" aria-pressed="${filter === t.value}">
-          <span class="stat__n tnum">${c[t.value]}</span>
-          <span class="stat__label">${h(t.value)}</span>
-        </button>`).join('')}
+    const order = STATUS_ORDER;
+    const chipBtn = (value, label, n) => `
+      <button class="hist-chip${filter === value ? ' is-on' : ''}" data-act="filter"
+              data-value="${h(value || '')}" ${value ? `data-track="${trackOf(value).cls}"` : ''}
+              type="button" aria-pressed="${filter === value}">
+        ${h(label)} <span class="tnum">${n}</span>
+      </button>`;
+    return `<div class="hist-chips" role="group" aria-label="상태로 거르기">
+      ${chipBtn(null, '전체', (data.entries || []).length)}
+      ${order.map((v) => chipBtn(v, v, c[v])).join('')}
     </div>`;
   }
 
@@ -930,36 +1037,28 @@ export async function reportListView(view) {
         query || filter ? '조건에 맞는 리포트가 없습니다.' : '이 달에 기록된 리포트가 없습니다.'
       }</div>`;
     }
-    return `<div class="scroll"><div class="rows">
+    return `<div class="hist-rows">
       ${list.map((e) => {
-        const attach = e.links.length
-          ? ` · 첨부 <span class="tnum">${e.links.length}</span>` : '';
+        const on = e.key === selectedKey;
         const detail = [e.code, e.summary].filter(Boolean).join(' · ');
         return `
-          <div class="row">
-            <button class="row__code tnum" data-act="open" data-key="${h(e.key)}"
-                    type="button" aria-label="상세 보기">${h(shortDate(e.date))}</button>
-            <button class="row__main" data-act="open" data-key="${h(e.key)}" type="button">
-              <span class="row__title">${h(e.store || '(식당명 없음)')}</span>
-              <span class="row__meta">${h(e.author || '-')}${attach}${detail ? ` · ${h(detail)}` : ''}</span>
-            </button>
-            <select class="select status-select status-select--${trackOf(e.status).cls}"
-                    data-act="status" data-key="${h(e.key)}"
-                    aria-label="${h(e.store || '리포트')} 상태">
-              ${TRACK.map((o) => `<option value="${h(o.value)}" ${o.value === e.status ? 'selected' : ''}>${h(o.value)}</option>`).join('')}
-            </select>
-          </div>`;
+          <button class="hist-row${on ? ' is-on' : ''}" data-act="open" data-key="${h(e.key)}"
+                  type="button" aria-pressed="${on}">
+            <span class="hist-row__main">
+              <span class="hist-row__store">${h(e.store || '(식당명 없음)')}</span>
+              <span class="hist-row__sub">${h(shortDate(e.date))}${detail ? ` · ${h(detail)}` : ''}</span>
+            </span>
+            <span class="hist-row__status" data-track="${trackOf(e.status).cls}">${h(trackOf(e.status).short)}</span>
+          </button>`;
       }).join('')}
-    </div></div>`;
+    </div>`;
   }
 
   function localHtml() {
     if (!localItems.length) return '';
     return `
       <div class="panel panel--warn">
-        <div class="row row--between" style="margin-bottom:8px">
-          <strong>아직 시트에 올리지 않은 리포트 ${localItems.length}건</strong>
-        </div>
+        <strong>아직 시트에 올리지 않은 리포트 ${localItems.length}건</strong>
         <div class="list">
           ${localItems.map((r) => {
             const [cls, label] = STATUS[r.status] || STATUS.DRAFT;
@@ -1004,10 +1103,20 @@ export async function reportListView(view) {
     return '';
   }
 
+  const selected = () => (data.entries || []).find((e) => e.key === selectedKey) || null;
+
+  function paintPanel() {
+    const panel = $('#histPanel');
+    if (!panel) return;
+    const entry = selected();
+    if (entry) paintEntry(panel, entry);
+    else panel.innerHTML = '<div class="hist-panel__empty">왼쪽에서 리포트를 고르면<br />로봇 · 증상 · 조치 · 사진을 여기서 봅니다.</div>';
+  }
+
   /**
    * 화면을 두 겹으로 나눈다.
    *  - 껍데기(renderShell): 검색창·월 선택기. **한 번만 만들고 다시 만들지 않는다.**
-   *  - 알맹이(paint): 타일·목록. 검색·필터 때마다 이 부분만 갈아 끼운다.
+   *  - 알맹이(paint): 칩·목록·상세. 검색·필터 때마다 이 부분만 갈아 끼운다.
    *
    * 한 글자 칠 때마다 화면 전체를 다시 그리면 입력 칸이 새로 만들어져
    * 한글 조합이 끊긴다("옥동식" → "ㅇㅗㄱㄷㅗㅇㅅㅣㄱ"). 입력 칸을 그대로 두는 것이
@@ -1015,31 +1124,29 @@ export async function reportListView(view) {
    */
   function renderShell() {
     view.innerHTML = `
-      <div id="pageRoot" style="display:flex;flex-direction:column;gap:var(--space-4);flex:1;min-height:0">
+      <div id="pageRoot" class="page-stack">
         <div class="page-head">
           <h1 class="page-head__title">리포트 이력</h1>
-          <span class="page-head__meta"><span id="histMeta"></span></span>
+          <span class="page-head__meta"><span id="histMeta"></span> · <span id="histSync"></span></span>
           <span class="page-head__spacer"></span>
           <select class="select" id="histMonth" aria-label="월 선택"></select>
-        </div>
-        <div id="histTop"></div>
-        <div class="toolbar">
-          <input class="input" id="histQ" type="search"
-                 placeholder="식당명 · 날짜 (미트로, 08-22)" aria-label="이력 검색" />
           <button class="btn btn-secondary" data-act="refresh" type="button">시트에서 받기</button>
         </div>
-        <div id="histBody" style="display:flex;flex-direction:column;gap:var(--space-3);flex:1;min-height:0"></div>
-
-        <div class="page-head">
-          <span class="page-head__meta"></span>
-          <span class="page-head__spacer"></span>
-          <span class="tag tag-neutral" id="histSync"></span>
+        <div class="hist-filter">
+          <div id="histTop"></div>
+          <input class="input hist-search" id="histQ" type="search"
+                 placeholder="식당명 · 날짜 (미트로, 08-22)" aria-label="이력 검색" />
+        </div>
+        <div class="hist-split">
+          <section class="hist-list scroll" id="histBody"></section>
+          <aside class="hist-panel" id="histPanel" aria-label="고른 리포트"></aside>
         </div>
       </div>`;
 
     const root = $('#pageRoot');
     root.addEventListener('click', onClick);
     root.addEventListener('change', onChange);
+    bindEntry($('#histPanel'), selected, { onStatus: () => paint() });
 
     const box = $('#histQ');
     box.value = query;
@@ -1062,25 +1169,29 @@ export async function reportListView(view) {
     const top = $('#histTop');
     const body = $('#histBody');
     if (!top || !body) return;
+    // 넓은 화면은 처음부터 한 건을 열어 둔다 — 오른쪽이 비어 있을 이유가 없다.
+    if (wideHist() && !selected()) selectedKey = (visible()[0] || {}).key || null;
     top.innerHTML = tilesHtml();
     body.innerHTML = noticeHtml() + localHtml() + rowsHtml();
     paintMeta();
+    paintPanel();
   }
 
   async function onClick(ev) {
     const btn = ev.target.closest('[data-act]');
-    if (!btn) return;
+    if (!btn || btn.closest('#histPanel')) return;     // 상세 안의 버튼은 bindEntry 가 맡는다
     const act = btn.dataset.act;
 
     if (act === 'filter') {
-      const value = btn.dataset.value;
+      const value = btn.dataset.value || null;
       filter = filter === value ? null : value;
       paint();
       return;
     }
-    if (act === 'clear') { filter = null; paint(); return; }
     if (act === 'open') {
-      const entry = (data.entries || []).find((e) => e.key === btn.dataset.key);
+      selectedKey = btn.dataset.key;
+      if (wideHist()) { paint(); return; }
+      const entry = selected();
       if (entry) showSheetEntry(entry);
       return;
     }
@@ -1092,6 +1203,8 @@ export async function reportListView(view) {
       await load({ refresh: true });
       paintMonths();
       paint();
+      btn.disabled = false;
+      btn.textContent = '시트에서 받기';
       toast(data.fromCache ? '연결이 안 돼 기존 내용을 유지합니다.' : '시트에서 받았습니다.',
             data.fromCache ? 'err' : 'ok');
     }
@@ -1102,30 +1215,12 @@ export async function reportListView(view) {
     if (el.id === 'histMonth') {
       month = el.value;
       filter = null;
+      selectedKey = null;
       // 검색창을 살려 두기 위해 목록 자리에만 안내를 띄운다.
       const body = document.querySelector('#histBody');
       if (body) body.innerHTML = '<div class="skeleton">불러오는 중…</div>';
       await load({ refresh: true });
       paint();
-      return;
-    }
-    if (el.dataset.act === 'status') {
-      const entry = (data.entries || []).find((e) => e.key === el.dataset.key);
-      if (!entry) return;
-      const before = entry.status;
-      const next = el.value;
-      entry.status = next;                 // 화면은 곧바로 반응한다
-      paint();
-      try {
-        const result = await api.setReportStatus(entry.sheetName, entry.row, next);
-        toast(result.queued
-          ? '오프라인입니다. 연결되면 시트에 반영합니다.'
-          : `상태를 '${next}' 로 바꿨습니다.`, 'ok');
-      } catch (err) {
-        entry.status = before;             // 실패하면 되돌린다
-        paint();
-        toast(err.message, 'err');
-      }
     }
   }
 
@@ -1136,6 +1231,8 @@ export async function reportListView(view) {
   await load({ refresh: false });
   paintMonths();
   paint();
+  // 홈에서 한 건을 골라 왔으면 좁은 화면에서도 바로 연다.
+  if (openKey && !wideHist() && selected()) showSheetEntry(selected());
 
   // 그런 다음 조용히 최신본을 받아 온다. 화면 전환을 여기서 붙잡지 않는다.
   //

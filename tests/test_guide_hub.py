@@ -1,8 +1,8 @@
-"""가이드 탭 (B안) — 왼쪽 종류 카드 셋 · 오른쪽 스크롤 목록.
+"""가이드 (v3.28 C-1) — 로봇 → 종류 → 목록 → 한눈에 보는 상세. 메뉴 차례 · 홈 우선순위.
 
-레일의 [홈] 바로 아래에 [가이드] 가 있다. 종류 카드는 색이 서로 다르고(코발트 · 주황 ·
-초록), 오른쪽 목록은 제 자리에서 스크롤된다. 홈의 가이드 카드 둘과 작성 버튼은 여기로
-옮겼다. 다음 회차에 되돌아가지 않도록 묶어 둔다.
+같은 오류 코드라도 로봇(Gen.1 · Gen.2 · Zephyr …)마다 절차가 다르다. 그래서 가이드는
+로봇을 먼저 고르고, 그 안에서 오류 코드 · 하드웨어 · SW 를 고른다. 로봇은 앱에서
+추가 · 이름 바꾸기 · 삭제한다. 다음 회차에 되돌아가지 않도록 묶어 둔다.
 
 실행: python tests/test_guide_hub.py
 """
@@ -28,47 +28,61 @@ guides = read("web", "js", "views", "guides.js")
 app = read("web", "js", "app.js")
 index = read("web", "index.html")
 css = read("web", "css", "app.css")
+store = read("web", "js", "local", "store.js")
 
-print("== 레일 · 주소")
-check("[가이드] 탭이 [홈] 바로 아래에 있다",
-      index.index('data-tab="guides"') > index.index('data-tab="home"')
-      and index.index('data-tab="guides"') < index.index('data-tab="inventory"'))
+print("== 왼쪽 메뉴 — 하는 일의 차례")
+order = ["home", "new", "reports", "guides", "driving", "inventory", "settings"]
+at = [index.find('data-tab="%s"' % t) for t in order]
+check("홈 · 새 리포트 · 리포트 이력 · 가이드 · 운행일지 · 차량 재고 · (설정)",
+      all(a >= 0 for a in at) and at == sorted(at), str(at))
+check("메뉴에 글자가 붙어 있다", index.count('class="tab__label"') == len(order))
+check("[차량 재고] 옆에 보충 필요 숫자 자리가 있다", 'id="invBadge"' in index
+      and "async function paintNavBadge()" in app)
+check("가이드 화면에서는 메뉴의 [가이드] 가 켜진다",
+      "path.startsWith('/guides') ? 'guides'" in app)
+
+print()
+print("== 로봇 고르기 (가이드 탭)")
 check("주소가 있다", "[/^\\/guides$/, () => guideHubView(view)]" in app)
-check("가이드 화면에서는 레일의 [가이드] 가 켜진다 (홈이 아니라)",
-      "path.startsWith('/guides') ? 'guides'" in app
-      and "path.startsWith('/guides') ? 'home'" not in app)
+check("로봇 화면 주소 (종류는 생략 가능)", "guideModelView(view, decodeURIComponent(m[1]), m[2] || null)" in app)
+check("로봇 카드 · 로봇 추가 · 관리(이름 바꾸기 · 삭제)",
+      "model-card__main" in guides and "data-act=\"add-model\"" in guides
+      and "data-act=\"model-menu\"" in guides and "api.renameGuideModel(" in guides
+      and "api.deleteGuideModel(" in guides)
+check("로봇이 없는 예전 가이드도 잃지 않는다 ('로봇 미지정')",
+      "const NONE_LABEL = '로봇 미지정';" in guides and "if (all.some((g) => modelKey(g) === NONE)) keys.push(NONE);" in guides)
+check("기본 로봇 셋", "export const DEFAULT_GUIDE_MODELS = ['Gen.1', 'Gen.2', 'Zephyr'];" in store)
+check("로봇을 지워도 가이드는 지우지 않는다", "robotModel: ''" in store and "export async function deleteGuideModel(" in store)
 
 print()
-print("== 왼쪽 종류 카드 — 색이 서로 다르다")
-check("종류마다 색 토큰이 고정돼 있다",
-      "ERROR_CODE: { color: 'var(--color-accent)'" in guides
-      and "HARDWARE_SOP: { color: 'var(--color-warn)'" in guides
-      and "SOFTWARE_CMD: { color: 'var(--color-ok)'" in guides)
-check("카드가 자기 색을 들고 다닌다 (--cat)", "style=\"--cat:${c.color};--cat-tint:${c.tint}\"" in guides
-      and "border-left: 6px solid var(--cat);" in css and ".cat-card.is-on { background: var(--cat-tint); border-color: var(--cat); }" in css)
-check("카드에 건수와 마지막 수정이 있다", "cat-card__count" in guides and "수정` : '아직 없음'" in guides)
-check("고른 종류는 기억한다", "localStorage.setItem(HUB_TYPE_KEY, type);" in guides)
+print("== 로봇 하나 — 종류 셋 + 목록")
+check("종류 셋이 큰 버튼으로", "class=\"guide-cat" in guides and "CAT_ORDER.map((t)" in guides)
+check("고른 종류는 기억한다", "localStorage.setItem(LAST_CAT_KEY, type);" in guides)
+check("목록 칸이 스크롤 영역이다", '<div class="rows scroll" id="gList">' in guides)
+check("검색은 목록만 다시 그린다 (커서를 지킨다)",
+      "box.addEventListener('input', () => { query = box.value; paint(); });" in guides)
+check("작성은 지금 보는 종류 · 로봇으로 열린다",
+      "const newHref = `#/guides/new/${type}${key === NONE ? '' : `?model=${encodeURIComponent(key)}`}`;" in guides)
+check("작성 폼에서 로봇을 고른다", "data-act=\"pick-model\"" in guides and "robotModel: state.robotModel," in guides)
 
 print()
-print("== 오른쪽 목록 — 제 자리에서 스크롤")
-check("목록 칸이 스크롤 영역이다", '<div class="scroll rows" id="hubList">' in guides
-      and ".guide-hub__list .scroll { flex: 1; min-height: 0; overflow-y: auto;" in css)
-check("화면 뿌리가 높이를 채운다 (그래야 목록이 그 안에서 스크롤된다)",
-      'id="pageRoot" style="display:flex;flex-direction:column;gap:var(--space-3);flex:1;min-height:0"' in guides
-      and ".guide-hub { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: var(--space-4); flex: 1; min-height: 0; }" in css)
-check("검색은 목록만 다시 그린다 (커서를 지킨다)", "function paintList()" in guides
-      and "box.addEventListener('input', () => { query = box.value; paintList(); });" in guides)
-check("세로로 들면 카드가 가로 한 줄로", ".guide-hub__cats { flex-direction: row; }" in css)
+print("== 상세 — 한눈에")
+check("위치(로봇 › 종류)가 보인다", 'class="gd-crumb"' in guides)
+check("진행률 막대가 단계 체크를 따라간다", 'id="gdBar"' in guides and "paintProgress();" in guides)
+check("단계 · 공구 · 명령어를 한 화면에", "gd-steps" in guides and "gd-side" in guides
+      and ".gd-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px;" in css)
+check("단계는 줄 전체가 버튼이다 (장갑)", 'data-act="toggle-step" type="button"' in guides)
 
 print()
-print("== 홈에서 옮겨 온 것")
-check("홈에 가이드 카드 둘이 없다", "home-split" not in app and "최근 수정된 가이드" not in app and "recentRow" not in app)
+print("== 홈 — 우선순위 차례")
+i_new, i_hist, i_guide = app.find('class="home-new"'), app.find('home-hist"'), app.find('home-guides"')
+check("새 리포트 → 이력(검색) → 가이드(로봇) 차례", 0 < i_new < i_hist < i_guide, str((i_new, i_hist, i_guide)))
+check("이력 검색은 이력 화면으로 넘긴다", "`#/reports?q=${encodeURIComponent(q)}`" in app)
+check("최근 기록을 누르면 그 건이 열린다", "#/reports?open=${encodeURIComponent(e.key)}" in app)
 check("홈에 가이드 작성 버튼이 없다", 'href="#/guides/new">' not in app)
-check("작성은 가이드 탭 오른쪽 위, 지금 보는 종류로 열린다",
-      'href="#/guides/new/${type}">＋ 가이드 작성</a>' in guides)
 
 print()
 if fails:
     print("실패 %d건: %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)
-print("전부 통과 — 가이드 탭이 B안 그대로입니다.")
+print("전부 통과 — 가이드는 로봇 → 종류 → 목록, 홈은 우선순위 차례입니다.")

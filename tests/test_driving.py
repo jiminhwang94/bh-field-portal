@@ -141,7 +141,7 @@ print()
 print("== 6. 화면에 붙어 있다")
 check("주소가 있다", "[/^\\/driving$/, () => drivingView(view)]," in app)
 check("왼쪽 레일에 [운행일지] 가 있다",
-      'data-tab="driving" href="#/driving"' in index and "<span>운행일지</span>" in index)
+      'data-tab="driving" href="#/driving"' in index and '<span class="tab__label">운행일지</span>' in index)
 check("레일 표시가 운행일지에서 켜진다", "path.startsWith('/driving') ? 'driving'" in app)
 # 화면 파일이 캐시 목록에 없으면 인터넷이 없을 때 그 화면만 안 열린다.
 check("오프라인에서도 열린다 (캐시 목록에 있다)",

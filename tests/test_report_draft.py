@@ -83,13 +83,14 @@ check("수정 화면이 아니면 고칠 줄이 없다 (editingLink = null)",
 check(
     "이력의 [수정] 은 수정 주소로 간다",
     "{ edit: true });" in report
-    and re.search(r"edit: true \}\);\s*\n\s*closeModal\(\);\s*\n\s*location\.hash = '#/report/edit';",
+    # v3.28 — 상세는 이력 오른쪽 패널에도 그려진다. 창으로 띄운 경우에만 창을 닫는다.
+    and re.search(r"edit: true \}\);\s*\n\s*(?:if \(inModal\) )?closeModal\(\);\s*\n\s*location\.hash = '#/report/edit';",
                   report) is not None,
 )
 
 check(
     "이력의 [이어서 작성] 은 새 리포트 주소로 간다",
-    re.search(r"seedFromEntry\(entry\);\s*\n\s*closeModal\(\);\s*\n\s*location\.hash = '#/report/new';",
+    re.search(r"seedFromEntry\(entry\);\s*\n\s*(?:if \(inModal\) )?closeModal\(\);\s*\n\s*location\.hash = '#/report/new';",
               report) is not None,
 )
 

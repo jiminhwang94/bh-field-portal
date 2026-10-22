@@ -1,7 +1,10 @@
 // 해시 라우터 + 메인 화면
 import { api } from './api.js';
-import { $, h, CATEGORY, closeModal, errorView, loading, openSheet, toast } from './ui.js';
-import { guideListView, guideDetailView, guideEditView, guideHubView } from './views/guides.js';
+import { $, h, closeModal, errorView, loading, toast } from './ui.js';
+import {
+  guideListView, guideDetailView, guideEditView, guideHubView, guideModelView, modelHref,
+  row as guideRow,
+} from './views/guides.js';
 import { inventoryView } from './views/inventory.js';
 import { drivingView } from './views/driving.js';
 import { fieldsView } from './views/fields.js';
@@ -18,10 +21,14 @@ const HEX = '[0-9a-f]{6,}';
 const routes = [
   [/^\/?$/, mainView],
   [/^\/search$/, searchView],
-  [/^\/guides$/, () => guideHubView(view)],        // 가이드 탭 — 종류 카드 + 목록
+  [/^\/guides$/, () => guideHubView(view)],        // 가이드 탭 — 로봇 고르기
+  // 로봇 하나 — 종류(오류 코드 · 하드웨어 · SW) 셋과 그 목록
+  [/^\/guides\/m\/([^/]+)(?:\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD))?$/,
+    (m) => guideModelView(view, decodeURIComponent(m[1]), m[2] || null)],
   [/^\/guides\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD)$/, (m) => guideListView(view, m[1])],
-  [/^\/guides\/new\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD)$/, (m) => guideEditView(view, null, m[1])],
-  [/^\/guides\/new$/, () => guideEditView(view, null, null)],   // 종류는 폼 안에서 고른다
+  [/^\/guides\/new\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD)$/,
+    (m, q) => guideEditView(view, null, m[1], q.get('model'))],
+  [/^\/guides\/new$/, (m, q) => guideEditView(view, null, null, q.get('model'))],   // 종류는 폼 안에서 고른다
   [new RegExp(`^/guides/edit/(${HEX})$`), (m) => guideEditView(view, m[1])],
   [new RegExp(`^/guides/(${HEX})$`), (m) => guideDetailView(view, m[1])],
   [/^\/inventory$/, () => inventoryView(view)],
@@ -29,7 +36,7 @@ const routes = [
   [/^\/fields$/, () => fieldsView(view)],
   // 같은 화면이지만 하는 일이 다르다 — 주소가 새 리포트인지 수정인지를 정한다.
   [/^\/report\/(new|edit)$/, () => reportFormView(view)],
-  [/^\/reports$/, () => reportListView(view)],
+  [/^\/reports$/, (m, q) => reportListView(view, q)],   // ?q= 검색어 · ?open= 바로 열 건
   [new RegExp(`^/reports/(${HEX})$`), (m) => reportDetailView(view, m[1])],
   [/^\/settings$/, () => settingsView(view)],
 ];
@@ -93,6 +100,7 @@ async function render() {
   $('#backBtn').hidden = (path === '/' || path === '');
   paintTabs(path);
   paintTopAction(path);
+  paintNavBadge();
   view.scrollTop = 0;
   for (const [pattern, handler] of routes) {
     const match = pattern.exec(path);
@@ -110,110 +118,146 @@ async function render() {
   view.innerHTML = `<div class="empty">존재하지 않는 화면입니다.<br /><a class="link" href="#/">메인으로 돌아가기</a></div>`;
 }
 
-// ------------------------------------------------------------- 홈 (검색 우선)
+// ------------------------------------------------------------- 홈
 //
-// 현장에서 가장 먼저 하는 일이 "이 코드가 뭐지" 라서, 검색 입력대를 화면의 주인공으로 둔다.
-// 자주 찾는 코드는 실제 가이드에서 뽑아 한 번 터치로 들어가게 한다.
+// 현장에서 하는 일의 차례대로 세 칸만 둔다.
+//   1. 새 리포트 쓰기 — 가장 크게. 올리지 않은 리포트가 있으면 같은 자리에 알린다.
+//   2. 리포트 이력 — 검색 칸 + 이번 달 최근 기록. 누르면 이력에서 바로 그 건이 열린다.
+//   3. 가이드 — 로봇(Gen.1 · Gen.2 · Zephyr …) 버튼. 오류 코드 검색도 여기서.
 async function mainView() {
   loading(view);
-  const items = (await api.listGuides()).items;      // 전부 기기에 있다 (오프라인 OK)
+  const guides = (await api.listGuides()).items;          // 전부 기기에 있다 (오프라인 OK)
+  const models = await api.listGuideModels();
   const drafts = (await api.listReports()).items.filter((r) => r.status !== 'UPLOADED');
-  const pending = await api.pendingCount();
-  const month = await monthSummary();
+  const month = await monthEntries();
 
-  const codes = items
-    .filter((g) => g.categoryType === 'ERROR_CODE')
-    .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
-    .slice(0, 6);
+  const modelKeys = [...models];
+  for (const g of guides) {
+    const k = (g.robotModel || '').trim();
+    if (k && !modelKeys.includes(k)) modelKeys.push(k);
+  }
+  const unassigned = guides.filter((g) => !(g.robotModel || '').trim()).length;
+
+  const recent = month ? month.entries.slice(0, 6) : [];
+  const open = month ? month.entries.filter((e) => e.status !== '조치 완료').length : 0;
 
   view.innerHTML = `
-    <section class="search-block">
-      <form class="search-row" id="searchForm" role="search">
-        <input class="input" id="searchInput" type="search" autocomplete="off"
-               enterkeyhint="search" aria-label="통합 검색"
-               placeholder="오류 코드 · 부품명 · 증상 · 명령어" />
-        <button class="btn btn-primary" type="submit">검색</button>
-      </form>
-    </section>
+    <div class="home">
+      <a class="home-new" href="#/report/new">
+        <span class="home-new__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6z"/><path d="M12 11v6M9 14h6"/></svg>
+        </span>
+        <span class="home-new__text">
+          <span class="home-new__title">새 리포트 쓰기</span>
+          <span class="home-new__sub">${drafts.length
+            ? `올리지 않은 리포트 <b class="tnum">${drafts.length}</b>건이 있습니다`
+            : '사진 찍고 바로 구글 시트로'}</span>
+        </span>
+        <span class="home-new__go" aria-hidden="true">›</span>
+      </a>
 
-    ${codes.length ? `
-      <section class="quick-block home-card">
-        <div class="label">자주 찾는 코드</div>
-        <div class="code-grid">
-          ${codes.map((g) => `
-            <a class="btn btn-secondary code-btn" href="#/guides/${g.id}"
-               title="${h(g.summary || '')}">${h(g.codeOrTitle.split(' ')[0])}</a>`).join('')}
+      <section class="home-panel home-hist" aria-labelledby="homeHistTitle">
+        <div class="home-panel__head">
+          <h2 id="homeHistTitle">리포트 이력</h2>
+          ${month ? `<span class="home-panel__meta">${h(month.name)} · <span class="tnum">${month.entries.length}</span>건 · 진행 중 <span class="tnum">${open}</span></span>` : ''}
+          <span class="spacer"></span>
+          <a class="btn btn-secondary" href="#/reports">전체 이력</a>
         </div>
-      </section>` : ''}
+        <form class="home-search" id="histSearch" role="search">
+          <input class="input" id="histSearchQ" type="search" autocomplete="off" enterkeyhint="search"
+                 aria-label="이력 검색" placeholder="식당명 · 날짜로 이력 찾기 (미트로, 10-18)" />
+          <button class="btn btn-primary" type="submit">찾기</button>
+        </form>
+        <div class="home-hist__rows">
+          ${recent.length ? recent.map((e) => `
+            <a class="hrow" href="#/reports?open=${encodeURIComponent(e.key)}">
+              <span class="hrow__date tnum">${h((e.date || '').slice(5) || '-')}</span>
+              <span class="hrow__main">
+                <span class="hrow__store">${h(e.store || '(식당명 없음)')}</span>
+                ${e.summary ? `<span class="hrow__sub">${h(e.summary)}</span>` : ''}
+              </span>
+              <span class="hrow__status" data-track="${TRACK_CLS[e.status] || 'doing'}">${h(e.status)}</span>
+            </a>`).join('')
+            : `<div class="empty">아직 받아 둔 이력이 없습니다.<br /><a class="link" href="#/reports">리포트 이력</a>을 한 번 열면 여기에 보입니다.</div>`}
+        </div>
+      </section>
 
-    ${month ? `
-      <section class="quick-block home-card">
-        <div class="label">${h(month.name)} 처리 현황</div>
-        <div class="home-stats">
-          ${month.tiles.map((t) => `
-            <a class="stat" data-track="${t.cls}" href="#/reports">
-              <span class="stat__n tnum">${t.n}</span>
-              <span class="stat__label">${h(t.label)}</span>
+      <section class="home-panel home-guides" aria-labelledby="homeGuideTitle">
+        <div class="home-panel__head">
+          <h2 id="homeGuideTitle">가이드</h2>
+          <span class="home-panel__meta">로봇을 고르세요</span>
+          <span class="spacer"></span>
+          <a class="btn btn-secondary" href="#/guides">전체</a>
+        </div>
+        <div class="model-list">
+          ${modelKeys.map((m) => `
+            <a class="model-btn" href="${modelHref(m)}">
+              <span class="model-btn__name">${h(m)}</span>
+              <span class="model-btn__meta tnum">${guides.filter((g) => (g.robotModel || '').trim() === m).length}건</span>
             </a>`).join('')}
+          ${unassigned ? `
+            <a class="model-btn model-btn--none" href="${modelHref(null)}">
+              <span class="model-btn__name">로봇 미지정</span>
+              <span class="model-btn__meta tnum">${unassigned}건</span>
+            </a>` : ''}
         </div>
-      </section>` : ''}
+        <form class="home-search" id="guideSearch" role="search">
+          <input class="input" id="guideSearchQ" type="search" autocomplete="off" enterkeyhint="search"
+                 aria-label="가이드 검색" placeholder="오류 코드 · 증상 검색" />
+          <button class="btn btn-secondary" type="submit">검색</button>
+        </form>
+      </section>
+    </div>`;
 
-    `;
-
-  $('#searchForm').addEventListener('submit', (ev) => {
+  $('#histSearch').addEventListener('submit', (ev) => {
     ev.preventDefault();
-    const q = $('#searchInput').value.trim();
+    const q = $('#histSearchQ').value.trim();
+    location.hash = q ? `#/reports?q=${encodeURIComponent(q)}` : '#/reports';
+  });
+  $('#guideSearch').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const q = $('#guideSearchQ').value.trim();
     if (!q) { toast('검색어를 입력하세요.'); return; }
     location.hash = `#/search?q=${encodeURIComponent(q)}`;
   });
 }
 
+/** 이력 화면의 상태 이름 → 색 이름표 (같은 뜻에 같은 색). */
+const TRACK_CLS = { '조치 진행 중': 'doing', '교체 예정': 'swap', '모니터링': 'watch', '조치 완료': 'done' };
+
 /**
- * 이번 달 리포트를 상태별로 센다.
- *
- * 기기에 받아 둔 이력 사본만 본다 — 홈을 열 때마다 시트를 부르면 느리고,
- * 오프라인에서는 아예 안 된다. 사본이 없으면 이 구역을 통째로 감춘다.
+ * 이번 달 이력 — 기기에 받아 둔 사본만 본다. 홈을 열 때마다 시트를 부르면 느리고,
+ * 오프라인에서는 아예 안 된다. 사본이 없으면 null.
  */
-async function monthSummary() {
+async function monthEntries() {
   try {
     const store = await import('./local/store.js');
     const d = new Date();
     const name = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const cached = await store.getMeta(`sheetReports:${name}`, null);
     if (!cached || !(cached.entries || []).length) return null;
-
-    const order = ['조치 진행 중', '교체 예정', '모니터링', '조치 완료'];
-    // 이력 화면의 상태 색과 같은 이름표 — 같은 뜻에 같은 색.
-    const cls = { '조치 진행 중': 'doing', '교체 예정': 'swap', '모니터링': 'watch', '조치 완료': 'done' };
-    const count = {};
-    for (const entry of cached.entries) {
-      count[entry.status] = (count[entry.status] || 0) + 1;
-    }
-    return {
-      name,
-      // 아직 안 끝난 것을 왼쪽에 둔다 — 홈에서 먼저 눈에 들어와야 하는 값이다.
-      tiles: order.map((label) => ({
-        label, n: count[label] || 0, open: label !== '조치 완료', cls: cls[label],
-      })),
-    };
+    const entries = [...cached.entries].sort((a, b) =>
+      String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || '')));
+    return { name, entries };
   } catch {
     return null;
   }
 }
 
-
-function guideRow(guide) {
-  const meta = CATEGORY[guide.categoryType] || { emoji: '', label: '' };
-  return `
-    <a class="item cat-${guide.categoryType}" href="#/guides/${guide.id}">
-      <div style="font-size:1.4rem">${meta.emoji}</div>
-      <div class="item__body">
-        <div class="item__title">${h(guide.codeOrTitle)}</div>
-        <div class="item__sub">${h(guide.summary || meta.label)}</div>
-      </div>
-      <span class="badge">${guide.stepCount || 0}단계</span>
-      <span class="item__chevron">›</span>
-    </a>`;
+/** 왼쪽 메뉴 [차량 재고] 옆 숫자 — 보충이 필요한 품목 수 (모든 차량). */
+async function paintNavBadge() {
+  const badge = document.getElementById('invBadge');
+  if (!badge) return;
+  try {
+    const store = await import('./local/store.js');
+    const low = (await store.listInventory())
+      .filter((i) => i.minQuantity > 0 && i.quantity < i.minQuantity).length;
+    badge.textContent = low;
+    badge.hidden = !low;
+    badge.setAttribute('aria-label', `보충 필요 ${low}건`);
+  } catch {
+    badge.hidden = true;
+  }
 }
 
 // ------------------------------------------------------------- 검색 결과
@@ -223,22 +267,21 @@ async function searchView(_match, query) {
   const items = (await api.listGuides(null, q)).items;
   view.innerHTML = `
     <div class="page-head">
-      <div>
-        <h1 class="page-head__title">검색 결과</h1>
-      </div>
-      <span class="page-head__meta">"${h(q)}" · <span class="tnum">${items.length}</span>건 — 코드 · 요약 · 공구 · 단계 · 명령어를 전부 훑습니다</span>
+      <a class="crumb" href="#/guides">가이드</a>
+      <h1 class="page-head__title">검색 결과</h1>
+      <span class="page-head__meta">"${h(q)}" · <span class="tnum">${items.length}</span>건 — 모든 로봇의 코드 · 요약 · 공구 · 단계 · 명령어</span>
     </div>
     <form class="search-row" id="searchForm" role="search">
       <input class="input" id="searchInput" type="search" value="${h(q)}"
-             enterkeyhint="search" aria-label="통합 검색" />
+             enterkeyhint="search" aria-label="가이드 검색" />
       <button class="btn btn-primary" type="submit">재검색</button>
     </form>
-    ${items.length ? `<div class="list">${items.map(guideRow).join('')}</div>`
+    ${items.length ? `<div class="rows">${items.map((g) => guideRow(g, true)).join('')}</div>`
       : '<div class="empty">일치하는 가이드가 없습니다.</div>'}`;
   $('#searchForm').addEventListener('submit', (ev) => {
     ev.preventDefault();
     const next = $('#searchInput').value.trim();
-    location.hash = next ? `#/search?q=${encodeURIComponent(next)}` : '#/';
+    location.hash = next ? `#/search?q=${encodeURIComponent(next)}` : '#/guides';
   });
 }
 
@@ -258,6 +301,8 @@ $('#btn-topaction').addEventListener('click', () => {
 });
 
 window.addEventListener('hashchange', render);
+// 재고 화면에서 수량을 바꾸면 왼쪽 메뉴의 [보충 필요] 숫자도 맞춘다.
+window.addEventListener('bh-inventory-changed', paintNavBadge);
 
 // 화면을 **먼저** 띄운다. 시트에서 받아오는 일은 뒤에서 한다.
 // 예전에는 시트 왕복 세 번이 끝나기를 기다렸다가 그려서, 앱을 열거나

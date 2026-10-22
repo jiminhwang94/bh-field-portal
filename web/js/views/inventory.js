@@ -1,18 +1,23 @@
-// 스타리아 차량 수동 재고 관리 (차량 추가/삭제 + 품목 수량 조절)
+// 차량 재고 (C-1 집중형) — 왼쪽 목록에서 고르고, 오른쪽 큰 패널에서 수량을 바꾼다.
 //
-// 품목은 **분류**(케이블 · 패드 · 보드 …)로 묶여 접히고 펴진다. 케이블만 해도
-// C to C · USB to C · 1m · 2m 로 줄이 늘어, 묶지 않으면 표가 한 화면을 넘는다.
-// 순서는 손잡이(≡)를 잡고 끌어 바꾼다 — 묶음 안에서 품목을, 묶음끼리 묶음을.
-// 품목 목록과 순서는 차량 공용이다 (1호차에서 옮기면 2호차도 같은 순서).
+// 장갑 낀 손으로 줄마다 붙은 작은 [−][+] 를 겨냥하면 옆 줄을 누르기 쉽다. 그래서
+// 목록은 **고르기만** 하고, 수량은 오른쪽 패널의 큰 버튼으로 바꾼다. 좁은 화면
+// (세로 태블릿·폰)에서는 패널 대신 같은 내용을 창으로 띄운다.
+//
+// 위쪽 칩으로 거른다 — [전체] [부족만] [분류마다 하나]. 분류 묶음은 그대로 접히고
+// 펴지며, 순서는 손잡이(≡)를 잡고 끌어 바꾼다 (품목 목록과 순서는 차량 공용).
 import { api } from '../api.js';
 import { isEnabled as sheetInvEnabled, pullInventory } from '../invsheet.js';
 import {
-  $, h, closeModal, confirmDialog, loading, openSheet, toast,
+  $, h, closeModal, confirmDialog, loading, openSheet, promptDialog, toast,
 } from '../ui.js';
 
 const VEHICLE_KEY = 'bh_last_vehicle';
 const COLLAPSED_KEY = 'bh_inv_collapsed';     // 접어 둔 분류 — 기기에 기억
 const NONE_LABEL = '분류 없음';
+const LOW = '__low';                          // 칩 [부족만]
+/** 패널을 옆에 둘 만큼 넓은가. 좁으면 품목을 누를 때 창으로 띄운다. */
+const wide = () => window.matchMedia('(min-width: 1000px)').matches;
 
 export async function inventoryView(view) {
   loading(view);
@@ -23,9 +28,11 @@ export async function inventoryView(view) {
     current = vehicles.length ? vehicles[0].name : null;
   }
   let items = current ? (await api.listInventory(current)).items : [];
-  let lowOnly = false;
+  let others = await otherVehicleQty();               // 다른 차량의 같은 품목 수량
+  let chip = null;         // null = 전체 · LOW = 부족만 · 그 밖 = 분류 이름('' 은 분류 없음)
   let query = '';          // 부품 이름 검색어. 차량을 바꿔도 그대로 둔다
                            // (같은 부품을 차량별로 견줘 보는 일이 잦다)
+  let selectedId = null;
   let collapsed = new Set();
   try { collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]')); } catch { collapsed = new Set(); }
   const saveCollapsed = () => {
@@ -42,18 +49,32 @@ export async function inventoryView(view) {
   const catOf = (i) => String(i.category || '').trim();
   const catKey = (c) => c || '';                    // '' = 분류 없음
 
-  /** 지금 등록된 분류 이름들 (품목 수정 창의 고르기 태그에 쓴다). */
+  /** 지금 등록된 분류 이름들 (칩과 품목 수정 창의 고르기 태그에 쓴다). */
   const categories = () => {
     const out = [];
     for (const i of items) { const c = catOf(i); if (c && !out.includes(c)) out.push(c); }
     return out;
   };
 
-  /** [부족 항목만] 과 검색어를 함께 적용한 목록. */
+  /** 다른 차량에 있는 같은 품목의 수량 — 패널에 "다른 차량" 으로 보여 준다. */
+  async function otherVehicleQty() {
+    const map = new Map();          // partName → [{ vehicle, quantity }]
+    for (const v of vehicles) {
+      if (v.name === current) continue;
+      for (const i of (await api.listInventory(v.name)).items) {
+        if (!map.has(i.partName)) map.set(i.partName, []);
+        map.get(i.partName).push({ vehicle: v.name, quantity: i.quantity });
+      }
+    }
+    return map;
+  }
+
+  /** 칩과 검색어를 함께 적용한 목록. */
   function visibleItems() {
     const q = query.trim().toLowerCase();
     return items.filter((i) => {
-      if (lowOnly && !isLow(i)) return false;
+      if (chip === LOW && !isLow(i)) return false;
+      if (chip !== null && chip !== LOW && catKey(catOf(i)) !== chip) return false;
       if (q && !`${i.partName} ${catOf(i)}`.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -78,39 +99,50 @@ export async function inventoryView(view) {
     return groups;
   }
 
-  /** 표의 한 줄. 디자인의 `.table--touch` 구조를 그대로 쓴다. */
+  /** 거르기 칩 — 전체 · 부족만 · 분류마다 하나. 분류 칩에도 부족 건수를 붙인다. */
+  function chipsHtml() {
+    const lowCount = items.filter(isLow).length;
+    const cats = groupsOf(items);
+    const one = (value, label, count, { extra = '', low = 0 } = {}) => {
+      const on = chip === value;
+      return `<button class="inv-chip${on ? ' is-on' : ''}${extra}" data-act="chip"
+                      data-chip="${h(value === null ? '' : value)}" data-all="${value === null ? '1' : ''}"
+                      type="button" aria-pressed="${on}">${h(label)} <span class="tnum">${count}</span>${low
+        ? `<span class="inv-chip__low tnum" aria-label="부족 ${low}">${low}</span>` : ''}</button>`;
+    };
+    return [
+      one(null, '전체', items.length),
+      one(LOW, '부족만', lowCount, { extra: ' inv-chip--low' }),
+      ...cats.map((g) => one(g.key, g.label, g.all.length, { low: g.all.filter(isLow).length })),
+    ].join('');
+  }
+
+  /** 목록의 한 줄 — 손잡이 · 이름 · 수량/최소. 누르면 오른쪽 패널에 연다. */
   function itemRow(item, groupKey) {
     const low = isLow(item);
     const name = h(item.partName);
+    const on = item.id === selectedId;
     return `
-      <tr data-id="${item.id}" data-group="${h(groupKey)}" data-part="${name}" class="inv-item ${low ? 'is-low-row' : ''}">
+      <tr data-id="${item.id}" data-group="${h(groupKey)}" data-part="${name}"
+          class="inv-item ${low ? 'is-low-row' : ''} ${on ? 'is-selected' : ''}">
         <td class="drag-td">
           <button class="drag-handle" type="button" data-drag="item"
                   aria-label="${name} 순서 옮기기 (잡고 끌기)">≡</button>
         </td>
         <td class="name-cell">
-          ${name}
-          ${low ? '<span class="tag tag--low">보충 필요</span>' : ''}
-          ${item.pending ? '<span class="tag tag-neutral">반영 대기</span>' : ''}
+          <button class="inv-pick" data-act="select" data-id="${item.id}" type="button"
+                  aria-pressed="${on}">
+            <span class="inv-pick__name">${name}</span>
+            ${low ? `<span class="tag tag--low">${item.minQuantity - item.quantity}개 부족</span>` : ''}
+            ${item.pending ? '<span class="tag tag-neutral">반영 대기</span>' : ''}
+          </button>
         </td>
-        <td class="tnum ${low ? 'is-low' : ''}" style="text-align:right"
-            data-label="보유">${item.quantity}</td>
-        <td class="tnum" style="text-align:right" data-label="최소보유">${item.minQuantity}</td>
-        <td style="text-align:right">
-          <span class="qty">
-            <button class="btn btn-secondary qty__btn" data-act="dec" data-id="${item.id}"
-                    type="button" aria-label="${name} 하나 사용">−</button>
-            <span class="qty__val tnum ${low ? 'is-low' : ''}"
-                  data-qty="${item.id}">${item.quantity}</span>
-            <button class="btn btn-secondary qty__btn" data-act="inc" data-id="${item.id}"
-                    type="button" aria-label="${name} 하나 보충">＋</button>
-          </span>
-        </td>
-        <td style="text-align:right;white-space:nowrap">
-          <button class="btn btn-secondary" data-act="edit" data-id="${item.id}"
-                  type="button" aria-label="${name} 항목 수정">수정</button>
-          <button class="btn btn-secondary" data-act="del" data-id="${item.id}"
-                  type="button" aria-label="${name} 항목 삭제">삭제</button>
+        <td class="qty-cell">
+          <button class="inv-pick inv-pick--qty" data-act="select" data-id="${item.id}" type="button"
+                  aria-label="${name} 수량 ${item.quantity}, 최소 ${item.minQuantity}">
+            <span class="inv-qty tnum ${low ? 'is-low' : ''}" data-qty="${item.id}">${item.quantity}</span>
+            <span class="inv-min tnum">/ ${item.minQuantity}</span>
+          </button>
         </td>
       </tr>`;
   }
@@ -127,7 +159,7 @@ export async function inventoryView(view) {
           <button class="drag-handle" type="button" data-drag="group"
                   aria-label="${h(g.label)} 묶음 순서 옮기기 (잡고 끌기)">≡</button>
         </td>
-        <td colspan="5">
+        <td colspan="2">
           <button class="grp-toggle" type="button" data-act="toggle-group" data-group="${h(g.key)}"
                   aria-expanded="${open}">
             <span class="grp-chevron" aria-hidden="true">${open ? '▾' : '▸'}</span>
@@ -138,18 +170,18 @@ export async function inventoryView(view) {
       </tr>`;
   }
 
-  /** 표 자리만 만드는 조각. 검색할 때 이 부분만 다시 그린다. */
+  /** 목록 자리만 만드는 조각. 검색·칩을 바꿀 때 이 부분만 다시 그린다. */
   function bodyHtml() {
     const visible = visibleItems();
     if (!visible.length) {
       const why = query.trim()
         ? `'${h(query.trim())}' 에 맞는 부품이 없습니다.`
-        : (lowOnly ? '보충이 필요한 품목이 없습니다.'
+        : (chip === LOW ? '보충이 필요한 품목이 없습니다.'
           : '등록된 품목이 없습니다. [＋ 품목 추가]로 등록하세요.');
       return `<div class="empty">${why}</div>`;
     }
-    // 검색 중이거나 부족만 볼 때는 전부 펼친다 — 찾은 것이 접힌 묶음 안에 숨으면 안 된다.
-    const forceOpen = Boolean(query.trim()) || lowOnly;
+    // 검색 중이거나 칩으로 거를 때는 전부 펼친다 — 찾은 것이 접힌 묶음 안에 숨으면 안 된다.
+    const forceOpen = Boolean(query.trim()) || chip !== null;
     const rows = groupsOf(visible).map((g) => {
       const open = forceOpen || !collapsed.has(g.key);
       return groupRow(g, open) + (open ? g.items.map((i) => itemRow(i, g.key)).join('') : '');
@@ -160,20 +192,51 @@ export async function inventoryView(view) {
           <tr>
             <th class="drag-td"></th>
             <th>부품</th>
-            <th style="text-align:right">보유</th>
-            <th style="text-align:right">최소보유</th>
-            <th style="text-align:right">수량 조절</th>
-            <th style="text-align:right">항목</th>
+            <th style="text-align:right">보유 / 최소</th>
           </tr>
         </thead>
         <tbody id="invRows">${rows}</tbody>
       </table>`;
   }
 
+  /** 오른쪽 패널 — 고른 품목 하나를 크게. */
+  function panelHtml(item) {
+    if (!item) {
+      return `<div class="inv-panel__empty">왼쪽에서 품목을 고르면<br />여기서 수량을 바꿉니다.</div>`;
+    }
+    const low = isLow(item);
+    const elsewhere = others.get(item.partName) || [];
+    return `
+      <div class="inv-panel__head">
+        <span class="inv-panel__cat">${h(catOf(item) || NONE_LABEL)} · ${h(current)}</span>
+        <h2 class="inv-panel__name">${h(item.partName)}</h2>
+        <span class="inv-panel__min ${low ? 'is-low' : ''}">최소 ${item.minQuantity}개${low ? ` · ${item.minQuantity - item.quantity}개 부족` : ''}</span>
+      </div>
+      <div class="inv-stepper">
+        <button class="inv-stepper__btn" data-act="dec" data-id="${item.id}" type="button"
+                aria-label="${h(item.partName)} 하나 사용" ${item.quantity <= 0 ? 'disabled' : ''}>−</button>
+        <span class="inv-stepper__val tnum ${low ? 'is-low' : ''}" data-qty="${item.id}">${item.quantity}</span>
+        <button class="inv-stepper__btn inv-stepper__btn--plus" data-act="inc" data-id="${item.id}" type="button"
+                aria-label="${h(item.partName)} 하나 보충">＋</button>
+      </div>
+      <button class="btn btn-secondary btn--block" data-act="set-qty" data-id="${item.id}" type="button">숫자로 바로 입력</button>
+      ${elsewhere.length ? `
+        <div class="inv-panel__others">
+          <span class="inv-panel__label">다른 차량</span>
+          ${elsewhere.map((o) => `
+            <span class="inv-panel__other"><span>${h(o.vehicle)}</span><b class="tnum">${o.quantity}개</b></span>`).join('')}
+        </div>` : ''}
+      <span class="spacer"></span>
+      <div class="inv-panel__actions">
+        <button class="btn btn-secondary" data-act="edit" data-id="${item.id}" type="button">수정</button>
+        <button class="btn btn--danger" data-act="del" data-id="${item.id}" type="button">삭제</button>
+      </div>`;
+  }
+
   /** 오른쪽 아래 알약에 적을 글자. 거르는 중이면 '보인 것 / 전체' 로 적는다. */
   function countText() {
     const shown = visibleItems().length;
-    const filtering = Boolean(query.trim()) || lowOnly;
+    const filtering = Boolean(query.trim()) || chip !== null;
     return `품목 ${filtering ? `${shown} / ${items.length}종` : `${items.length}종`}`;
   }
 
@@ -184,59 +247,76 @@ export async function inventoryView(view) {
   function paintBody() {
     const body = $('#invBody');
     if (body) { body.innerHTML = bodyHtml(); bindDrag(); }
+    const chips = $('#invChips');
+    if (chips) chips.innerHTML = chipsHtml();
     const count = $('#invCount');
     if (count) count.textContent = countText();
   }
 
-  /** [부족 항목만] 칩의 켜짐 표시만 고친다. */
-  function refreshLowChip() {
-    const chip = view.querySelector('[data-act="toggle-low"]');
-    if (!chip) return;
-    chip.classList.toggle('is-on', lowOnly);
-    chip.setAttribute('aria-pressed', String(lowOnly));
+  function paintPanel() {
+    const panel = $('#invPanel');
+    if (panel) panel.innerHTML = panelHtml(items.find((i) => i.id === selectedId));
+    // 창으로 띄운 경우(좁은 화면)도 같이 맞춘다.
+    const sheet = document.querySelector('#sheetBody .inv-sheet');
+    if (sheet) sheet.innerHTML = panelHtml(items.find((i) => i.id === selectedId));
+  }
+
+  function select(id) {
+    selectedId = id;
+    view.querySelectorAll('tr.inv-item').forEach((tr) => {
+      const on = tr.dataset.id === id;
+      tr.classList.toggle('is-selected', on);
+      tr.querySelectorAll('[data-act="select"]').forEach((b) => b.setAttribute('aria-pressed', String(on)));
+    });
+    if (wide()) { paintPanel(); return; }
+    const item = items.find((i) => i.id === id);
+    if (!item) return;
+    const body = openSheet(item.partName, `<div class="inv-panel inv-sheet">${panelHtml(item)}</div>`);
+    body.addEventListener('click', onClick);
   }
 
   function render() {
-    const lowCount = items.filter(isLow).length;
+    if (!items.some((i) => i.id === selectedId)) {
+      // 처음엔 보충이 필요한 것부터 보여 준다 — 그게 이 화면에 온 이유인 경우가 많다.
+      selectedId = (items.find(isLow) || items[0] || {}).id || null;
+    }
 
     view.innerHTML = `
-      <div id="pageRoot">
+      <div id="pageRoot" class="page-stack">
         <div class="page-head">
           <h1 class="page-head__title">차량 재고</h1>
+          <div class="veh-tabs" role="tablist" aria-label="차량">
+            ${vehicles.map((v) => `
+              <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
+                      role="tab" aria-selected="${v.name === current}"
+                      data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
+            <button class="veh-tab veh-tab--manage" data-act="manage-vehicles"
+                    type="button" aria-label="차량 추가 · 삭제">＋ 차량</button>
+          </div>
           <span class="page-head__spacer"></span>
           ${current ? `
             ${sheetMode ? `
               <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
-            <button class="filter-toggle ${lowOnly ? 'is-on' : ''}" data-act="toggle-low"
-                    type="button" aria-pressed="${lowOnly}">부족 항목만${lowCount ? ` · ${lowCount}` : ''}</button>
             <button class="btn btn-primary" data-act="add-item" type="button">＋ 품목 추가</button>` : ''}
         </div>
 
-        <div class="veh-tabs">
-          ${vehicles.map((v) => `
-            <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
-                    data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
-          <button class="veh-tab veh-tab--manage" data-act="manage-vehicles"
-                  type="button">＋ 차량</button>
-        </div>
-
         ${current ? `
-          <div class="toolbar" style="margin-bottom:var(--space-3)">
-            <input class="input" id="invQ" type="search" style="flex:1"
-                   placeholder="부품 · 분류로 찾기 (패드, 케이블)"
-                   aria-label="${h(current)} 부품 검색" />
-            <button class="btn btn-secondary" data-act="clear-q" type="button">지우기</button>
-            <button class="btn btn-secondary" data-act="fold-all" type="button">모두 접기</button>
-            <button class="btn btn-secondary" data-act="unfold-all" type="button">모두 펴기</button>
+          <div class="inv-filter">
+            <div class="inv-chips" id="invChips" role="group" aria-label="거르기">${chipsHtml()}</div>
+            <input class="input inv-search" id="invQ" type="search"
+                   placeholder="부품 찾기" aria-label="${h(current)} 부품 검색" />
           </div>
-          <div class="scroll" id="invBody">${bodyHtml()}</div>
-
-          <div class="page-head">
-            <span class="page-head__meta">
-              ${lowCount ? `보충 필요 <span class="tnum is-low">${lowCount}</span>건` : ''}
-            </span>
-            <span class="page-head__spacer"></span>
-            <span class="tag tag-neutral" id="invCount">${countText()}</span>
+          <div class="inv-split">
+            <section class="inv-list">
+              <div class="scroll" id="invBody">${bodyHtml()}</div>
+              <div class="inv-list__foot">
+                <span class="tag tag-neutral" id="invCount">${countText()}</span>
+                <span class="spacer"></span>
+                <button class="btn btn-secondary btn--sm" data-act="fold-all" type="button">모두 접기</button>
+                <button class="btn btn-secondary btn--sm" data-act="unfold-all" type="button">모두 펴기</button>
+              </div>
+            </section>
+            <aside class="inv-panel" id="invPanel" aria-label="고른 품목">${panelHtml(items.find((i) => i.id === selectedId))}</aside>
           </div>`
         : `<div class="empty">
              등록된 차량이 없습니다.<br />
@@ -265,15 +345,17 @@ export async function inventoryView(view) {
       else localStorage.removeItem(VEHICLE_KEY);
     }
     items = current ? (await api.listInventory(current)).items : [];
+    others = await otherVehicleQty();
     render();
+    window.dispatchEvent(new Event('bh-inventory-changed'));
   }
 
-  /** 수량 칸 하나만 고쳐 그린다. 칸이 없으면 아무 일도 하지 않는다. */
+  /** 수량 칸만 고쳐 그린다 (목록 · 패널 · 창). 칸이 없으면 아무 일도 하지 않는다. */
   function paintQty(item) {
-    const cell = view.querySelector(`[data-qty="${item.id}"]`);
-    if (!cell) return;
-    cell.textContent = item.quantity;
-    cell.classList.toggle('is-low', isLow(item));
+    view.ownerDocument.querySelectorAll(`[data-qty="${item.id}"]`).forEach((cell) => {
+      cell.textContent = item.quantity;
+      cell.classList.toggle('is-low', isLow(item));
+    });
   }
 
   // ------------------------------------------------------------ 끌어 옮기기
@@ -381,12 +463,27 @@ export async function inventoryView(view) {
       await reload();
       return;
     }
-    if (act === 'toggle-low') { lowOnly = !lowOnly; paintBody(); refreshLowChip(); return; }
-    if (act === 'clear-q') {
-      query = '';
-      const box = $('#invQ');
-      if (box) { box.value = ''; box.focus(); }
+    if (act === 'chip') {
+      const value = btn.dataset.all ? null : btn.dataset.chip;
+      chip = chip === value ? null : value;      // 켜진 칩을 다시 누르면 전체로
       paintBody();
+      return;
+    }
+    if (act === 'select') { select(id); return; }
+    if (act === 'set-qty') {
+      const item = items.find((i) => i.id === id);
+      if (!item) return;
+      const raw = await promptDialog(`${item.partName} 수량`, {
+        label: `${current} 에 지금 몇 개 있나요?`, value: String(item.quantity), okLabel: '저장',
+      });
+      if (raw === null || raw === '') return;
+      const quantity = Number(raw);
+      if (!Number.isFinite(quantity) || quantity < 0) { toast('0 이상의 숫자를 넣으세요.', 'err'); return; }
+      try {
+        await api.patchInventory(id, { quantity: Math.floor(quantity) });
+        await reload();
+        toast('저장했습니다.', 'ok');
+      } catch (err) { toast(err.message, 'err'); }
       return;
     }
     if (act === 'toggle-group') {
@@ -434,7 +531,10 @@ export async function inventoryView(view) {
         const updated = await api.patchInventory(id, { delta });
         item.quantity = updated.quantity;
         item.pending = updated.pending;
-        render();          // 상단 요약(총 개수·반영 대기 표시)도 함께 갱신
+        // 목록(부족 표시·칩 숫자)과 패널을 함께 맞춘다. 검색칸은 그대로 둔다.
+        paintBody();
+        paintPanel();
+        window.dispatchEvent(new Event('bh-inventory-changed'));
       } catch (err) {
         item.quantity = before;   // 보낸 만큼 빼는 게 아니라 **원래 값으로** 되돌린다
         paintQty(item);
@@ -450,6 +550,7 @@ export async function inventoryView(view) {
       if (!ok) return;
       try {
         await api.deleteInventory(id);
+        closeModal();
         toast('삭제했습니다.', 'ok');
         await reload();
       } catch (err) { toast(err.message, 'err'); }

@@ -1,7 +1,8 @@
 // 가이드 목록 / 상세 / 편집 (오류코드 · HW SOP · SW 명령어)
 import { api } from '../api.js';
 import {
-  $, $$, h, CATEGORY, confirmDialog, copyText, hydrateMedia, loading, toast, when,
+  $, $$, h, CATEGORY, closeModal, confirmDialog, copyText, hydrateMedia, loading,
+  openSheet, promptDialog, toast, when,
 } from '../ui.js';
 
 const DONE_KEY = (id) => `bh_steps_done_${id}`;
@@ -82,7 +83,82 @@ async function uploadGuidePhoto(fileOrBlob, categoryType, title) {
 
 const isVideoFile = (file) => String((file && file.type) || '').startsWith('video/');
 
-// ---------------------------------------------------------------- 목록
+// ---------------------------------------------------------------- 공통
+//
+// 가이드는 **로봇 → 종류 → 목록 → 상세** 차례로 찾아 들어간다.
+// 같은 오류 코드라도 로봇(Gen.1 · Gen.2 · Zephyr …)마다 절차가 달라서다.
+// 로봇이 정해지지 않은 예전 가이드는 '로봇 미지정' 에 모인다 (사라지지 않는다).
+const NONE = '_none';
+const NONE_LABEL = '로봇 미지정';
+const CAT_SHORT = { ERROR_CODE: '오류 코드', HARDWARE_SOP: '하드웨어 교체', SOFTWARE_CMD: 'SW · 명령어' };
+const CAT_ORDER = ['ERROR_CODE', 'HARDWARE_SOP', 'SOFTWARE_CMD'];
+const LAST_CAT_KEY = 'bh_guide_cat';
+
+const modelKey = (g) => (g.robotModel || '').trim() || NONE;
+const modelLabel = (key) => (key === NONE ? NONE_LABEL : key);
+export const modelHref = (key, cat = null) =>
+  `#/guides/m/${encodeURIComponent(key || NONE)}${cat ? `/${cat}` : ''}`;
+
+/** 오류 코드는 코드(E-101)와 제목을 나눠 보여 준다. 나머지는 제목만. */
+function splitTitle(guide) {
+  if (guide.categoryType !== 'ERROR_CODE') return { code: '', title: guide.codeOrTitle };
+  const [first, ...rest] = guide.codeOrTitle.split(' ');
+  return { code: first, title: rest.join(' ') || guide.codeOrTitle };
+}
+
+/** 로봇 이름 바꾸기 · 삭제 — 가이드 탭과 로봇 화면이 같은 창을 쓴다. */
+async function openModelMenu(name, { onDone } = {}) {
+  const all = (await api.listGuides()).items;
+  const count = all.filter((g) => modelKey(g) === name).length;
+  const body = openSheet(`${name} 관리`, `
+    <div class="sheet-actions">
+      <button class="btn btn-secondary" data-mact="rename" type="button">이름 바꾸기</button>
+      <button class="btn btn--danger" data-mact="delete" type="button">로봇 삭제</button>
+    </div>
+    <p class="hint">가이드 ${count}건이 이 로봇에 있습니다. 삭제해도 가이드는 지우지 않고 '${NONE_LABEL}' 으로 옮깁니다.</p>`);
+  body.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-mact]');
+    if (!btn) return;
+    if (btn.dataset.mact === 'rename') {
+      const next = await promptDialog('로봇 이름 바꾸기', {
+        label: `이 로봇의 가이드 ${count}건도 함께 옮겨집니다.`, value: name, okLabel: '바꾸기',
+      });
+      if (!next || next === name) return;
+      try {
+        await api.renameGuideModel(name, next);
+        toast(`'${next}' 로 바꿨습니다.`, 'ok');
+        if (onDone) onDone(next);
+      } catch (err) { toast(err.message, 'err'); }
+    }
+    if (btn.dataset.mact === 'delete') {
+      closeModal();
+      const ok = await confirmDialog('로봇 삭제',
+        `'${name}' 을 목록에서 지웁니다.\n가이드 ${count}건은 지우지 않고 '${NONE_LABEL}' 으로 옮깁니다.`,
+        '삭제', true);
+      if (!ok) return;
+      try {
+        await api.deleteGuideModel(name);
+        toast(`'${name}' 을 지웠습니다.`, 'ok');
+        if (onDone) onDone(null);
+      } catch (err) { toast(err.message, 'err'); }
+    }
+  });
+}
+
+async function addModelFlow() {
+  const name = await promptDialog('로봇 추가', {
+    label: '가이드를 묶을 로봇 이름 — 팀 전체에 같이 보입니다.',
+    placeholder: '예) Gen.3', okLabel: '추가',
+  });
+  if (!name) return null;
+  try {
+    await api.addGuideModel(name);
+    toast(`'${name}' 을 추가했습니다.`, 'ok');
+    return name;
+  } catch (err) { toast(err.message, 'err'); return null; }
+}
+
+// ---------------------------------------------------------------- 목록 (종류 전체)
 export async function guideListView(view, categoryType) {
   const meta = CATEGORY[categoryType];
   loading(view);
@@ -91,8 +167,9 @@ export async function guideListView(view, categoryType) {
 
   view.innerHTML = `
     <div class="page-head">
+      <a class="crumb" href="#/guides">가이드</a>
       <h1 class="page-head__title">${h(meta.label)}</h1>
-      <span class="page-head__meta"><span class="tnum">${items.length}</span>건</span>
+      <span class="page-head__meta"><span class="tnum">${items.length}</span>건 · 모든 로봇</span>
       <span class="page-head__spacer"></span>
       <a class="btn btn-primary" href="#/guides/new/${categoryType}">＋ 가이드 작성</a>
     </div>
@@ -101,218 +178,277 @@ export async function guideListView(view, categoryType) {
              placeholder="코드 · 증상 검색" autocomplete="off" />
     </div>
     <div class="rows" id="guideList">
-      ${items.length ? items.map((g) => row(g, categoryType)).join('')
-        : '<div class="empty">등록된 가이드가 없습니다. [＋ 새 가이드]로 추가하세요.</div>'}
+      ${items.length ? items.map((g) => row(g, true)).join('')
+        : '<div class="empty">등록된 가이드가 없습니다. [＋ 가이드 작성]으로 추가하세요.</div>'}
     </div>`;
 
   $('#filterInput').addEventListener('input', (ev) => {
     const q = ev.target.value.trim().toLowerCase();
     const filtered = items.filter((g) =>
-      `${g.codeOrTitle} ${g.summary} ${g.requiredTools}`.toLowerCase().includes(q));
+      `${g.codeOrTitle} ${g.summary} ${g.requiredTools} ${g.robotModel}`.toLowerCase().includes(q));
     $('#guideList').innerHTML = filtered.length
-      ? filtered.map((g) => row(g, categoryType)).join('')
+      ? filtered.map((g) => row(g, true)).join('')
       : '<div class="empty">필터 결과가 없습니다.</div>';
   });
 }
 
-// ---------------------------------------------------------------- 가이드 탭 (B안)
-//
-// 왼쪽에 종류 카드 셋(색이 다르다 · 건수 · 마지막 수정), 오른쪽에 그 종류의 검색과
-// 목록. 종류 카드가 늘 보여 "지금 무엇을 보고 있나" 를 잃지 않고, 목록은 제 자리에서
-// 스크롤된다. 작성은 오른쪽 위 한 곳.
-const HUB_TYPE_KEY = 'bh_guide_type';
-
-/** 종류마다 색 — 같은 종류는 어디서나 같은 색으로 읽히게 토큰을 고정한다. */
-export const CATEGORY_COLOR = {
-  ERROR_CODE: { color: 'var(--color-accent)', tint: 'var(--color-accent-tint)' },
-  HARDWARE_SOP: { color: 'var(--color-warn)', tint: 'var(--color-warn-tint)' },
-  SOFTWARE_CMD: { color: 'var(--color-ok)', tint: 'var(--color-ok-tint)' },
-};
-
+// ---------------------------------------------------------------- 가이드 탭 — 로봇 고르기
 export async function guideHubView(view) {
   loading(view);
   const all = (await api.listGuides()).items;
-  const types = Object.keys(CATEGORY);
-  let type = localStorage.getItem(HUB_TYPE_KEY);
-  if (!types.includes(type)) type = types[0];
+  const models = await api.listGuideModels();
+  const keys = [...models];
+  // 목록에 없는 로봇 이름이 붙은 가이드(시트에서 손으로 적은 것 등)도 잃지 않는다.
+  for (const g of all) {
+    const k = modelKey(g);
+    if (k !== NONE && !keys.includes(k)) keys.push(k);
+  }
+  if (all.some((g) => modelKey(g) === NONE)) keys.push(NONE);
+
+  const card = (key) => {
+    const list = all.filter((g) => modelKey(g) === key);
+    const TINY = { ERROR_CODE: '오류', HARDWARE_SOP: '하드웨어', SOFTWARE_CMD: 'SW' };
+    const cats = CAT_ORDER.map((t) => `
+      <span class="model-card__cat"><b class="tnum">${list.filter((g) => g.categoryType === t).length}</b>${TINY[t]}</span>`).join('');
+    return `
+      <div class="model-card${key === NONE ? ' model-card--none' : ''}">
+        <a class="model-card__main" href="${modelHref(key)}">
+          <span class="model-card__name">${h(modelLabel(key))}</span>
+          <span class="model-card__count tnum">${list.length}<small>건</small></span>
+          <span class="model-card__cats">${cats}</span>
+        </a>
+        ${key === NONE || !models.includes(key) ? '' : `
+          <button class="model-card__more" data-act="model-menu" data-name="${h(key)}" type="button"
+                  aria-label="${h(key)} 이름 바꾸기 · 삭제">⋯</button>`}
+      </div>`;
+  };
+
+  view.innerHTML = `
+    <div id="pageRoot" class="page-stack">
+      <div class="page-head">
+        <h1 class="page-head__title">가이드</h1>
+        <span class="page-head__meta">로봇을 고르세요 · 전체 <span class="tnum">${all.length}</span>건</span>
+        <span class="page-head__spacer"></span>
+        <button class="btn btn-secondary" data-act="add-model" type="button">＋ 로봇 추가</button>
+        <a class="btn btn-primary" href="#/guides/new">＋ 가이드 작성</a>
+      </div>
+      <form class="search-row" id="guideSearch" role="search">
+        <input class="input" id="guideSearchQ" type="search" autocomplete="off" enterkeyhint="search"
+               aria-label="가이드 검색" placeholder="오류 코드 · 증상 · 부품으로 모든 로봇에서 찾기" />
+        <button class="btn btn-primary" type="submit">검색</button>
+      </form>
+      <div class="model-grid">
+        ${keys.map(card).join('')}
+        <button class="model-card model-card--add" data-act="add-model" type="button">
+          <span class="model-card__plus" aria-hidden="true">＋</span>
+          <span class="model-card__name">로봇 추가</span>
+        </button>
+      </div>
+    </div>`;
+
+  $('#guideSearch').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const q = $('#guideSearchQ').value.trim();
+    if (!q) { toast('검색어를 입력하세요.'); return; }
+    location.hash = `#/search?q=${encodeURIComponent(q)}`;
+  });
+  $('#pageRoot').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    if (btn.dataset.act === 'add-model') {
+      if (await addModelFlow()) guideHubView(view);
+    }
+    if (btn.dataset.act === 'model-menu') {
+      openModelMenu(btn.dataset.name, { onDone: () => { closeModal(); guideHubView(view); } });
+    }
+  });
+}
+
+// ---------------------------------------------------------------- 로봇 하나 — 종류 셋 + 목록
+export async function guideModelView(view, key, categoryType) {
+  loading(view);
+  const all = (await api.listGuides()).items;
+  const models = await api.listGuideModels();
+  const mine = all.filter((g) => modelKey(g) === key);
+  if (key !== NONE && !models.includes(key) && !mine.length) {
+    view.innerHTML = `<div class="empty">'${h(key)}' 로봇을 찾을 수 없습니다.<br />
+      <a class="link" href="#/guides">가이드로 돌아가기</a></div>`;
+    return;
+  }
+  let type = categoryType || localStorage.getItem(LAST_CAT_KEY);
+  if (!CAT_ORDER.includes(type)) type = CAT_ORDER[0];
+  try { localStorage.setItem(LAST_CAT_KEY, type); } catch { /* 비공개 창 */ }
   let query = '';
 
-  const ofType = (t) => all.filter((g) => g.categoryType === t);
-  const lastOf = (t) => ofType(t).reduce((m, g) => (g.updatedAt > m ? g.updatedAt : m), '');
-
-  function card(t) {
-    const meta = CATEGORY[t];
-    const list = ofType(t);
-    const last = lastOf(t);
-    const on = t === type;
-    const c = CATEGORY_COLOR[t];
-    return `
-      <button class="cat-card${on ? ' is-on' : ''}" data-act="type" data-type="${t}" type="button"
-              style="--cat:${c.color};--cat-tint:${c.tint}" aria-pressed="${on}">
-        <span class="cat-card__name">${h(meta.label)}</span>
-        <span class="cat-card__count tnum">${list.length}<small>건</small></span>
-        <span class="cat-card__meta">${last ? `${h(when(last, { time: false }))} 수정` : '아직 없음'}</span>
-      </button>`;
-  }
-
-  function visible() {
+  const ofType = (t) => mine.filter((g) => g.categoryType === t);
+  const visible = () => {
     const q = query.trim().toLowerCase();
     return ofType(type).filter((g) => !q
       || `${g.codeOrTitle} ${g.summary} ${g.requiredTools}`.toLowerCase().includes(q));
-  }
-
-  function listHtml() {
+  };
+  const listHtml = () => {
     const list = visible();
-    if (!list.length) {
-      return `<div class="empty">${query.trim()
-        ? `'${h(query.trim())}' 에 맞는 가이드가 없습니다.`
-        : `${h(CATEGORY[type].label)} 가이드가 없습니다. [＋ 가이드 작성]으로 추가하세요.`}</div>`;
-    }
-    return list.map((g) => row(g, type)).join('');
-  }
+    if (list.length) return list.map((g) => row(g, false)).join('');
+    return `<div class="empty">${query.trim()
+      ? `'${h(query.trim())}' 에 맞는 가이드가 없습니다.`
+      : `${h(modelLabel(key))} · ${h(CAT_SHORT[type])} 가이드가 아직 없습니다.<br />[＋ 가이드 작성] 으로 추가하세요.`}</div>`;
+  };
+  const newHref = `#/guides/new/${type}${key === NONE ? '' : `?model=${encodeURIComponent(key)}`}`;
 
-  /** 목록만 다시 그린다 — 검색칸의 커서를 지키기 위해 화면 전체는 두지 않는다. */
-  function paintList() {
-    const box = $('#hubList');
-    if (box) box.innerHTML = listHtml();
-    const n = $('#hubCount');
-    if (n) n.textContent = `${visible().length}건`;
-  }
+  view.innerHTML = `
+    <div id="pageRoot" class="page-stack">
+      <div class="page-head">
+        <a class="crumb" href="#/guides">가이드</a>
+        <h1 class="page-head__title">${h(modelLabel(key))}</h1>
+        <span class="page-head__meta"><span class="tnum">${mine.length}</span>건</span>
+        <span class="page-head__spacer"></span>
+        ${models.includes(key) ? '<button class="btn btn-secondary" data-act="model-menu" type="button">로봇 관리</button>' : ''}
+        <a class="btn btn-primary" href="${newHref}">＋ 가이드 작성</a>
+      </div>
+      <div class="guide-browse">
+        <nav class="guide-cats" aria-label="가이드 종류">
+          ${CAT_ORDER.map((t) => `
+            <a class="guide-cat${t === type ? ' is-on' : ''}" href="${modelHref(key, t)}"
+               ${t === type ? 'aria-current="page"' : ''}>
+              <span class="guide-cat__name">${h(CAT_SHORT[t])}</span>
+              <span class="guide-cat__count tnum">${ofType(t).length}</span>
+            </a>`).join('')}
+        </nav>
+        <section class="guide-list">
+          <input class="input" id="gq" type="search" autocomplete="off"
+                 aria-label="${h(CAT_SHORT[type])} 검색"
+                 placeholder="${h(modelLabel(key))} · ${h(CAT_SHORT[type])}에서 찾기" />
+          <div class="rows scroll" id="gList">${listHtml()}</div>
+        </section>
+      </div>
+    </div>`;
 
-  function render() {
-    view.innerHTML = `
-      <div id="pageRoot" style="display:flex;flex-direction:column;gap:var(--space-3);flex:1;min-height:0">
-        <div class="page-head">
-          <h1 class="page-head__title">가이드</h1>
-          <span class="page-head__meta"><span class="tnum">${all.length}</span>건</span>
-          <span class="page-head__spacer"></span>
-          <a class="btn btn-primary" href="#/guides/new/${type}">＋ 가이드 작성</a>
-        </div>
-        <div class="guide-hub">
-          <div class="guide-hub__cats">${types.map(card).join('')}</div>
-          <section class="guide-hub__list">
-            <div class="toolbar">
-              <input class="input" id="hubQ" type="search" style="flex:1"
-                     placeholder="코드 · 증상 · 부품으로 찾기" autocomplete="off"
-                     aria-label="${h(CATEGORY[type].label)} 검색" />
-              <span class="tag tag-neutral" id="hubCount">${visible().length}건</span>
-            </div>
-            <div class="scroll rows" id="hubList">${listHtml()}</div>
-          </section>
-        </div>
-      </div>`;
-
-    $('#pageRoot').addEventListener('click', (ev) => {
-      const btn = ev.target.closest('[data-act="type"]');
-      if (!btn) return;
-      type = btn.dataset.type;
-      localStorage.setItem(HUB_TYPE_KEY, type);
-      render();
+  const box = $('#gq');
+  const paint = () => { $('#gList').innerHTML = listHtml(); };
+  box.addEventListener('input', () => { query = box.value; paint(); });
+  box.addEventListener('compositionend', () => { query = box.value; paint(); });
+  $('#pageRoot').addEventListener('click', (ev) => {
+    if (!ev.target.closest('[data-act="model-menu"]')) return;
+    openModelMenu(key, {
+      onDone: (next) => {
+        closeModal();
+        location.hash = next ? modelHref(next, type) : '#/guides';
+      },
     });
-    const box = $('#hubQ');
-    box.value = query;
-    box.addEventListener('input', () => { query = box.value; paintList(); });
-    box.addEventListener('compositionend', () => { query = box.value; paintList(); });
-  }
-
-  render();
+  });
 }
 
 /**
- * 가이드 한 줄. 디자인의 `.row` 구조 — 코드 · (제목+요약) · 열기.
- * 배지를 여러 개 늘어놓는 대신 요약 줄에 숫자를 모아 적는다.
+ * 가이드 한 줄 — 코드 · 제목 · 요약 · (단계 수 · 공구 · 명령어 · 수정일).
+ * withModel 이면 로봇·종류도 적는다 (검색처럼 여러 로봇이 섞일 때).
  */
-function row(guide, categoryType) {
+export function row(guide, withModel = false) {
   const tools = (guide.requiredTools || '').split(',').map((t) => t.trim()).filter(Boolean);
   const bits = [
+    withModel ? modelLabel(modelKey(guide)) : '',
+    withModel ? CAT_SHORT[guide.categoryType] : '',
     `${guide.stepCount || 0}단계`,
     tools.length ? `공구 ${tools.length}` : '',
     (guide.commands && guide.commands.length) ? `명령어 ${guide.commands.length}` : '',
     guide.updatedAt ? when(guide.updatedAt, { time: false }) : '',
   ].filter(Boolean);
-  // 오류 코드는 코드를 왼쪽 칸에, 나머지는 종류 약칭을 둔다.
-  const code = categoryType === 'ERROR_CODE'
-    ? guide.codeOrTitle.split(' ')[0]
-    : (SHORT[categoryType] || '');
-  const title = categoryType === 'ERROR_CODE'
-    ? guide.codeOrTitle.split(' ').slice(1).join(' ') || guide.codeOrTitle
-    : guide.codeOrTitle;
+  const { code, title } = splitTitle(guide);
   return `
-    <a class="row" href="#/guides/${guide.id}">
-      <span class="row__code tnum">${h(code)}</span>
+    <a class="row guide-row" href="#/guides/${guide.id}">
+      ${code ? `<span class="row__code tnum">${h(code)}</span>` : ''}
       <span class="row__main">
         <span class="row__title">${h(title)}</span>
         ${guide.summary ? `<span class="row__meta">${h(guide.summary)}</span>` : ''}
         <span class="row__meta">${h(bits.join(' · '))}</span>
       </span>
-      <span class="row__meta">열기 →</span>
+      <span class="item__chevron" aria-hidden="true">›</span>
     </a>`;
 }
 
-const SHORT = { ERROR_CODE: '', HARDWARE_SOP: 'SOP', SOFTWARE_CMD: 'CMD' };
-
-// ---------------------------------------------------------------- 상세
+// ---------------------------------------------------------------- 상세 — 한눈에
+//
+// 단계 전체 · 진행률 · 준비 공구 · 명령어를 한 화면에 둔다. 단계는 줄 전체가
+// 버튼이라(장갑) 누르면 완료 체크되고, 위 막대가 바로 따라 찬다.
 export async function guideDetailView(view, guideId) {
   loading(view);
   const guide = await api.getGuide(guideId);
   if (!guide) throw new Error('가이드를 찾을 수 없습니다.');
-  const meta = CATEGORY[guide.categoryType] || { emoji: '', label: '' };
   const tools = (guide.requiredTools || '').split(',').map((t) => t.trim()).filter(Boolean);
+  const key = modelKey(guide);
+  const { code, title } = splitTitle(guide);
   let done = new Set();
   try {
     done = new Set(JSON.parse(localStorage.getItem(DONE_KEY(guideId)) || '[]'));
   } catch { /* 무시 */ }
+  const total = guide.steps.length;
 
   view.innerHTML = `
-    <div id="pageRoot">
-    <div class="page-head">
-      <div>
-        <h1 class="page-head__title">${h(guide.codeOrTitle)}</h1>
-      </div>
-      <span class="page-head__spacer"></span>
-      <a class="btn btn-secondary" href="#/guides/edit/${guide.id}">수정</a>
-      <button class="btn btn-secondary" data-act="delete" type="button">삭제</button>
-      <a class="btn btn-primary" href="#/report/new">리포트 작성</a>
-    </div>
+    <div id="pageRoot" class="gd">
+      <header class="gd-head">
+        <nav class="gd-crumb" aria-label="위치">
+          <a href="#/guides">가이드</a><span aria-hidden="true">›</span>
+          <a href="${modelHref(key)}">${h(modelLabel(key))}</a><span aria-hidden="true">›</span>
+          <a href="${modelHref(key, guide.categoryType)}">${h(CAT_SHORT[guide.categoryType] || '')}</a>
+        </nav>
+        <div class="gd-title">
+          ${code ? `<span class="gd-code tnum">${h(code)}</span>` : ''}
+          <h1 class="page-head__title">${h(title)}</h1>
+        </div>
+        ${guide.summary ? `<p class="gd-summary">${h(guide.summary)}</p>` : ''}
+        <div class="gd-actions">
+          <a class="btn btn-secondary" href="#/guides/edit/${guide.id}">수정</a>
+          <button class="btn btn--danger" data-act="delete" type="button">삭제</button>
+          <span class="spacer"></span>
+          <a class="btn btn-primary" href="#/report/new">이 작업으로 리포트 쓰기</a>
+        </div>
+      </header>
 
-    ${guide.summary ? `<span class="page-head__meta">${h(guide.summary)}</span>` : ''}
-
-    <div class="page-head">
-      <span class="page-head__meta">${h(when(guide.updatedAt))} 수정</span>
-      <span class="page-head__spacer"></span>
-      ${guide.steps.length ? '<button class="btn btn-secondary" data-act="reset-check" type="button">체크 초기화</button>' : ''}
-    </div>
-
-    ${tools.length ? `
-      <div class="panel">
-        <h2 class="panel__title">준비 공구 · 부품</h2>
-        <div class="tag-list">${tools.map((t) => `<span class="badge">${h(t)}</span>`).join('')}</div>
-      </div>` : ''}
-
-    ${guide.commands.length ? `
-      <div class="panel">
-        <h2 class="panel__title">명령어 — 탭하면 복사</h2>
-        ${guide.commands.map((c, i) => `
-          <div class="cmd">
-            ${c.label ? `<div class="cmd__label">${h(c.label)}</div>` : ''}
-            <div class="cmd__row">
-              <pre class="cmd__code" id="cmd-${i}">${h(c.cmd)}</pre>
-              <button class="btn btn--primary" data-act="copy" data-target="cmd-${i}" type="button">복사</button>
+      <div class="gd-body">
+        <section class="gd-main" aria-label="단계">
+          ${total ? `
+            <div class="gd-progress">
+              <span class="gd-progress__text"><b class="tnum" id="gdDone">${done.size}</b> / <span class="tnum">${total}</span> 단계 완료</span>
+              <span class="gd-progress__bar"><i id="gdBar" style="width:${Math.round(done.size / total * 100)}%"></i></span>
+              <button class="btn btn-secondary btn--sm" data-act="reset-check" type="button">처음부터</button>
             </div>
-            ${c.desc ? `<p class="cmd__desc">${h(c.desc)}</p>` : ''}
-          </div>`).join('')}
-        <button class="btn btn--ghost btn--sm" data-act="copy-all" type="button">전체 명령어 복사</button>
-      </div>` : ''}
+            <div class="steps gd-steps">${guide.steps.map((s, i) => stepHtml(s, i, done)).join('')}</div>`
+          : '<div class="empty">등록된 단계가 없습니다. [수정]에서 단계를 추가하세요.</div>'}
+        </section>
 
-    <div class="panel">
-      <h2 class="panel__title">단계 — 탭하면 완료 체크 (기기에 저장)</h2>
-      ${guide.steps.length ? `<div class="steps">${guide.steps.map((s, i) => stepHtml(s, i, done)).join('')}</div>`
-        : '<div class="empty">등록된 단계가 없습니다. [수정]에서 단계를 추가하세요.</div>'}
-    </div>
+        <aside class="gd-side">
+          <section class="gd-box">
+            <h2 class="gd-box__title">준비 공구 · 부품</h2>
+            ${tools.length ? `<div class="tag-list">${tools.map((t) => `<span class="chip">${h(t)}</span>`).join('')}</div>`
+              : '<p class="hint">적힌 공구가 없습니다.</p>'}
+          </section>
+          ${guide.commands.length ? `
+            <section class="gd-box">
+              <h2 class="gd-box__title">명령어 — 누르면 복사</h2>
+              ${guide.commands.map((c, i) => `
+                <div class="cmd">
+                  ${c.label ? `<div class="cmd__label">${h(c.label)}</div>` : ''}
+                  <div class="cmd__row">
+                    <pre class="cmd__code" id="cmd-${i}">${h(c.cmd)}</pre>
+                    <button class="btn btn--primary" data-act="copy" data-target="cmd-${i}" type="button">복사</button>
+                  </div>
+                  ${c.desc ? `<p class="cmd__desc">${h(c.desc)}</p>` : ''}
+                </div>`).join('')}
+              ${guide.commands.length > 1 ? '<button class="btn btn-secondary btn--sm" data-act="copy-all" type="button">전체 복사</button>' : ''}
+            </section>` : ''}
+          <p class="gd-meta">${h(when(guide.updatedAt))} 수정</p>
+        </aside>
+      </div>
     </div>`;
 
   // 단계 사진은 기기 안에 있다 — 그린 뒤에 채워 넣는다.
   hydrateMedia(view);
+
+  const paintProgress = () => {
+    const n = $('#gdDone');
+    const bar = $('#gdBar');
+    if (n) n.textContent = done.size;
+    if (bar) bar.style.width = `${total ? Math.round(done.size / total * 100) : 0}%`;
+  };
 
   $('#pageRoot').addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
@@ -340,6 +476,7 @@ export async function guideDetailView(view, guideId) {
       el.classList.toggle('is-done', done.has(idx));
       el.setAttribute('aria-pressed', String(done.has(idx)));
       localStorage.setItem(DONE_KEY(guideId), JSON.stringify([...done]));
+      paintProgress();
     }
     if (act === 'reset-check') {
       done.clear();
@@ -348,6 +485,7 @@ export async function guideDetailView(view, guideId) {
         el.classList.remove('is-done');
         el.setAttribute('aria-pressed', 'false');
       });
+      paintProgress();
       toast('체크를 초기화했습니다.');
     }
     if (act === 'delete') {
@@ -357,7 +495,7 @@ export async function guideDetailView(view, guideId) {
       if (!ok) return;
       await api.deleteGuide(guide.id);
       toast('삭제했습니다.', 'ok');
-      location.hash = `#/guides/${guide.categoryType}`;
+      location.hash = modelHref(key, guide.categoryType);
     }
   });
 }
@@ -388,7 +526,8 @@ function stepHtml(step, idx, done) {
 }
 
 // ---------------------------------------------------------------- 편집
-export async function guideEditView(view, guideId, categoryType) {
+export async function guideEditView(view, guideId, categoryType, presetModel = null) {
+  const models = await api.listGuideModels();
   let state;
   if (guideId) {
     loading(view);
@@ -396,6 +535,7 @@ export async function guideEditView(view, guideId, categoryType) {
     state = {
       id: guide.id,
       categoryType: guide.categoryType,
+      robotModel: guide.robotModel || '',
       codeOrTitle: guide.codeOrTitle,
       summary: guide.summary,
       requiredTools: guide.requiredTools,
@@ -410,6 +550,7 @@ export async function guideEditView(view, guideId, categoryType) {
     state = {
       id: null,
       categoryType: categoryType || 'ERROR_CODE',
+      robotModel: presetModel || '',
       codeOrTitle: '',
       summary: '',
       requiredTools: '',
@@ -472,6 +613,7 @@ export async function guideEditView(view, guideId, categoryType) {
     const form = $('#guideForm');
     if (!form) return;
     state.categoryType = $('#gCategory').value;
+    state.robotModel = $('#gModel').value;
     state.codeOrTitle = $('#gTitle').value;
     // 요약 칸은 없앴다. 예전 가이드가 갖고 있던 요약은 그대로 두고 저장한다
     // (시트의 '요약' 열도 그대로다 — 지우면 옛 기록이 사라진다).
@@ -496,11 +638,22 @@ export async function guideEditView(view, guideId, categoryType) {
       <form id="guideForm" autocomplete="off">
         <div class="panel">
           <div class="field">
+            <label>로봇</label>
+            <input type="hidden" id="gModel" value="${h(state.robotModel)}" />
+            <div class="type-pick" data-pick="model">
+              ${[...models, ...(state.robotModel && !models.includes(state.robotModel) ? [state.robotModel] : []), '']
+                .map((m) => `
+                <button class="btn btn-secondary${state.robotModel === m ? ' is-on' : ''}"
+                        data-act="pick-model" data-model="${h(m)}" type="button"
+                        aria-pressed="${state.robotModel === m}">${h(m || NONE_LABEL)}</button>`).join('')}
+            </div>
+          </div>
+          <div class="field">
             <label>종류<span class="req">*</span></label>
             <!-- 홈의 [＋ 가이드 작성] 으로 바로 들어오면 여기서 고른다.
                  작은 선택칸 대신 손가락 크기의 버튼 셋 — 첫 칸에서 헤매지 않게. -->
             <input type="hidden" id="gCategory" value="${h(state.categoryType)}" />
-            <div class="type-pick">
+            <div class="type-pick" data-pick="type">
               ${Object.entries(CATEGORY).map(([type, meta]) => `
                 <button class="btn btn-secondary${state.categoryType === type ? ' is-on' : ''}"
                         data-act="pick-type" data-type="${type}" type="button"
@@ -642,9 +795,18 @@ export async function guideEditView(view, guideId, categoryType) {
       [state.steps[idx + 1], state.steps[idx]] = [state.steps[idx], state.steps[idx + 1]];
       render();
     }
+    if (act === 'pick-model') {
+      $('#gModel').value = btn.dataset.model;
+      $$('[data-pick="model"] .btn').forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-pressed', String(on));
+      });
+      return;
+    }
     if (act === 'pick-type') {
       $('#gCategory').value = btn.dataset.type;
-      $$('.type-pick .btn').forEach((b) => {
+      $$('[data-pick="type"] .btn').forEach((b) => {
         const on = b === btn;
         b.classList.toggle('is-on', on);
         b.setAttribute('aria-pressed', String(on));
@@ -737,6 +899,7 @@ export async function guideEditView(view, guideId, categoryType) {
     try {
       const payload = {
         categoryType: state.categoryType,
+        robotModel: state.robotModel,
         codeOrTitle: state.codeOrTitle,
         summary: state.summary,
         requiredTools: state.requiredTools,

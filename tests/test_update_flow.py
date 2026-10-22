@@ -154,17 +154,17 @@ inv = read("web", "js", "views", "inventory.js")
 check("차량마다 검색칸이 있다", 'id="invQ"' in inv and 'type="search"' in inv)
 # v3.27 — 분류 이름으로도 걸러진다 ("케이블" 을 치면 케이블 묶음 전체).
 check("부품 이름 · 분류로 거른다", "`${i.partName} ${catOf(i)}`.toLowerCase().includes(q)" in inv)
-check("[부족 항목만] 과 함께 걸러진다",
-      "if (lowOnly && !isLow(i)) return false;" in inv
+check("[부족만] · 분류 칩과 함께 걸러진다",
+      "if (chip === LOW && !isLow(i)) return false;" in inv
       and "function visibleItems()" in inv)
 # 화면 전체를 다시 그리면 검색칸이 새로 만들어져 한 자 칠 때마다 커서가 빠진다.
 check("검색할 때 표만 다시 그린다 (커서가 빠지지 않게)",
       "function paintBody()" in inv
       and "box.addEventListener('input', () => { query = box.value; paintBody(); });" in inv)
 check("한글 조합이 끝날 때도 맞춘다", "compositionend" in inv)
-check("[부족 항목만] 도 화면 전체를 다시 그리지 않는다",
-      "paintBody(); refreshLowChip();" in inv and "function refreshLowChip()" in inv)
-check("[지우기] 가 검색어를 비운다", "act === 'clear-q'" in inv)
+check("칩을 눌러도 화면 전체를 다시 그리지 않는다 (검색칸 유지)",
+      "chip = chip === value ? null : value;      // 켜진 칩을 다시 누르면 전체로\n      paintBody();" in inv)
+check("검색칸은 브라우저 기본 지우기(×)를 쓴다", 'id="invQ" type="search"' in inv)
 check("찾은 것이 없으면 무엇을 찾았는지 보여 준다", "에 맞는 부품이 없습니다" in inv)
 check("아래 알약이 '보인 것 / 전체' 를 보여 준다",
       "function countText()" in inv and 'id="invCount"' in inv)
@@ -178,7 +178,7 @@ check("'이하' 판정이 남아 있지 않다", "quantity <= i.minQuantity" not
 # 예전에는 같은 비교가 세 군데 흩어져 있어 한 곳만 고치면 어긋났다.
 check("판정이 한 곳(isLow)에만 있다",
       inv.count("i.quantity < i.minQuantity") == 1
-      and inv.count("isLow(item)") == 2 and "items.filter(isLow)" in inv
+      and inv.count("isLow(item)") >= 2 and "items.filter(isLow)" in inv
       and "!isLow(i)" in inv)
 check("최소보유 0 은 판정하지 않는다 (안 쓰는 부품)", "i.minQuantity > 0 &&" in inv)
 # v3.23 — 설명 문구를 줄였다. 품목 수정 칸의 '보다 적어지면' 한 마디만 남긴다.

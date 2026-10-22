@@ -18,36 +18,42 @@
 <body>
 <div class="app">
 
-  <!-- 좌측 세로 레일 : 주요 화면 7개 (설정은 맨 아래)
-       class="tab" · data-tab · href 는 app.js paintTabs() 가 쓰므로 유지한다. -->
+  <!-- 왼쪽 메뉴 (C-1 집중형) : 하는 일의 차례대로 — 쓰고 · 찾아보고 · 참고하고 · 챙긴다.
+       class="tab" · data-tab · href 는 app.js paintTabs() 가 쓰므로 유지한다.
+       좁은 화면에서는 아래쪽 탭바가 된다 (app.css). -->
   <nav class="tabbar" aria-label="주요 화면">
+    <a class="tabbar__brand" href="#/" aria-label="현장 포털 홈">
+      <span class="tabbar__logo" aria-hidden="true">BH</span>
+      <span class="tabbar__name">현장 포털</span>
+    </a>
     <a class="tab" data-tab="home" href="#/">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg>
-      <span>홈</span>
-    </a>
-    <a class="tab" data-tab="guides" href="#/guides">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4z"/><path d="M20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/></svg>
-      <span>가이드</span>
-    </a>
-    <a class="tab" data-tab="inventory" href="#/inventory">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6h11v10H2z"/><path d="M13 9h5l3 3.5V16h-8z"/><circle cx="6.5" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
-      <span>재고</span>
-    </a>
-    <a class="tab" data-tab="driving" href="#/driving">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h14v18H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
-      <span>운행일지</span>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg>
+      <span class="tab__label">홈</span>
     </a>
     <a class="tab" data-tab="new" href="#/report/new">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6z"/><path d="M12 11v6M9 14h6"/></svg>
-      <span>새 리포트</span>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2h8l4 4v16H6z"/><path d="M12 11v6M9 14h6"/></svg>
+      <span class="tab__label">새 리포트</span>
     </a>
     <a class="tab" data-tab="reports" href="#/reports">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v11H3z"/><path d="M3 7V4h6v3"/></svg>
-      <span>이력</span>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h7l2 2h9v11H3z"/><path d="M3 7V4h6v3"/></svg>
+      <span class="tab__label">리포트 이력</span>
+    </a>
+    <a class="tab" data-tab="guides" href="#/guides">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6a2 2 0 0 1 2 2v14a2 2 0 0 0-2-2H4z"/><path d="M20 4h-6a2 2 0 0 0-2 2v14a2 2 0 0 1 2-2h6z"/></svg>
+      <span class="tab__label">가이드</span>
+    </a>
+    <a class="tab" data-tab="driving" href="#/driving">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h14v18H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+      <span class="tab__label">운행일지</span>
+    </a>
+    <a class="tab" data-tab="inventory" href="#/inventory">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6h11v10H2z"/><path d="M13 9h5l3 3.5V16h-8z"/><circle cx="6.5" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+      <span class="tab__label">차량 재고</span>
+      <span class="tab__badge tnum" id="invBadge" hidden></span>
     </a>
     <a class="tab" data-tab="settings" href="#/settings">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="17" r="2"/></svg>
-      <span>설정</span>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+      <span class="tab__label">설정</span>
     </a>
   </nav>
 

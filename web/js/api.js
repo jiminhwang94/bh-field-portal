@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.27.1';
+export const APP_VERSION = '3.28.0';
 
 export const api = {
   /** 앱 버전 정보. 기기 안에 있는 값만 쓴다 — 물어볼 서버가 없다. */
@@ -36,6 +36,24 @@ export const api = {
     const ok = await store.deleteGuide(id);
     flushSoon();
     return ok;
+  },
+
+  // ------------------------------------------------------- 가이드 로봇 분류
+  listGuideModels: () => store.listGuideModels(),
+  addGuideModel: async (name) => {
+    const added = await store.addGuideModel(name);
+    flushSoon();
+    return added;
+  },
+  renameGuideModel: async (oldName, nextName) => {
+    const renamed = await store.renameGuideModel(oldName, nextName);
+    flushSoon();
+    return renamed;
+  },
+  deleteGuideModel: async (name) => {
+    const result = await store.deleteGuideModel(name);
+    flushSoon();
+    return result;
   },
 
   // ------------------------------------------------------------------ 차량

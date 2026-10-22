@@ -114,7 +114,7 @@ check("여러 줄 항목은 두 칸을 다 쓴다", 'class="field field--wide"' 
 guides = read("web/js/views/guides.js")
 fields = read("web/js/views/fields.js")
 check("가이드 목록은 디자인의 한 줄 행이다",
-      'class="row" href=' in guides and 'row__code' in guides)
+      'class="row guide-row" href=' in guides and 'row__code' in guides)
 # v3.23 — ↑↓ 대신 손잡이(≡)를 잡고 끌어 옮긴다. 줄 구조는 같다.
 check("항목 설정도 같은 한 줄 행이다",
       'class="row" data-id=' in fields and 'order-btns' in fields
@@ -140,8 +140,9 @@ inv = read("web/js/views/inventory.js")
 check("재고 표의 수량 칸에 data-qty 가 있다",
       'data-qty="${item.id}"' in inv,
       "이게 없으면 [+]/[-] 가 조용히 죽는다")
+# 칸을 querySelectorAll 로 찾는다 — 없으면 forEach 가 아무것도 하지 않는다 (멈추지 않는다).
 check("수량 칸을 못 찾아도 멈추지 않는다",
-      "function paintQty(" in inv and "if (!cell) return;" in inv)
+      "function paintQty(" in inv and "querySelectorAll(`[data-qty=\"${item.id}\"]`).forEach" in inv)
 check("실패하면 원래 값으로 되돌린다 (뺄셈이 아니라)",
       "item.quantity = before;" in inv and "item.quantity -= delta;" not in inv)
 check("수정 창은 손대지 않은 칸을 보내지 않는다",

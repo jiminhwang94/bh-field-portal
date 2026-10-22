@@ -41,7 +41,7 @@ check("묶음 머리줄에 종수 · 부족 건수 (접혀 있어도)", "functio
       and "부족 ${low}" in view)
 check("접힘은 기기에 기억한다", "const COLLAPSED_KEY = 'bh_inv_collapsed';" in view)
 # 찾은 것이 접힌 묶음 안에 숨으면 검색이 헛돈다.
-check("검색 중 · 부족만 볼 때는 전부 펼친다", "const forceOpen = Boolean(query.trim()) || lowOnly;" in view)
+check("검색 중 · 칩으로 거를 때는 전부 펼친다", "const forceOpen = Boolean(query.trim()) || chip !== null;" in view)
 check("분류로도 검색된다", "`${i.partName} ${catOf(i)}`.toLowerCase().includes(q)" in view)
 check("[모두 접기] [모두 펴기]", "act === 'fold-all'" in view and "act === 'unfold-all'" in view)
 check("'분류 없음' 은 맨 뒤", "if (!ca) return 1;" in store and "const NONE_LABEL = '분류 없음';" in view)
