@@ -131,5 +131,3 @@ export function installStateLabel() {
   if (canInstallDirectly()) return { text: '설치 가능', ok: false };
   return { text: isIOS() ? 'Safari 공유 → 홈 화면에 추가' : '브라우저로 실행 중', ok: false };
 }
-
-export { h, closeModal };

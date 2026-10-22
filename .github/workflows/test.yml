@@ -24,6 +24,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
+      # test_sync_flow.mjs 는 module.registerHooks 를 쓴다 (Node 22.15 이상)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: 문법 검사 (외부 의존성 없음)
         run: python -m compileall -q server.py tools tests
 
@@ -47,6 +52,17 @@ jobs:
 
       - name: 화면 코드가 브라우저에서 읽히는지 검사
         run: node --experimental-vm-modules tests/test_js_parses.mjs
+
+      - name: 올리기·받기 검사 (지운 것이 되살아나지 않는지 · 두 기기)
+        run: node tests/test_sync_flow.mjs
+
+      - name: 그 밖의 계약 검사 (운행일지 · 가이드 탭 · 재고 묶음 · 새 내용 알림 · 피드백)
+        run: |
+          python tests/test_driving.py
+          python tests/test_guide_hub.py
+          python tests/test_inventory_groups.py
+          python tests/test_change_watch.py
+          python tests/test_feedback_v323.py
 
       - name: 화면 서버 검사 (화면 파일만 내주는지)
         run: python tests/test_static_host.py

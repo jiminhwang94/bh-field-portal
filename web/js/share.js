@@ -127,5 +127,3 @@ async function shareFallback(report, text, media) {
     toast(ok ? '복사했습니다.' : '복사에 실패했습니다. 직접 선택해 복사하세요.', ok ? 'ok' : 'err');
   });
 }
-
-export { closeModal };

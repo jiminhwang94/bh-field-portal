@@ -8,8 +8,7 @@
 import * as idb from './local/idb.js';
 import * as store from './local/store.js';
 import { callAppsScript } from './sheets.js';
-
-export const isEnabled = () => store.sheetInventoryOn();
+import { sheetRead } from './sync.js';
 
 /**
  * 항목 설정을 시트로 내보낸다.
@@ -41,9 +40,9 @@ export async function pushFields(changes = null) {
 const labelKey = (f) => String((f && f.fieldLabel) || '').replace(/\s/g, '');
 
 async function mergeWithSheet(local, changes) {
-  let sheet;
-  try { sheet = (await callAppsScript({ fields: 'pull' }, 60000)).items || []; }
-  catch { return local; }
+  // 시트를 못 읽으면 올리지 않는다 (오류를 넘겨 대기열에 남긴다). 기기 것을 통째로
+  // 올리면 다른 사람이 지운 항목이 되살아나고 남이 고친 항목이 덮인다.
+  const sheet = (await callAppsScript({ fields: 'pull' }, 60000)).items || [];
   if (!sheet.length) return local;
 
   // **시트 순서를 그대로 둔다.** 아래에서 시트 줄 차례로 담기 때문에, 내가
@@ -104,13 +103,17 @@ async function mergeWithSheet(local, changes) {
  *
  * 반환: { changed, added, removed }
  */
-export async function pullFields() {
-  const queued = (await store.outbox()).some((op) => op.type === 'fieldsheet-push');
-  if (queued) return { changed: 0, added: 0, removed: 0, skipped: 'pending' };
+export function pullFields() {
+  return sheetRead(pullFieldsNow);
+}
 
+async function pullFieldsNow() {
   const result = await callAppsScript({ fields: 'pull' }, 60000);
   const rows = result.items || [];
   if (!rows.length) return { changed: 0, added: 0, removed: 0 };
+  // 받는 사이에 고친 것도 지키도록 시트를 받은 **뒤에** 내 대기분을 본다.
+  const queued = (await store.outbox()).some((op) => op.type === 'fieldsheet-push');
+  if (queued) return { changed: 0, added: 0, removed: 0, skipped: 'pending' };
 
   const local = await idb.getAll('fields');
   const byId = new Map(local.map((f) => [f.id, f]));

@@ -10,18 +10,6 @@
 import * as store from './local/store.js';
 import * as idb from './local/idb.js';
 
-const DEVICE_KEY = 'bh_device_id';
-
-export function deviceId() {
-  let id = localStorage.getItem(DEVICE_KEY);
-  if (!id) {
-    id = 'd' + Math.random().toString(36).slice(2, 10)
-      + Math.random().toString(36).slice(2, 6);
-    localStorage.setItem(DEVICE_KEY, id);
-  }
-  return id;
-}
-
 // ------------------------------------------------------------ 네트워크 상태
 
 let online = navigator.onLine;
@@ -76,32 +64,48 @@ class OfflineError extends Error {
 }
 export { OfflineError };
 
-// --------------------------------------------------------- 기기 안 사진 받기
+// ------------------------------------------------- 올리기 · 받기 순서 지키기
+//
+// 올리기(flush)와 받기(pull)는 **겹쳐 돌지 않는다.**
+//
+// 겹치면 받기가 "내가 올리기 직전의 시트" 를 읽어 와 기기에 덮는다. 그러면
+// 방금 지운 품목·가이드가 기기에 되살아나고, 다음 올리기 때 그 되살아난 것이
+// 다시 시트로 올라가 **삭제가 영영 사라졌다** ([새로고침] 을 눌러도 지운 게
+// 다시 생기던 원인). 올리기끼리 겹쳐도 같은 리포트가 두 줄 올라갔다.
+//
+//  - 올리기는 한 번에 하나. 도는 중에 또 부르면 끝난 뒤 한 번만 더 돈다.
+//  - 받기끼리는 함께 돌아도 된다 (서로 다른 탭이다). 올리기가 돌거나 기다리는
+//    중이면 그게 끝난 뒤에 시작하고, 올리기는 도는 중인 받기를 기다렸다 시작한다.
+let flushRun = null;       // 도는 중이거나 차례를 기다리는 올리기
+let queuedFlush = null;    // 아직 시작하지 않은 다음 올리기 (여러 번 불러도 하나)
+const pulls = new Set();
 
-/**
- * 다른 기기에서 올린 사진을 이 기기로 가져온다.
- *
- * 사진 파일 자체는 찍은 기기 안에만 있다. 웹으로 접속했을 때는 접속한 주소에서
- * 받아올 수 있으므로 그때만 쓴다. 못 받아도 앱은 그대로 동작한다.
- */
-export async function fetchMediaFromHost(filename) {
-  const base = await serverBase();
-  if (!base) return null;
-  try {
-    const res = await fetch(`${base}/media/${filename}`, {
-      headers: { 'X-Device-Id': deviceId() }, credentials: 'include',
-    });
-    if (!res.ok) return null;
-    return await res.blob();
-  } catch {
-    return null;
-  }
+export function flushOutbox() {
+  if (queuedFlush) return queuedFlush;
+  const prev = flushRun || Promise.resolve();
+  const run = prev.catch(() => {}).then(async () => {
+    queuedFlush = null;    // 시작했다 — 지금부터 부르면 다음 차례가 된다
+    await Promise.allSettled([...pulls]);
+    return doFlushOutbox();
+  });
+  queuedFlush = run;
+  flushRun = run;
+  run.catch(() => {}).finally(() => { if (flushRun === run) flushRun = null; });
+  return run;
+}
+
+/** 시트에서 받아 기기에 반영하는 일을 올리기와 겹치지 않게 돌린다. */
+export async function sheetRead(fn) {
+  while (flushRun) await flushRun.catch(() => {});
+  const run = (async () => fn())();
+  pulls.add(run);
+  try { return await run; } finally { pulls.delete(run); }
 }
 
 // ------------------------------------------------------------ 대기열 처리
 
 /** 쌓인 작업(리포트·재고·이력 상태·가이드)을 구글 시트에 반영한다. */
-export async function flushOutbox() {
+async function doFlushOutbox() {
   await store.compactOutbox();
   const rows = await store.outbox();
   if (!rows.length) {

@@ -125,7 +125,7 @@ print()
 print("쓰는 이름표에 스타일이 있다")
 NEEDED = ["page-head__title", "page-head__meta", "page-head__spacer", "rows", "row__code",
           "row__main", "row__title", "row__meta", "order-btns", "form-grid", "field--wide",
-          "table--touch", "settings-list", "tnum", "is-low", "tag-neutral", "back"]
+          "table--touch", "settings-list", "tnum", "is-low", "tag-neutral"]
 missing = [c for c in NEEDED if not re.search(r"\.%s\b" % re.escape(c), css)]
 check("디자인 이름표가 모두 정의되어 있다", not missing, ", ".join(missing))
 
@@ -305,7 +305,7 @@ print("리포트 항목은 팀 공통이다")
 fieldsheet = read("web/js/fieldsheet.js")
 check("항목을 시트로 올리고 받는다",
       "export async function pushFields" in fieldsheet
-      and "export async function pullFields" in fieldsheet)
+      and "export function pullFields" in fieldsheet)
 check("항목을 고치면 시트 반영이 예약된다",
       "queueFieldSheetPushIfOn" in store_js
       and "'fieldsheet-push'" in store_js)

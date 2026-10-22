@@ -22,8 +22,6 @@ const GAP_MS = 5 * 60 * 1000;
 let hasNew = false;
 let busy = false;
 
-export const hasNewContent = () => hasNew;
-
 /** 대기열 종류 → 사람이 읽는 이름. 올렸다는 알림에 쓴다. */
 const LABEL = {
   quantity: '재고', 'quantity-delete': '재고', 'invsheet-push': '재고',

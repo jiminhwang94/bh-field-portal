@@ -47,21 +47,6 @@ export function openDb() {
   return dbPromise;
 }
 
-function run(storeNames, mode, work) {
-  return openDb().then((db) => new Promise((resolve, reject) => {
-    const tx = db.transaction(storeNames, mode);
-    let result;
-    tx.oncomplete = () => resolve(result);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error || new Error('저장소 작업이 중단되었습니다.'));
-    result = work(tx);
-    if (result && typeof result.then === 'function') {
-      // work 가 Promise 를 돌려주면 그 값을 기다린다(트랜잭션은 자동 커밋).
-      result.then((value) => { result = value; }, reject);
-    }
-  }));
-}
-
 const wrap = (request) => new Promise((resolve, reject) => {
   request.onsuccess = () => resolve(request.result);
   request.onerror = () => reject(request.error);
@@ -86,18 +71,6 @@ export async function put(store, value) {
   await wrap(request);
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve(value);
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-export async function putAll(store, values) {
-  if (!values.length) return 0;
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(store, 'readwrite');
-    const objectStore = tx.objectStore(store);
-    values.forEach((value) => objectStore.put(value));
-    tx.oncomplete = () => resolve(values.length);
     tx.onerror = () => reject(tx.error);
   });
 }
@@ -143,4 +116,3 @@ export async function count(store) {
   return wrap(db.transaction(store, 'readonly').objectStore(store).count());
 }
 
-export { run };

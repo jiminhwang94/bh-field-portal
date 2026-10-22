@@ -168,8 +168,6 @@ async function mainView() {
   });
 }
 
-const SHORT = { ERROR_CODE: '', HARDWARE_SOP: 'SOP', SOFTWARE_CMD: 'CMD' };
-
 /**
  * 이번 달 리포트를 상태별로 센다.
  *

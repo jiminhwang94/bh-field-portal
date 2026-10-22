@@ -123,7 +123,6 @@ function paintNow() {
  * quiet=true 면 자동 실행이다 — 토스트를 띄우지 않고, 사용자가 무언가 적는 중이면
  * 화면을 다시 그리지 않는다.
  */
-export const runSync = (...a) => runRefresh(...a);
 export async function runRefresh(btn, { quiet = false } = {}) {
   if (!sync.isOnline()) {
     if (!quiet) toast('오프라인입니다. 인터넷이 되는 곳에서 다시 눌러 주세요.', 'err');
@@ -139,7 +138,8 @@ export async function runRefresh(btn, { quiet = false } = {}) {
   }
 
   if (btn) { btn.disabled = true; btn.textContent = '받는 중…'; }
-  const done = { uploaded: 0, sheet: false, guides: 0, guidesRemoved: 0, fields: 0 };
+  const done = { uploaded: 0, sheet: false, guides: 0, guidesRemoved: 0, guidesDeleted: 0,
+                 fields: 0 };
   const problems = [];
 
   // 1. 밀린 것이 있으면 먼저 올린다 (오프라인에서 쌓인 것 · 실패했던 것)
@@ -172,6 +172,7 @@ export async function runRefresh(btn, { quiet = false } = {}) {
       const got = await guidesheet.pullGuides();
       done.guides = (got.changed || 0) + (got.added || 0);
       done.guidesRemoved = got.removed || 0;
+      done.guidesDeleted = got.deleted || 0;
     } catch (err) { problems.push(`가이드 받기: ${err.message}`); }
   }
 
@@ -198,6 +199,7 @@ export async function runRefresh(btn, { quiet = false } = {}) {
   if (done.uploaded) parts.push(`${done.uploaded}건 올림`);
   if (done.fields) parts.push(`리포트 항목 ${done.fields}건`);
   if (done.guides) parts.push(`가이드 ${done.guides}건`);
+  if (done.guidesDeleted) parts.push(`다른 기기에서 지운 가이드 ${done.guidesDeleted}건 반영`);
   if (done.guidesRemoved) parts.push(`중복 가이드 ${done.guidesRemoved}건 정리`);
   if (problems.length) {
     toast(`일부 실패 — ${problems[0]}`, 'err');

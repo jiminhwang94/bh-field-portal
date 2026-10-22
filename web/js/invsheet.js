@@ -7,28 +7,27 @@
 //    (시트에서 직접 고친 차량 이름·품목·수량도 이때 내려온다)
 import * as store from './local/store.js';
 import { callAppsScript } from './sheets.js';
+import { sheetRead } from './sync.js';
 
 export const isEnabled = () => store.sheetInventoryOn();
 
 /**
- * 시트 내용을 받아 기기에 반영한다.
- * 시트에 '차량재고' 탭이 아직 없으면 기기 재고로 탭을 만들어 채운다(최초 1회).
- */
-/**
  * 시트의 차량 재고를 기기에 반영한다.
+ * 시트에 '차량재고' 탭이 아직 없으면 기기 재고로 탭을 만들어 채운다(최초 1회).
  *
  * 반환: { vehicles, items, changed } — `changed` 가 false 면 시트 내용이
  * 지난번과 똑같아서 아무것도 건드리지 않았다는 뜻이다. 부르는 쪽은 이걸 보고
- * **화면을 다시 그릴지** 정한다. 예전에는 이 함수가 Apps Script 응답을 그대로
- * 돌려줘서 바뀐 게 있는지 알 수 없었고, 그래서 늘 다시 그렸다.
+ * **화면을 다시 그릴지** 정한다.
  */
-export async function pullInventory() {
-  const result = await callAppsScript({ inventory: 'pull' }, 30000);
-  if (result.exists === false) {
-    await pushInventory();
-    return { vehicles: 0, items: 0, changed: false };
-  }
-  return store.applyInventorySheet(result);
+export function pullInventory() {
+  return sheetRead(async () => {
+    const result = await callAppsScript({ inventory: 'pull' }, 30000);
+    if (result.exists === false) {
+      await pushInventory();
+      return { vehicles: 0, items: 0, changed: false };
+    }
+    return store.applyInventorySheet(result);
+  });
 }
 
 /**
@@ -49,29 +48,17 @@ export async function pushInventory(changes = null) {
 
 async function mergeWithSheet(mine, changes) {
   if (!changes || !changes.length) return mine;
-  let sheet;
-  try { sheet = await callAppsScript({ inventory: 'pull' }, 30000); }
-  catch { return mine; }
+  // 시트를 못 읽으면 **올리지 않는다** (오류를 그대로 넘겨 대기열에 남긴다).
+  // 예전에는 기기 내용을 통째로 올렸다. 그러면 그사이 다른 사람이 지운 품목이
+  // 되살아나고, 다른 사람이 바꾼 수량이 내 옛 값으로 덮였다.
+  const sheet = await callAppsScript({ inventory: 'pull' }, 30000);
   if (!sheet || sheet.exists === false) return mine;
 
   const key = (v, p) => store.qtyKey(String(v || '').trim(), String(p || '').trim());
-  // 내가 건드린 줄 — 바꾸기 전 모습과 지금 모습 양쪽의 키를 모두 "내 것" 으로 본다
-  // (부품명을 고쳤으면 옛 이름 줄은 빠지고 새 이름 줄이 들어가야 한다).
-  const touchedKeys = new Set();
-  const touchedVehicles = new Set();
+  const { keys: touchedKeys, vehicles: touchedVehicles, reordered } =
+    await store.touchedInventory(changes);
+  const myQty = await store.pendingQuantityKeys();
   const mineByKey = new Map(mine.items.map((i) => [key(i.vehicleName, i.partName), i]));
-  const mineIds = new Map();
-  for (const row of await (await import('./local/idb.js')).getAll('inventory')) {
-    mineIds.set(row.id, row);
-  }
-  let reordered = false;
-  for (const c of changes) {
-    if (c.kind === 'order') { reordered = true; continue; }
-    if (c.kind === 'vehicle') { touchedVehicles.add(String(c.id).trim()); continue; }
-    if (c.before) touchedKeys.add(key(c.before.vehicleName, c.before.partName));
-    const cur = mineIds.get(c.id);
-    if (cur) touchedKeys.add(key(cur.vehicleName, cur.partName));
-  }
 
   const items = [];
   const seen = new Set();
@@ -85,14 +72,24 @@ async function mergeWithSheet(mine, changes) {
       if (mineByKey.has(k)) items.push(mineByKey.get(k));   // 고친 것. 지운 것은 빠진다.
       continue;
     }
-    items.push(mineByKey.has(k) ? mineByKey.get(k) : row);  // 안 건드린 것
+    // 안 건드린 줄은 **시트 것**이다. 기기 것을 쓰면 남이 바꾼 수량·최소보유가
+    // 내가 마지막으로 받은 옛 값으로 되돌아간다. 아직 못 올린 내 수량만 얹는다.
+    items.push(myQty.has(k) && mineByKey.has(k)
+      ? { ...row, quantity: mineByKey.get(k).quantity }
+      : row);
   }
+  const sheetVehicles = new Set((sheet.vehicles || []).map((v) => String(v || '').trim()));
   for (const i of mine.items) {                              // 내가 새로 만든 것
     const k = key(i.vehicleName, i.partName);
-    if (touchedKeys.has(k) && !seen.has(k)) items.push(i);
+    if (!touchedKeys.has(k) || seen.has(k)) continue;
+    // 새 품목은 기기의 모든 차량에 함께 생긴다. 그중 시트에 없는 차량(남이 지운
+    // 것)의 줄은 올리지 않는다 — 올리면 지워진 차량이 통째로 되살아난다.
+    if (!sheetVehicles.has(i.vehicleName) && !touchedVehicles.has(i.vehicleName)) continue;
+    items.push(i);
   }
 
-  // 차량 목록 — 시트 순서 + 내가 새로 만든 차량, 내가 지운 차량은 빠진다
+  // 차량 목록 — 시트 순서 + 내가 새로 만든 차량, 내가 지운 차량은 빠진다.
+  // 내가 건드리지 않은 기기 차량은 붙이지 않는다 — 다른 사람이 지운 차량이다.
   const vehicles = [];
   for (const v of sheet.vehicles || []) {
     const name = String(v || '').trim();
@@ -100,7 +97,9 @@ async function mergeWithSheet(mine, changes) {
     if (touchedVehicles.has(name) && !mine.vehicles.includes(name)) continue;
     vehicles.push(name);
   }
-  for (const name of mine.vehicles) if (!vehicles.includes(name)) vehicles.push(name);
+  for (const name of mine.vehicles) {
+    if (touchedVehicles.has(name) && !vehicles.includes(name)) vehicles.push(name);
+  }
   for (const i of items) if (!vehicles.includes(i.vehicleName)) vehicles.push(i.vehicleName);
 
   // 내가 순서를 바꿨으면 **내 순서**로 늘어놓는다. 내가 모르는 부품(남이 그새 만든 것)은

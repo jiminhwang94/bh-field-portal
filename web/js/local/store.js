@@ -1,4 +1,4 @@
-// 기기 안 데이터 조작 — 서버 app/db.py 와 같은 모양의 값을 돌려준다.
+// 기기 안 데이터 조작 — 앱의 모든 조회·생성·수정·삭제가 여기서 끝난다.
 // 화면(views) 은 이 파일만 보고 동작하므로 오프라인/온라인 구분이 필요 없다.
 import * as idb from './idb.js';
 
@@ -412,7 +412,8 @@ async function _addInventoryItem(vehicleName, partName, quantity = 0,
   if (rows.some((r) => r.vehicleName === vehicleName && r.partName === partName)) {
     throw new Error('이미 등록된 부품입니다.');
   }
-  if (!(await idb.get('vehicles', vehicleName))) {
+  const newVehicle = !(await idb.get('vehicles', vehicleName));
+  if (newVehicle) {
     const order = (await idb.getAll('vehicles'))
       .reduce((max, v) => Math.max(max, v.displayOrder || 0), 0) + 1;
     await idb.put('vehicles', { name: vehicleName, displayOrder: order, createdAt: now() });
@@ -430,6 +431,9 @@ async function _addInventoryItem(vehicleName, partName, quantity = 0,
   const order = await partOrder();
   if (!order.includes(partName)) await setMeta(PART_ORDER_KEY, [...order, partName]);
   const changes = [{ kind: 'item', id: row.id, before: null }];
+  // 차량도 새로 생겼으면 적어 둔다 — 시트에 없는 차량의 품목은 "남이 지운 차량"
+  // 으로 보고 올리지 않으므로, 내가 만든 차량인지 알아야 한다.
+  if (newVehicle) changes.push({ kind: 'vehicle', id: vehicleName, before: null });
 
   // 품목은 모든 차량 공용 — 다른 차량에도 수량 0 으로 함께 등록한다.
   for (const vehicle of await listVehicles()) {
@@ -558,25 +562,62 @@ export async function collectInventoryState() {
 }
 
 /**
- * 구글 시트에서 받은 재고 상태를 기기에 통째로 반영한다.
- * (시트가 공유 원본 — 차량 이름 변경·품목 추가/삭제도 여기로 내려온다)
- * 아직 시트로 보내지 못한 내 수량 변경(outbox)은 덮지 않는다.
+ * 차량·품목 변경(changes)이 건드린 줄.
+ *  keys     — (차량, 부품) 키. 바꾸기 전 모습과 지금 모습 양쪽을 다 넣는다
+ *             (부품명을 고쳤으면 옛 이름 줄은 빠지고 새 이름 줄이 들어가야 한다).
+ *  vehicles — 만들거나 지운 차량 이름
+ *  reordered — 품목 순서를 바꿨는가
  */
-/** 아직 시트에 못 올린 차량·품목 구조 변경이 대기 중인가 */
-async function hasPendingStructureChange() {
-  return (await idb.getAll('outbox')).some((op) => op.type === 'invsheet-push');
+export async function touchedInventory(changes) {
+  const byId = new Map((await idb.getAll('inventory')).map((r) => [r.id, r]));
+  const trim = (v) => String(v || '').trim();
+  const keys = new Set();
+  const vehicles = new Set();
+  let reordered = false;
+  for (const c of changes || []) {
+    if (c.kind === 'order') { reordered = true; continue; }
+    if (c.kind === 'vehicle') { vehicles.add(trim(c.id)); continue; }
+    if (c.before) keys.add(qtyKey(trim(c.before.vehicleName), trim(c.before.partName)));
+    const cur = byId.get(c.id);
+    if (cur) keys.add(qtyKey(cur.vehicleName, cur.partName));
+  }
+  return { keys, vehicles, reordered };
 }
 
+/**
+ * 구글 시트에서 받은 재고 상태를 기기에 반영한다.
+ * (시트가 공유 원본 — 차량 이름 변경·품목 추가/삭제도 여기로 내려온다)
+ *
+ * 아직 시트로 보내지 못한 **내 변경은 시트 위에 다시 얹는다.**
+ *  - 수량 변경(quantity)        → 기기 수량을 지킨다
+ *  - 차량·품목 변경(invsheet-push) → 내가 건드린 줄은 기기 모습을 따른다.
+ *    만든 것·고친 것은 남기고, **지운 것은 시트에 아직 있어도 되살리지 않는다.**
+ *
+ * 예전에는 지운 것을 지키지 않았다. 올리기가 한 번 실패하거나 받기와 겹치면
+ * 지운 품목이 시트에서 되살아났고, 다음 올리기가 그 되살아난 것을 "내 것" 으로
+ * 다시 올려 **삭제가 사라졌다.**
+ */
 export async function applyInventorySheet(state) {
+  const pushOps = (await idb.getAll('outbox')).filter((op) => op.type === 'invsheet-push');
+  // 무엇을 바꿨는지 적혀 있지 않은 옛 대기열이면 기기에만 있는 줄을 전부 지킨다.
+  const keepAllMine = pushOps.some((op) => !(op.changes || []).length);
+  const touched = await touchedInventory(pushOps.flatMap((op) => op.changes || []));
+  const myVehicles = new Set((await idb.getAll('vehicles')).map((v) => v.name));
+  const deletedByMe = (name) => touched.vehicles.has(name) && !myVehicles.has(name);
+
   const stamp = now();
   const names = [];
   for (const raw of state.vehicles || []) {
     const name = String(raw || '').trim();
-    if (name && !names.includes(name)) names.push(name);
+    if (name && !names.includes(name) && !deletedByMe(name)) names.push(name);
   }
   for (const item of state.items || []) {
     const name = String(item.vehicleName || '').trim();
-    if (name && !names.includes(name)) names.push(name);
+    if (name && !names.includes(name) && !deletedByMe(name)) names.push(name);
+  }
+  // 내가 새로 만든 차량 (품목이 아직 없어도 남긴다)
+  for (const name of touched.vehicles) {
+    if (myVehicles.has(name) && !names.includes(name)) names.push(name);
   }
 
   const prevVehicles = new Map((await idb.getAll('vehicles')).map((v) => [v.name, v]));
@@ -598,6 +639,8 @@ export async function applyInventorySheet(state) {
     if (!vehicleName || !partName) continue;
     const key = qtyKey(vehicleName, partName);
     if (seen.has(key)) continue;
+    // 내가 건드린 줄은 아래에서 기기 모습으로 채운다 (지웠으면 채우지 않는다).
+    if (touched.keys.has(key) || deletedByMe(vehicleName)) continue;
     seen.add(key);
     const prev = prevItems.get(key);
     const quantity = Math.max(0, Number(item.quantity) || 0);
@@ -619,13 +662,18 @@ export async function applyInventorySheet(state) {
     if (pending.has(q.key)) quantityRows.push(q);
   }
 
-  // 아직 시트에 못 올린 **구조 변경**(차량·품목 추가)도 지키고 지나간다.
+  // 아직 시트에 못 올린 **구조 변경**(차량·품목 추가·수정)은 기기 모습을 지킨다.
   // 시트에는 없지만 기기에만 있는 줄을 지우면, 오프라인에서 추가한 품목이
   // 전송되기도 전에 사라진다. 그 뒤 invsheet-push 는 이미 지워진 상태를 올려
   // 되돌릴 수 없게 된다.
-  if (await hasPendingStructureChange()) {
+  if (pushOps.length) {
+    const sheetVehicles = new Set(names);
     for (const [key, prev] of prevItems) {
       if (seen.has(key)) continue;
+      if (!keepAllMine && !touched.keys.has(key)) continue;   // 남이 지운 줄
+      // 남이 지운 차량에 내가 덧붙인 품목 (새 품목은 모든 차량에 함께 생긴다)
+      if (!keepAllMine && !sheetVehicles.has(prev.vehicleName)
+          && !touched.vehicles.has(prev.vehicleName)) continue;
       seen.add(key);
       inventoryRows.push(prev);
       if (!names.includes(prev.vehicleName)) {
@@ -688,19 +736,6 @@ function inventorySignature(vehicles, items, quantities, order = []) {
     .sort();
   return [vehicles.map((v) => v.name).sort().join(','), (order || []).join(','), ...lines]
     .join(String.fromCharCode(10));
-}
-
-/**
- * 이 자료를 방금(초 단위) 받아 왔는가.
- *
- * 화면을 옮길 때마다 시트를 다시 부르면, 현장 LTE 에서는 왕복이 1~3초라
- * 들어간 화면이 잠시 뒤 한 번 더 그려진다. 방금 받은 것은 다시 받지 않는다.
- */
-export async function pulledWithin(key, seconds) {
-  const at = await getMeta(key, '');
-  if (!at) return false;
-  const gap = Date.now() - new Date(at).getTime();
-  return gap >= 0 && gap < seconds * 1000;
 }
 
 // -------------------------------------------------- 리포트 입력 항목 설정
@@ -854,11 +889,6 @@ export async function listDriving(vehicleName = null) {
   picked.sort((a, b) => byText(b.date, a.date)
     || byText(b.createdAt || '', a.createdAt || ''));
   return picked.map(drivingOut);
-}
-
-export async function getDriving(id) {
-  const row = await idb.get('driving', id);
-  return row ? drivingOut(row) : null;
 }
 
 /**

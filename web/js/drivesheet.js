@@ -8,8 +8,7 @@
 import * as idb from './local/idb.js';
 import * as store from './local/store.js';
 import { callAppsScript } from './sheets.js';
-
-export const isEnabled = () => store.sheetInventoryOn();
+import { sheetRead } from './sync.js';
 
 /**
  * 한 차량의 일지를 시트에 올린다.
@@ -47,11 +46,10 @@ const rowOut = (r) => ({
 
 async function mergeWithSheet(vehicleName, local, changes) {
   if (!changes || !changes.length) return local;
-  let sheet;
-  try {
-    const res = await callAppsScript({ driving: 'pull', vehicleName }, 60000);
-    sheet = (res && res.rows) || [];
-  } catch { return local; }
+  // 시트를 못 읽으면 올리지 않는다 (오류를 넘겨 대기열에 남긴다). 기기 것을 통째로
+  // 올리면 다른 사람이 적은 운행 기록이 지워진다.
+  const res = await callAppsScript({ driving: 'pull', vehicleName }, 60000);
+  const sheet = (res && res.rows) || [];
   if (!sheet.length) return local;
 
   const mine = new Map(local.map((r) => [r.id, r]));
@@ -94,14 +92,18 @@ export async function pushOptions(options) {
  *
  * 반환: { changed, added, removed }
  */
-export async function pullDriving(vehicleName = null) {
-  const queued = (await store.outbox()).some(
-    (op) => op.type === 'drivesheet-push' || op.type === 'drivesheet-options');
-  if (queued) return { changed: 0, added: 0, removed: 0, skipped: 'pending' };
+export function pullDriving(vehicleName = null) {
+  return sheetRead(() => pullDrivingNow(vehicleName));
+}
 
+async function pullDrivingNow(vehicleName) {
   const body = { driving: 'pull' };
   if (vehicleName) body.vehicleName = vehicleName;
   const result = await callAppsScript(body, 60000);
+  // 받는 사이에 고친 것도 지키도록 시트를 받은 **뒤에** 내 대기분을 본다.
+  const queued = (await store.outbox()).some(
+    (op) => op.type === 'drivesheet-push' || op.type === 'drivesheet-options');
+  if (queued) return { changed: 0, added: 0, removed: 0, skipped: 'pending' };
 
   let changed = 0;
   let added = 0;

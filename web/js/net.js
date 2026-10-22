@@ -91,7 +91,8 @@ export async function catchUpFromSheet() {
 function changedSomething(result) {
   if (!result) return false;
   if (typeof result.changed === 'boolean') return result.changed;
-  return Boolean((result.changed || 0) + (result.added || 0) + (result.removed || 0));
+  return Boolean((result.changed || 0) + (result.added || 0) + (result.removed || 0)
+    + (result.deleted || 0));
 }
 
 export function initNetStatus() {

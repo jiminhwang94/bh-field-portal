@@ -16,7 +16,7 @@ import {
   showManualGuide,
 } from '../install.js';
 import {
-  deviceName, getSyncState, syncSummaryText, refreshState, runSync,
+  deviceName, getSyncState, syncSummaryText, refreshState, runRefresh,
   setDeviceName,
 } from '../syncnow.js';
 

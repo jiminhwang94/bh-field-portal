@@ -1483,9 +1483,15 @@ check('옛 배치(분류 열 없음)도 읽는다', legacyRead.vehicles.join(','
 call({ inventory: 'qty', ops: [{ type: 'quantity', vehicleName: '2호차', partName: 'C to C 1m', quantity: 9 }] });
 check('수량 고치기가 차량 열을 바로 찾는다 (분류 열을 차량으로 착각하지 않는다)', invRows()[1][4] === 9
       && invTab().getRange(2, 2).getValue() === '분류');
-call({ inventory: 'qty', ops: [{ type: 'quantity', vehicleName: '1호차', partName: '완전 새 부품', quantity: 2 }] });
-const lastInv = invRows()[invRows().length - 1];
-check('없던 품목의 수량을 고치면 줄이 생기고 최소보유는 세 번째 칸에', lastInv[0] === '완전 새 부품' && lastInv[2] === 0 && lastInv[3] === 2);
+const rowsBefore = invRows().length;
+const colsBefore = invTab().getLastColumn();
+call({ inventory: 'qty', ops: [
+  { type: 'quantity', vehicleName: '1호차', partName: '지워진 부품', quantity: 2 },
+  { type: 'quantity', vehicleName: '지워진 차량', partName: 'C to C 1m', quantity: 5 },
+] });
+check('지워진 품목·차량의 늦은 [+] 는 줄·열을 되살리지 않는다',
+      invRows().length === rowsBefore && invTab().getLastColumn() === colsBefore
+      && !invRows().some((r) => r[0] === '지워진 부품'));
 
 console.log('='.repeat(62));
 if (failures.length) {

@@ -716,7 +716,13 @@ function readInventory(sheet) {
   return { ok: true, exists: true, vehicles: vehicles, items: items };
 }
 
-/** [-]/[+] 수량 변경을 해당 칸에 바로 기록한다. */
+/**
+ * [-]/[+] 수량 변경을 해당 칸에 바로 기록한다.
+ *
+ * 시트에 없는 차량·품목이면 **건너뛴다.** 다른 기기에서 지웠거나(또는 시트에서
+ * 이름을 바꿨거나) 한 것이다. 예전에는 줄·열을 새로 만들어서, 지운 품목이
+ * 늦게 올라온 [+] 한 번에 되살아났다. 새 품목·차량은 push 로만 생긴다.
+ */
 function applyQuantityOps(sheet, ops) {
   for (var i = 0; i < ops.length; i++) {
     var op = ops[i] || {};
@@ -732,13 +738,7 @@ function applyQuantityOps(sheet, ops) {
     for (var c = layout.fixed; c < header.length; c++) {
       if (String(header[c] || '').trim() === vehicle) { col = c + 1; break; }
     }
-    if (col < 0) {                   // 시트에 없는 차량이면 열을 추가한다
-      col = lastCol + 1;
-      var head = sheet.getRange(INV_HEADER_ROW, col);
-      head.setValue(vehicle);
-      head.setFontWeight('bold');
-      head.setBackground('#eef1f5');
-    }
+    if (col < 0) continue;           // 지워진 차량
 
     var lastRow = sheet.getLastRow();
     var row = -1;
@@ -752,11 +752,7 @@ function applyQuantityOps(sheet, ops) {
         }
       }
     }
-    if (row < 0) {                   // 시트에 없는 품목이면 줄을 추가한다
-      row = Math.max(lastRow + 1, INV_DATA_ROW);
-      sheet.getRange(row, 1).setValue(part);
-      sheet.getRange(row, layout.minCol + 1).setValue(0);
-    }
+    if (row < 0) continue;           // 지워진 품목
 
     sheet.getRange(row, col).setValue(Math.max(0, Math.floor(Number(op.quantity) || 0)));
   }

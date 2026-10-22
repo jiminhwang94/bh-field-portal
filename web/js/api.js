@@ -7,13 +7,9 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.27.0';
-
-export const deviceId = sync.deviceId;
+export const APP_VERSION = '3.27.1';
 
 export const api = {
-  deviceId: sync.deviceId,
-
   /** 앱 버전 정보. 기기 안에 있는 값만 쓴다 — 물어볼 서버가 없다. */
   async version() {
     return {
@@ -120,7 +116,6 @@ export const api = {
     flushSoon();
     return ok;
   },
-  drivingOptions: () => store.drivingOptions(),
   saveDrivingOptions: async (next) => {
     const value = await store.saveDrivingOptions(next);
     flushSoon();
