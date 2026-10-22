@@ -32,40 +32,34 @@ jobs:
       - name: 문법 검사 (외부 의존성 없음)
         run: python -m compileall -q server.py tools tests
 
-      - name: 오프라인 실행 보장 (서비스워커 캐시 목록)
-        run: python tests/test_offline_shell.py
+      # tests/ 의 test_*.py · test_*.mjs 를 전부 찾아 돌린다 — 개발 PC 와 같은 명령.
+      # 새 검사 파일을 만들면 여기 적지 않아도 함께 돈다.
+      - name: 검사 전부
+        run: python tools/run_tests.py
 
-      - name: 리포트 이력 계약 검사
-        run: python tests/test_report_history.py
-
-      - name: 화면 ↔ 스타일 계약 검사
-        run: python tests/test_css_contract.py
-
-      - name: 새 리포트/수정 분리 + 요청 폭주 방지 검사
-        run: python tests/test_report_draft.py
-
-      - name: 화면이 디자인 구조를 따르는지 검사
-        run: python tests/test_design_contract.py
-
-      - name: Apps Script 실제 실행 검사
-        run: node tests/test_apps_script.mjs
-
-      - name: 화면 코드가 브라우저에서 읽히는지 검사
-        run: node --experimental-vm-modules tests/test_js_parses.mjs
-
-      - name: 올리기·받기 검사 (지운 것이 되살아나지 않는지 · 두 기기)
-        run: node tests/test_sync_flow.mjs
-
-      - name: 그 밖의 계약 검사 (운행일지 · 가이드 탭 · 재고 묶음 · 새 내용 알림 · 피드백)
+  # 실제 브라우저(크로미움)로 화면을 눌러 보는 검사. 가짜 시트 서버를 띄우므로
+  # 팀 시트에는 아무것도 적히지 않는다.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Playwright 준비
         run: |
-          python tests/test_driving.py
-          python tests/test_guide_hub.py
-          python tests/test_inventory_groups.py
-          python tests/test_change_watch.py
-          python tests/test_feedback_v323.py
-
-      - name: 화면 서버 검사 (화면 파일만 내주는지)
-        run: python tests/test_static_host.py
-
-      - name: 앱 업데이트 흐름 검사 (CI · 시트 · 화면 · 안드로이드)
-        run: python tests/test_update_flow.py
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: 화면 검사 (E2E)
+        run: npx playwright test
+      - name: 실패하면 화면 기록 보관
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            playwright-report/
+            test-results/
