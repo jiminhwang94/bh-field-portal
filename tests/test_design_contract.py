@@ -49,7 +49,7 @@ def check(name, ok, detail=""):
 print("화면 머리는 한 줄이다")
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from webcss import all_css  # noqa: E402  (스타일 5개 파일을 차례대로)
+from webcss import all_css, all_store as _all_store  # noqa: E402  (스타일 5개 파일을 차례대로)
 css = all_css()
 
 # 이 두 줄이 되살아나면 앱 전체가 다시 예전 디자인처럼 보인다.
@@ -109,11 +109,12 @@ inventory = read("web/js/views/inventory.js")
 check("재고는 카드가 아니라 표다",
       'class="table table--touch inv-table"' in inventory and '<thead>' in inventory)
 
-report = read("web/js/views/report.js")
+# 작성 · 이력 · 공통 세 파일을 함께 본다 (v3.30 에 나눔)
+report = read("web/js/views/report.js") + "\n" + read("web/js/views/history.js") + "\n" + read("web/js/views/report-common.js")
 check("새 리포트 입력은 2열 격자다", 'class="form-grid"' in report)
 check("여러 줄 항목은 두 칸을 다 쓴다", 'class="field field--wide"' in report)
 
-guides = read("web/js/views/guides.js")
+guides = (read("web/js/views/guides.js") + "\n" + read("web/js/views/guide-page.js"))
 fields = read("web/js/views/fields.js")
 check("가이드 목록은 디자인의 한 줄 행이다",
       'class="row guide-row" href=' in guides and 'row__code' in guides)
@@ -172,9 +173,9 @@ print("사진은 기기 안 파일에서 꺼낸다")
 ui = read("web/js/ui.js")
 check("기기 안 사진을 꺼내는 도우미가 있다", "export async function hydrateMedia" in ui)
 check("기기에 없으면 서버 경로로 되돌아간다", "await sync.serverBase()" in ui)
-for rel in ["web/js/views/guides.js", "web/js/views/report.js"]:
-    src = read(rel)
-    name = os.path.basename(rel)
+# 가이드는 목록(guides.js) · 상세/편집(guide-page.js) 두 파일을 함께 본다 (v3.30 에 나눔)
+for name, src in [("guides.js", read("web/js/views/guides.js") + "\n" + read("web/js/views/guide-page.js")),
+                  ("history.js", read("web/js/views/history.js"))]:
     check("%s — 사진을 data-media 로 그린다" % name, 'data-media="${' in src)
     check("%s — 그린 뒤 채워 넣는다" % name, "hydrateMedia(view)" in src)
 check("단계 사진은 높이가 묶여 있다",
@@ -184,7 +185,7 @@ check("단계 사진은 높이가 묶여 있다",
 print()
 print("리포트 항목은 고정이다")
 
-store_js = read("web/js/local/store.js")
+store_js = _all_store()
 check("기본 항목이 앱 안에 있다", "export const DEFAULT_FIELDS" in store_js)
 check("비어 있을 때만 채운다",
       "export async function ensureDefaultFields" in store_js
@@ -202,7 +203,7 @@ check("기기가 항목 ID 를 새로 지어내지 않는다 (시트 ID 를 따�
       "기기마다 ID 가 갈라지면 다음 업로드에서 또 중복이 된다")
 # 항목 순서는 사람마다 손에 익은 것이 다르다. 순서까지 팀 공통으로 맞추면
 # 남이 자기 태블릿에서 옮길 때 내가 맞춰 둔 양식이 날아간다.
-_store_js = read("web/js/local/store.js")
+_store_js = _all_store()
 _reorder = _store_js.split("export async function reorderFields")[1].split("\n}")[0]
 check("항목 순서는 기기에만 남는다 (시트로 올리지 않는다)",
       "queueFieldSheetPushIfOn" not in _reorder
@@ -276,7 +277,7 @@ check("사진 주소를 시트로 주고받는다",
       "imageUrl: s.imageUrl" in gsheet and "(s.imageUrl || '').trim()" in gsheet)
 check("사진 주소도 같은지 비교한다", "s.imageUrl || ''" in gsheet.split("function same")[1],
       "빼면 시트의 새 사진이 영영 안 내려온다")
-guides_js = read("web/js/views/guides.js")
+guides_js = (read("web/js/views/guides.js") + "\n" + read("web/js/views/guide-page.js"))
 check("사진을 드라이브에 올린다", "async function uploadGuidePhoto" in guides_js)
 check("제목이 정해지는 저장 시점에 한 번 더 챙긴다",
       "async function uploadPendingPhotos" in guides_js

@@ -110,7 +110,7 @@ export async function initUpdateBanner() {
   current = (await store.getMeta(META_KEY, null)) || null;
   paintBanner();
   el.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('[data-act]');
+    const btn = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (ev.target).closest('[data-act]'));
     if (!btn || !current) return;
     if (btn.dataset.act === 'update') startUpdate(current);
     if (btn.dataset.act === 'later') {

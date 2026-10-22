@@ -34,7 +34,10 @@ jobs:
 
       # tests/ 의 test_*.py · test_*.mjs 를 전부 찾아 돌린다 — 개발 PC 와 같은 명령.
       # 새 검사 파일을 만들면 여기 적지 않아도 함께 돈다.
-      - name: 검사 전부
+      - name: 개발 도구 (타입 검사기)
+        run: npm ci
+
+      - name: 검사 전부 (타입 검사 포함)
         run: python tools/run_tests.py
 
   # 실제 브라우저(크로미움)로 화면을 눌러 보는 검사. 가짜 시트 서버를 띄우므로

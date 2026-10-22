@@ -18,3 +18,10 @@ def css_files():
 def all_css():
     return "\n".join(io.open(os.path.join(ROOT, "web", "css", name), encoding="utf-8").read()
                      for name in css_files())
+
+
+def all_store():
+    """기기 저장소(store.js) — v3.30 에 분야별 파일(store-*.js)로 나눴다. 검사는 전부 이어 읽는다."""
+    folder = os.path.join(ROOT, "web", "js", "local")
+    names = ["store.js"] + sorted(f for f in os.listdir(folder) if f.startswith("store-") and f.endswith(".js"))
+    return "\n".join(io.open(os.path.join(folder, n), encoding="utf-8").read() for n in names)

@@ -18,10 +18,12 @@ const SHELL = [
   './js/net.js', './js/install.js', './js/syncnow.js', './js/pending.js', './js/fieldsheet.js',
   './js/drivemedia.js', './js/update.js', './js/drivesheet.js', './js/connect.js', './js/changes.js',
   './js/share.js', './js/ui.js', './js/mode.js', './js/errlog.js',
-  './js/local/idb.js', './js/local/store.js',
-  './js/views/guides.js', './js/views/inventory.js', './js/views/fields.js',
+  './js/local/idb.js', './js/local/store.js', './js/local/store-core.js', './js/local/store-guides.js',
+  './js/local/store-inventory.js', './js/local/store-fields.js', './js/local/store-driving.js',
+  './js/local/store-reports.js',
+  './js/views/guides.js', './js/views/guide-page.js', './js/views/inventory.js', './js/views/fields.js',
   './js/views/driving.js',
-  './js/views/report.js', './js/views/settings.js',
+  './js/views/report.js', './js/views/report-common.js', './js/views/history.js', './js/views/settings.js',
   './icons/icon-192.png', './icons/apple-touch-icon.png',
   './fonts/PretendardVariable.woff2',   // 현장은 오프라인이라 서체도 담아 둔다
 ];

@@ -2,14 +2,16 @@
 import { api } from './api.js';
 import { $, h, closeModal, errorView, loading, toast } from './ui.js';
 import {
-  guideAssignView, guideListView, guideDetailView, guideEditView, guideHubView, guideModelView,
+  guideAssignView, guideListView, guideHubView, guideModelView,
   modelHref, robotColor,
   row as guideRow,
 } from './views/guides.js';
+import { guideDetailView, guideEditView } from './views/guide-page.js';
 import { inventoryView } from './views/inventory.js';
 import { drivingView } from './views/driving.js';
 import { fieldsView } from './views/fields.js';
-import { reportFormView, reportListView, reportDetailView } from './views/report.js';
+import { reportFormView } from './views/report.js';
+import { reportListView, reportDetailView } from './views/history.js';
 import { settingsView } from './views/settings.js';
 import { initSyncButton } from './syncnow.js';
 import { initInstallBanner } from './install.js';
@@ -20,6 +22,7 @@ import { paintTestBanner } from './mode.js';
 const view = $('#view');
 const HEX = '[0-9a-f]{6,}';
 
+/** @type {Array<[RegExp, (match: RegExpExecArray, query: URLSearchParams) => any]>} */
 const routes = [
   [/^\/?$/, mainView],
   [/^\/search$/, searchView],
@@ -60,7 +63,7 @@ function paintTabs(path) {
     : path.startsWith('/reports') ? 'reports'
     : path.startsWith('/settings') || path.startsWith('/fields') ? 'settings'
     : '';
-  document.querySelectorAll('.tab').forEach((el) => {
+  document.querySelectorAll('.tab').forEach((/** @type {HTMLElement} */ el) => {
     if (el.dataset.tab === active) el.setAttribute('aria-current', 'page');
     else el.removeAttribute('aria-current');
   });
@@ -90,7 +93,7 @@ function paintTopAction(path) {
  */
 function syncTopActionLabel() {
   const action = $('#btn-topaction');
-  const submit = document.querySelector('#reportForm button[type=submit]');
+  const submit = /** @type {HTMLButtonElement} */ (document.querySelector('#reportForm button[type=submit]'));
   if (action && submit) {
     action.textContent = submit.textContent.trim();
     action.disabled = submit.disabled;
@@ -346,7 +349,7 @@ $('#backBtn').addEventListener('click', () => {
 // 상단바의 [구글 시트로 업로드] — 폼 아래 버튼을 대신 눌러 준다.
 // 저장 규칙(필수 칸·첨부 한도)은 폼 쪽 한 곳에만 있어야 어긋나지 않는다.
 $('#btn-topaction').addEventListener('click', () => {
-  const submit = document.querySelector('#reportForm button[type=submit]');
+  const submit = /** @type {HTMLButtonElement} */ (document.querySelector('#reportForm button[type=submit]'));
   if (!submit) return;
   if (submit.disabled) { toast('저장 중입니다. 잠시만 기다려 주세요.'); return; }
   submit.click();

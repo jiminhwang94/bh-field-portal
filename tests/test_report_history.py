@@ -20,6 +20,9 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from webcss import all_store as _all_store  # noqa: E402  (store.js + store-*.js)
+
 failures = []
 
 
@@ -41,8 +44,9 @@ gs = read("google-apps-script.gs")
 sheet_js = read("web", "js", "reportsheet.js")
 sheets_js = read("web", "js", "sheets.js")
 sync_js = read("web", "js", "sync.js")
-view_js = read("web", "js", "views", "report.js")
-store_js = read("web", "js", "local", "store.js")
+# 작성 · 이력 · 공통 세 파일을 함께 본다 (v3.30 에 나눔)
+view_js = read("web", "js", "views", "report.js") + "\n".join(read(*p) for p in [("web", "js", "views", "history.js"), ("web", "js", "views", "report-common.js")])
+store_js = _all_store()
 
 # ---------------------------------------------------------- Apps Script 쪽
 check("Apps Script 가 reports 요청을 받는다", "body.reports" in gs)
@@ -102,7 +106,8 @@ for rel in ("google-apps-script.gs",
             os.path.join("web", "js", "reportsheet.js"),
             os.path.join("web", "js", "sheets.js"),
             os.path.join("web", "js", "local", "store.js"),
-            os.path.join("web", "js", "views", "report.js")):
+            os.path.join("web", "js", "views", "report.js"),
+            os.path.join("web", "js", "views", "history.js")):
     raw = open(os.path.join(ROOT, rel), "rb").read()
     check(f"{rel} 에 NUL 문자가 없다", b"\x00" not in raw,
           "" if b"\x00" not in raw else f"{raw.count(chr(0).encode())}개 발견")

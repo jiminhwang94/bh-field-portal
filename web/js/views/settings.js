@@ -351,7 +351,7 @@ export async function settingsView(view) {
   $('#sDevice').addEventListener('keydown', (ev) => {
     if (ev.key !== 'Enter') return;
     ev.preventDefault();
-    document.querySelector('[data-act="save-name"]').click();
+    /** @type {HTMLElement} */ (document.querySelector('[data-act="save-name"]')).click();
   });
 
   const sheetsForm = $('#sheetsForm');

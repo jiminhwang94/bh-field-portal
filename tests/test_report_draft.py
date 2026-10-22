@@ -37,6 +37,9 @@ def read(rel):
         return f.read()
 
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from webcss import all_store as _all_store  # noqa: E402  (store.js + store-*.js)
+
 fails = []
 
 
@@ -48,7 +51,8 @@ def check(name, ok, detail=""):
 
 print("새 리포트 / 리포트 수정 분리")
 
-report = read("web/js/views/report.js")
+# 작성 · 이력 · 공통 세 파일을 함께 본다 (v3.30 에 나눔)
+report = read("web/js/views/report.js") + "\n" + read("web/js/views/history.js") + "\n" + read("web/js/views/report-common.js")
 
 # v3.22 — 칸을 나누는 대신 **되살리기 자체를 없앴다.**
 # 이미 시트에 올린 건의 내용까지 되살아나, 끝난 리포트를 다시 쓰고 있는 것처럼
@@ -178,7 +182,7 @@ print("== 3. 앱을 열 때 시트를 기다리지 않는가")
 
 app = read("web/js/app.js")
 net = read("web/js/net.js")
-store_js = read("web/js/local/store.js")
+store_js = _all_store()
 invsheet = read("web/js/invsheet.js")
 
 boot_prep = net.split("export async function catchUpFromSheet")[0]

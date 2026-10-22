@@ -52,3 +52,14 @@ test('이력에서 상태를 바꾸면 시트의 상태 칸이 바뀐다', async
     return line[col];
   }, { timeout: 15000 }).toBe('모니터링');
 });
+
+test('이력 상세의 [이어서 작성] 이 새 리포트를 지난 값으로 연다 (예전엔 오류로 아무 일도 안 했다)', async ({ page, sheet }) => {
+  await writeReport(page, { symptom: '이어서 검사', action: '이어서 검사 조치' });
+  await expect.poll(async () => monthRows(await sheet.dump()).flat().join(' '), { timeout: 15000 })
+    .toContain('이어서 검사 조치');
+  await openApp(page, '#/reports');
+  await page.locator('.hist-row', { hasText: '홍기와' }).first().click();
+  await page.locator('[data-act="reuse"]').first().click();
+  await expect(page).toHaveURL(/#\/report\/new$/);
+  await expect(field(page, '매장명')).toHaveValue('홍기와');
+});

@@ -35,10 +35,10 @@ export function disableTestMode() {
 export function paintTestBanner() {
   const tm = testMode();
   document.documentElement.toggleAttribute('data-test-mode', Boolean(tm));
-  let bar = document.getElementById('test-banner');
+  let bar = /** @type {HTMLAnchorElement | null} */ (document.getElementById('test-banner'));
   if (!tm) { if (bar) bar.remove(); return; }
   if (!bar) {
-    bar = document.createElement('a');
+    bar = /** @type {HTMLAnchorElement} */ (document.createElement('a'));
     bar.id = 'test-banner';
     bar.className = 'test-banner';
     bar.href = '#/settings';

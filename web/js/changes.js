@@ -81,7 +81,7 @@ export const markSynced = () => checkChanges({ absorb: true });
 
 /** [새로고침] 버튼의 글자와 점. 받는 중(disabled)이면 건드리지 않는다. */
 export function paintUpdateButton() {
-  const btn = document.getElementById('btn-update');
+  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('btn-update'));
   if (!btn || btn.disabled) return;
   btn.classList.toggle('has-new', hasNew);
   btn.textContent = hasNew ? '새 내용 · 새로고침' : '새로고침';

@@ -30,7 +30,7 @@ manifest = read("android", "app", "src", "main", "AndroidManifest.xml")
 update = read("web", "js", "update.js")
 index = read("web", "index.html")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from webcss import all_css  # noqa: E402  (스타일 5개 파일을 차례대로)
+from webcss import all_css, all_store as _all_store  # noqa: E402  (스타일 5개 파일을 차례대로)
 css = all_css()
 net = read("web", "js", "net.js")
 syncnow = read("web", "js", "syncnow.js")
@@ -88,7 +88,7 @@ check("다운로드 관리자가 없으면 브라우저로라도 받는다", "op
 
 print()
 print("== 5. 웹 앱 URL 이 앱에 붙박이로 들어 있다")
-store_js = read("web", "js", "local", "store.js")
+store_js = _all_store()
 check("팀 공용 URL 이 기본값이다", "sheetsWebappUrl: TEAM_WEBAPP_URL" in store_js)
 check("URL 이 실제 배포 주소다 (/exec 로 끝나는 script.google.com)",
       "https://script.google.com/macros/s/" in store_js
@@ -121,7 +121,7 @@ check("엔터로도 등록된다", "ev.key !== 'Enter'" in settings)
 
 print()
 print("== 7. 새 가이드 작성 — 요약 제거 · 단계마다 공구 고르기")
-guides = read("web", "js", "views", "guides.js")
+guides = (read("web", "js", "views", "guides.js") + "\n" + read("web", "js", "views", "guide-page.js"))
 gs_src = read("google-apps-script.gs")
 # 요약 칸은 없앴다. 다만 예전 가이드가 가진 요약과 시트의 '요약' 열은 건드리지 않는다.
 check("요약 입력칸이 없다", 'id="gSummary"' not in guides)

@@ -10,7 +10,14 @@ export function h(value) {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * 화면 요소 하나 — 대부분 버튼 · 입력칸이라 타입 검사가 흔한 속성(value · disabled …)을 알게 한다.
+ * @param {string} sel
+ * @param {ParentNode} [root]
+ * @returns {any}
+ */
 export const $ = (sel, root = document) => root.querySelector(sel);
+/** @returns {any[]} */
 export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 export function toast(message, type = '') {
@@ -206,6 +213,7 @@ export function when(value, { time = true } = {}) {
  */
 export async function hydrateMedia(root = document) {
   // 사진(img) · 영상(video) · "열어 보기" 링크(a) 를 한꺼번에 채운다.
+  /** @type {NodeListOf<HTMLImageElement & HTMLAnchorElement>} */
   const nodes = root.querySelectorAll(
     'img[data-media]:not([data-media-done]),'
     + 'video[data-media]:not([data-media-done]),'
