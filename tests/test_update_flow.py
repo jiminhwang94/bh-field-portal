@@ -245,6 +245,17 @@ check("주소가 안 바뀐다는 것을 화면에서도 말해 준다",
       "이 주소는 바뀌지 않습니다" in settings)
 
 print()
+print("== 5. 버전은 세 곳이 같다 (tools/release.py 가 함께 바꾼다)")
+import re as _re
+_v_js = _re.search(r"APP_VERSION = '([0-9.]+)'", read("web", "js", "version.js"))
+_v_sw = _re.search(r"bh-shell-v([0-9.]+)", sw)
+_v_gr = _re.search(r'appVersionName = "([0-9.]+)"', read("android", "app", "build.gradle"))
+_vs = [m.group(1) if m else None for m in (_v_js, _v_sw, _v_gr)]
+check("version.js · sw.js 캐시 · build.gradle 이 같은 버전", len(set(_vs)) == 1 and None not in _vs, " / ".join(map(str, _vs)))
+check("버전은 version.js 한 곳에 적고 api.js 는 다시 내보내기만", "export { APP_VERSION } from './version.js';" in read("web", "js", "api.js"))
+check("버전 올리기 도구가 있다", "def main(argv)" in read("tools", "release.py"))
+
+print()
 if fails:
     print("실패 %d건: %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)
