@@ -25,6 +25,12 @@ const PROPS = ['display', 'position', 'width', 'height', 'margin', 'padding', 'b
 
 async function fingerprint(page) {
   return page.evaluate((props) => {
+    // 버전 숫자(v3.30.0 · 3.30.0)는 올릴 때마다 바뀐다 — 글자 폭이 달라져 스타일이 바뀐 것처럼
+    // 보이지 않게 같은 글자로 덮고 잰다.
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      if (/\d+\.\d+\.\d+/.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/\d+\.\d+\.\d+/g, '0.0.0');
+    }
     const out = [];
     for (const el of document.querySelectorAll('body *')) {
       if (el.closest('svg') && el.tagName.toLowerCase() !== 'svg') continue;
