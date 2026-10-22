@@ -682,7 +682,9 @@ iframe.step__img--edit, video.step__img--edit { width: 260px; height: 150px; }
 .table tbody tr:hover td { background: var(--color-surface); }
 .table--touch td { font-size: 17px; }
 /* 부품명 칸 — 이름과 알약을 나란히 */
-.table--touch td:first-child { display: flex; align-items: center; gap: 10px; }
+/* 표의 칸은 언제나 표 칸(table-cell)으로 둔다. 한때 첫 칸을 flex 로 바꿨더니 그 칸만
+   표에서 빠져나와 높이·테두리가 옆 칸과 어긋났다 (운행일지 ③사용일자 | ④부서).
+   칸 안에서 가로로 늘어놓을 것은 칸 안의 상자(.inv-pick 등)가 맡는다. */
 
 /* 최소보유보다 적은 행 (tr 에 .is-low-row) */
 .table tbody tr.is-low-row td { background: var(--color-danger-tint); border-color: var(--color-danger-border); }
@@ -1063,7 +1065,7 @@ iframe.step__img--edit, video.step__img--edit { width: 260px; height: 150px; }
    이름 칸(.name-cell)으로 옮긴다. */
 .inv-table td.drag-td, .inv-table th.drag-td { width: 52px; padding-left: 10px; padding-right: 0; }
 .inv-table td:first-child.drag-td { display: table-cell; }
-.inv-table td.name-cell { display: flex; align-items: center; gap: 10px; }
+.inv-table td.name-cell { vertical-align: middle; }
 .inv-table .drag-handle { width: 44px; min-height: 44px; }
 /* 묶음 안의 품목 줄 — 머리줄보다 한 단 들여 써서 "이 묶음에 속한다" 가 보인다 */
 .inv-table tr.inv-item td.name-cell { padding-left: 26px; }
