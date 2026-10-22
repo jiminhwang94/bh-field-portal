@@ -18,7 +18,13 @@ const SHEET_IDS_KEY = 'guideSheetIds';
 async function pendingGuideIds() {
   return new Set((await store.outbox())
     .filter((op) => op.type === 'guidesheet-push')
-    .flatMap((op) => (op.changes || []).map((c) => c.id)));
+    .flatMap((op) => (op.changes || []).filter((c) => c.kind !== 'model').map((c) => c.id)));
+}
+
+/** 아직 시트에 못 올린 로봇 분류 변경이 있는가 */
+async function modelsPending() {
+  return (await store.outbox()).some((op) => op.type === 'guidesheet-push'
+    && (op.changes || []).some((c) => c.kind === 'model'));
 }
 
 /**
@@ -29,10 +35,15 @@ async function pendingGuideIds() {
  * 마지막에 올린 사람의 기기 내용이 다른 사람 변경을 통째로 덮어쓴다.
  */
 export async function pushGuides(changes = null) {
-  const guides = await mergeWithSheet(await idb.getAll('guides'), changes);
+  // 합칠 때 시트를 한 번만 읽는다 — 가이드와 로봇 분류가 같은 응답에 들어 있다.
+  const sheet = changes && changes.length
+    ? await callAppsScript({ guides: 'pull' }, 60000) : null;
+  const guides = mergeWithSheet(await idb.getAll('guides'), changes, sheet);
+  const models = mergeModels(await store.listGuideModels(), changes, sheet);
   const items = guides.map((g) => ({
     id: g.id,
     categoryType: g.categoryType,
+    robotModel: g.robotModel || '',
     codeOrTitle: g.codeOrTitle || '',
     summary: g.summary || '',
     requiredTools: g.requiredTools || '',
@@ -48,9 +59,31 @@ export async function pushGuides(changes = null) {
     })),
     updatedAt: g.updatedAt || '',
   }));
-  const result = await callAppsScript({ guides: 'push', items }, 60000);
+  const result = await callAppsScript({ guides: 'push', items, models }, 60000);
   await store.setMeta(SHEET_IDS_KEY, items.map((g) => g.id).filter(Boolean));
+  await store.setGuideModels(models);
   return result;
+}
+
+/**
+ * 로봇 분류 목록을 시트 것과 합친다 — 시트 순서를 지키고, 내가 지운·이름 바꾼 것은
+ * 빼고, 내가 만든 것은 뒤에 붙인다. 시트에 탭이 아직 없으면 기기 목록을 그대로 올린다.
+ */
+function mergeModels(local, changes, sheet) {
+  const mine = (changes || []).filter((c) => c.kind === 'model');
+  if (!sheet || !Array.isArray(sheet.models) || !mine.length) {
+    return sheet && Array.isArray(sheet.models) && !mine.length ? sheet.models : local;
+  }
+  const gone = new Set();
+  for (const c of mine) {
+    if (c.before && !local.includes(c.before)) gone.add(c.before);   // 이름 바꿈 · 삭제
+    if (!local.includes(c.id)) gone.add(c.id);
+  }
+  const out = sheet.models.filter((m) => !gone.has(m));
+  for (const c of mine) {
+    if (local.includes(c.id) && !out.includes(c.id)) out.push(c.id);
+  }
+  return out;
 }
 
 /**
@@ -63,17 +96,18 @@ export async function pushGuides(changes = null) {
  * 시트를 못 받으면 **올리지 않는다** (오류를 넘겨 대기열에 남긴다). 예전에는
  * 기기 내용을 통째로 올려서, 다른 기기에서 지운 가이드가 시트에 되살아났다.
  */
-async function mergeWithSheet(local, changes) {
-  if (!changes || !changes.length) return local;
-  const sheet = (await callAppsScript({ guides: 'pull' }, 60000)).items || [];
+function mergeWithSheet(local, changes, pulled) {
+  if (!changes || !changes.length || !pulled) return local;
+  const sheet = pulled.items || [];
   if (!sheet.length) return local;
 
   const mine = new Map(local.map((g) => [g.id, g]));
-  const touched = new Set(changes.map((c) => c.id));
+  const guideChanges = changes.filter((c) => c.kind !== 'model');
+  const touched = new Set(guideChanges.map((c) => c.id));
   // 예전 기기는 시트에서 받은 가이드에 **다른 ID** 를 붙여 들고 있다. 그 ID 로
   // 지우면 시트 줄과 짝이 안 맞아 지운 가이드가 남는다 — 제목으로도 알아본다.
   const titleKey = (g) => `${g.categoryType}|${String(g.codeOrTitle || '').trim()}`;
-  const touchedTitles = new Set(changes.filter((c) => c.before).map((c) => titleKey(c.before)));
+  const touchedTitles = new Set(guideChanges.filter((c) => c.before).map((c) => titleKey(c.before)));
   const out = [];
   const seen = new Set();
   for (const row of sheet) {
@@ -122,7 +156,15 @@ export function pullGuides() {
 async function pullGuidesNow() {
   const result = await callAppsScript({ guides: 'pull' }, 60000);
   const rows = result.items || [];
-  if (!rows.length) return { changed: 0, added: 0, removed: 0, deleted: 0 };
+
+  // 로봇 분류 — 시트에 탭이 있고 내가 안 올린 변경이 없을 때만 시트를 따른다.
+  let modelsChanged = 0;
+  if (Array.isArray(result.models) && !(await modelsPending())) {
+    const before = (await store.listGuideModels()).join('|');
+    const after = (await store.setGuideModels(result.models)).join('|');
+    if (before !== after) modelsChanged = 1;
+  }
+  if (!rows.length) return { changed: modelsChanged, added: 0, removed: 0, deleted: 0 };
 
   // 받는 사이에 고친 것도 지키도록, 시트를 받은 **뒤에** 내 대기분을 본다.
   const pending = await pendingGuideIds();
@@ -161,6 +203,7 @@ async function pullGuidesNow() {
     const next = {
       id,
       categoryType: row.categoryType,
+      robotModel: String(row.robotModel || '').trim(),
       codeOrTitle: title,
       summary: String(row.summary || '').trim(),
       requiredTools: String(row.requiredTools || '').trim(),
@@ -221,13 +264,13 @@ async function pullGuidesNow() {
     removed += 1;
   }
 
-  return { changed, added, removed, deleted };
+  return { changed: changed + modelsChanged, added, removed, deleted };
 }
 
 /** 시트에서 온 내용이 기기 것과 같은가 (같으면 건드리지 않는다) */
 function same(a, b) {
   const key = (g) => JSON.stringify([
-    g.categoryType, g.codeOrTitle, g.summary, g.requiredTools,
+    g.categoryType, g.robotModel || '', g.codeOrTitle, g.summary, g.requiredTools,
     (g.commands || []).map((c) => [c.label, c.cmd, c.desc]),
     // 사진 주소도 비교에 넣는다. 빼면 시트에 새 사진이 올라와도
     // "같다" 고 보고 넘어가 **다른 사람 사진이 영영 안 내려온다.**

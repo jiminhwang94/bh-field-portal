@@ -284,7 +284,8 @@ function arrangeTabs(ss) {
   var months = names.filter(function (n) { return /^\d{4}-\d{2}$/.test(n); }).sort().reverse();
 
   // 2) 가이드 — 정해진 차례
-  var guides = [GUIDE_SHEETS.ERROR_CODE, GUIDE_SHEETS.HARDWARE_SOP, GUIDE_SHEETS.SOFTWARE_CMD].filter(has);
+  var guides = [GUIDE_SHEETS.ERROR_CODE, GUIDE_SHEETS.HARDWARE_SOP, GUIDE_SHEETS.SOFTWARE_CMD,
+                GUIDE_MODEL_SHEET].filter(has);
 
   // 3) 운행일지 — 새 해가 앞, 같은 해는 재고 탭의 차량 순서(없으면 이름순)
   var vehicleOrder = [];
@@ -776,9 +777,18 @@ var NEWLINE = String.fromCharCode(10);
 var GUIDE_ID_HEADER = 'ID(고치지 마세요)';
 /** 단계 사진 — `1. <주소>` 꼴로 단계 번호와 함께 적는다 (번호가 곧 몇 번째 단계인지) */
 var GUIDE_PHOTO_HEADER = '단계 사진';
-var GUIDE_HEADER = ['코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일',
+/**
+ * 로봇 분류 (Gen.1 · Gen.2 · Zephyr …) — 같은 오류 코드라도 로봇마다 절차가 다르다.
+ * 맨 앞 열에 둔다. 읽을 때는 **열 이름으로** 찾으므로, 이 열이 없던 예전 탭도
+ * 그대로 읽힌다 (그때는 로봇이 비어 있는 것으로 본다).
+ */
+var GUIDE_ROBOT_HEADER = '로봇';
+var GUIDE_HEADER = [GUIDE_ROBOT_HEADER, '코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일',
                     GUIDE_PHOTO_HEADER, GUIDE_ID_HEADER];
-var GUIDE_WIDTHS = [160, 260, 160, 300, 420, 130, 260, 200];
+var GUIDE_WIDTHS = [110, 160, 260, 160, 300, 420, 130, 260, 200];
+/** 로봇 분류 목록 — 가이드가 하나도 없는 로봇도 팀 전체에 보이도록 따로 둔다. */
+var GUIDE_MODEL_SHEET = '가이드 로봇';
+var GUIDE_MODEL_HEADER = ['로봇 분류 (앱에서 추가·이름 바꾸기·삭제)'];
 
 /* ── 리포트 항목 설정 탭 ──────────────────────────────────────────────
  *
@@ -1205,7 +1215,8 @@ function handleGuides(ss, body) {
       if (!sh) continue;
       out = out.concat(readGuideSheet(sh, t));
     }
-    return json({ ok: true, items: out });
+    // models: 탭이 없으면 null — "아직 아무도 안 만들었다" 와 "비어 있다" 를 가른다.
+    return json({ ok: true, items: out, models: readGuideModels(ss) });
   }
   // 가이드 단계 사진을 드라이브에 저장한다.
   //   { guides: 'media', categoryType, title, files: [{filename, mimeType, data}] }
@@ -1231,6 +1242,9 @@ function handleGuides(ss, body) {
       writeGuideSheet(ss, GUIDE_SHEETS[type], list);
       counts[type] = list.length;
     }
+    if (Object.prototype.toString.call(body.models) === '[object Array]') {
+      writeGuideModels(ss, body.models);
+    }
     SpreadsheetApp.flush();
     return json({ ok: true, counts: counts });
   } finally {
@@ -1253,20 +1267,31 @@ function readGuideSheet(sheet, categoryType) {
   if (lastRow < 3 || lastCol < 1) return [];
 
   var header = sheet.getRange(2, 1, 1, lastCol).getValues()[0];
-  var idCol = -1;
-  for (var c = 0; c < header.length; c++) {
-    if (String(header[c] || '').trim() === GUIDE_ID_HEADER) { idCol = c; break; }
-  }
+  /** 열 이름으로 찾는다. 없으면 '로봇' 열이 생기기 전 배치의 자리를 쓴다. */
+  var colOf = function (name, legacy) {
+    for (var c = 0; c < header.length; c++) {
+      if (String(header[c] || '').trim() === name) return c;
+    }
+    return legacy;
+  };
+  var idCol = colOf(GUIDE_ID_HEADER, -1);
+  var robotCol = colOf(GUIDE_ROBOT_HEADER, -1);
+  var titleCol = colOf('코드/제목', 0);
+  var summaryCol = colOf('요약', 1);
+  var toolsCol = colOf('필요 공구', 2);
+  var cmdCol = colOf('명령어', 3);
+  var stepCol = colOf('단계', 4);
+  var updatedCol = colOf('수정일', 5);
 
   var data = sheet.getRange(3, 1, lastRow - 2, lastCol).getDisplayValues();
   var out = [];
   for (var r = 0; r < data.length; r++) {
     var row = data[r];
-    var title = String(row[0] || '').trim();
+    var title = String(row[titleCol] || '').trim();
     if (!title) continue;
 
     var commands = [];
-    String(row[3] || '').split(NEWLINE).forEach(function (line) {
+    String(row[cmdCol] || '').split(NEWLINE).forEach(function (line) {
       var text = line.trim();
       if (!text) return;
       var desc = '';
@@ -1294,7 +1319,7 @@ function readGuideSheet(sheet, categoryType) {
     }
 
     var steps = [];
-    String(row[4] || '').split(NEWLINE).forEach(function (line) {
+    String(row[stepCol] || '').split(NEWLINE).forEach(function (line) {
       var text = line.trim();
       if (!text) return;
       text = text.replace(/^\d+\.\s*/, '');
@@ -1317,12 +1342,13 @@ function readGuideSheet(sheet, categoryType) {
     out.push({
       id: idCol >= 0 ? String(row[idCol] || '').trim() : '',
       categoryType: categoryType,
+      robotModel: robotCol >= 0 ? String(row[robotCol] || '').trim() : '',
       codeOrTitle: title,
-      summary: String(row[1] || '').trim(),
-      requiredTools: String(row[2] || '').trim(),
+      summary: String(row[summaryCol] || '').trim(),
+      requiredTools: String(row[toolsCol] || '').trim(),
       commands: commands,
       steps: steps,
-      updatedAt: String(row[5] || '').trim()
+      updatedAt: String(row[updatedCol] || '').trim()
     });
   }
   return out;
@@ -1370,6 +1396,7 @@ function writeGuideSheet(ss, name, list) {
     // 칸 수는 GUIDE_HEADER 와 반드시 같아야 한다. 다르면 setValues 가 예외를 던지는데,
     // 그 직전에 clearContents() 가 이미 실행돼 탭이 비워진 채로 남는다.
     rows.push([
+      g.robotModel || '',
       g.codeOrTitle || '', g.summary || '', g.requiredTools || '',
       commands.join(NEWLINE), steps.join(NEWLINE),
       String(g.updatedAt || '').replace('T', ' '),
@@ -1383,6 +1410,39 @@ function writeGuideSheet(ss, name, list) {
   range.setWrap(true);
   // ID 열은 앱이 같은 가이드를 알아보는 용도라 사람에게는 감춘다.
   sheet.hideColumns(GUIDE_HEADER.length);
+}
+
+/** 로봇 분류 목록. 탭이 없으면 null. */
+function readGuideModels(ss) {
+  var sheet = ss.getSheetByName(GUIDE_MODEL_SHEET);
+  if (!sheet) return null;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 3) return [];
+  var data = sheet.getRange(3, 1, lastRow - 2, 1).getDisplayValues();
+  var out = [];
+  for (var r = 0; r < data.length; r++) {
+    var name = String(data[r][0] || '').trim();
+    if (name && out.indexOf(name) < 0) out.push(name);
+  }
+  return out;
+}
+
+function writeGuideModels(ss, models) {
+  var sheet = ss.getSheetByName(GUIDE_MODEL_SHEET);
+  if (!sheet) sheet = ss.insertSheet(GUIDE_MODEL_SHEET);
+  var names = [];
+  for (var i = 0; i < models.length; i++) {
+    var name = String(models[i] || '').trim();
+    if (name && names.indexOf(name) < 0) names.push(name);
+  }
+  sheet.clearContents();
+  var header = sheet.getRange(2, 1, 1, 1);
+  header.setValues([GUIDE_MODEL_HEADER]);
+  header.setFontWeight('bold');
+  header.setBackground('#eef1f5');
+  sheet.setColumnWidth(1, 320);
+  if (!names.length) return;
+  sheet.getRange(3, 1, names.length, 1).setValues(names.map(function (n) { return [n]; }));
 }
 
 /* ============================================================ 첨부 파일(드라이브)

@@ -553,6 +553,41 @@ const twice = call({ guides: 'pull' });
 check('여러 번 왕복해도 건수가 늘지 않는다', twice.items.length === guides.length,
       `${twice.items.length}건`);
 
+// ─────────────────────────────────────────────── 가이드 로봇 분류
+
+check('로봇 분류 탭이 없으면 models 는 null (아직 아무도 안 만듦)', twice.models === null,
+      JSON.stringify(twice.models));
+const withRobot = JSON.parse(JSON.stringify(edited));
+withRobot[0].robotModel = 'Gen.1';
+result = call({ guides: 'push', items: withRobot, models: ['Gen.1', 'Gen.2', 'Zephyr', 'Gen.1', ''] });
+check('로봇 분류를 담아 올릴 수 있다', result.ok === true, result.error || '');
+const robotHeader = errSheet.getRange(2, 1, 1, gs.GUIDE_HEADER.length).getValues()[0];
+check('가이드 탭 맨 앞 열이 로봇이다', robotHeader[0] === '로봇', robotHeader.join(' · '));
+result = call({ guides: 'pull' });
+check('로봇 분류 목록을 되읽는다 (중복·빈 칸 없이)',
+      JSON.stringify(result.models) === JSON.stringify(['Gen.1', 'Gen.2', 'Zephyr']),
+      JSON.stringify(result.models));
+check('가이드의 로봇이 보존된다',
+      (result.items.find((g) => g.id === 'g-aaa') || {}).robotModel === 'Gen.1');
+check('로봇 열이 생겨도 제목·단계가 그대로 읽힌다',
+      (result.items.find((g) => g.id === 'g-aaa') || {}).codeOrTitle === 'E-101 로더 과전류'
+      && (result.items.find((g) => g.id === 'g-aaa') || {}).steps.length === 2);
+call({ guides: 'push', items: withRobot });
+check('models 를 안 보내면 로봇 분류 탭을 건드리지 않는다',
+      JSON.stringify(call({ guides: 'pull' }).models) === JSON.stringify(['Gen.1', 'Gen.2', 'Zephyr']));
+
+// '로봇' 열이 없던 예전 배치의 탭도 그대로 읽힌다
+const oldGuideTab = ss.insertSheet('예전 배치 가이드');
+oldGuideTab.getRange(2, 1, 1, 8).setValues([['코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일', '단계 사진', 'ID(고치지 마세요)']]);
+oldGuideTab.getRange(3, 1, 1, 8).setValues([['E-900 예전 가이드', '예전 요약', '드라이버', 'bhctl reset', '1. 전원을 끈다', '2026-01-01 10:00', '', 'g-old']]);
+const oldRows = gs.readGuideSheet(oldGuideTab, 'ERROR_CODE');
+check('예전 배치 탭: 제목·요약·단계를 제자리에서 읽는다',
+      oldRows.length === 1 && oldRows[0].codeOrTitle === 'E-900 예전 가이드'
+      && oldRows[0].summary === '예전 요약' && oldRows[0].steps[0].instruction === '전원을 끈다'
+      && oldRows[0].id === 'g-old',
+      JSON.stringify(oldRows[0]));
+check('예전 배치 탭: 로봇은 비어 있다', oldRows[0] && oldRows[0].robotModel === '');
+
 // ─────────────────────────────────────────────── 리포트 이력
 
 const HEADERS = ['작성일시', '작성자', '매장명', '오류 코드', '현장 사진', '상태'];

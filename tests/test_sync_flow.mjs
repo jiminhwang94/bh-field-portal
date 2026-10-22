@@ -89,7 +89,7 @@ Object.defineProperty(globalThis, 'navigator', { value: { onLine: true }, config
 
 // ─────────────────────────────────────────── 가짜 시트 (Apps Script 와 같은 규칙)
 
-const sheet = { inv: null, guides: [], fields: [], uploads: [] };
+const sheet = { inv: null, guides: [], models: null, fields: [], uploads: [] };
 let failNext = 0;            // 다음 N 번 부르기를 실패시킨다 (현장 LTE 끊김)
 let calls = 0;
 const later = () => new Promise((r) => setTimeout(r, 5));
@@ -141,9 +141,10 @@ async function serve(body) {
     }
     return readInv();
   }
-  if (body.guides === 'pull') return { ok: true, items: sheet.guides };
+  if (body.guides === 'pull') return { ok: true, items: sheet.guides, models: sheet.models };
   if (body.guides === 'push') {
     sheet.guides = body.items.map((g) => ({ ...g, id: g.id || '' }));
+    if (Array.isArray(body.models)) sheet.models = [...body.models];
     return { ok: true };
   }
   if (body.fields === 'pull') return { ok: true, items: sheet.fields };
@@ -346,6 +347,44 @@ console.log('\n[10] 올리기를 동시에 여러 번 불러도 리포트는 한
   await store.enqueue({ type: 'sheet', reportId: report.id });
   await Promise.all([flush(), flush(), flush()]);
   check('리포트가 한 줄만 올라갔다', sheet.uploads.length === 1, `${sheet.uploads.length}줄`);
+}
+
+console.log('\n[11] 가이드 로봇 분류 — 한 기기는 추가, 다른 기기는 이름 바꾸기 · 둘 다 남는다');
+{
+  round += 1;
+  sheet.guides = []; sheet.models = null; failNext = 0;
+  on('A');
+  await store.saveGuide({ categoryType: 'ERROR_CODE', robotModel: 'Gen.1', codeOrTitle: 'E-500', summary: '모터' });
+  await flush();
+  check('처음 올릴 때 로봇 분류 탭이 기본 셋으로 생긴다',
+        JSON.stringify(sheet.models) === JSON.stringify(['Gen.1', 'Gen.2', 'Zephyr']), JSON.stringify(sheet.models));
+  on('B');
+  await guidesheet.pullGuides();
+  const gB = (await store.listGuides()).find((g) => g.codeOrTitle === 'E-500');
+  check('B 가 받은 가이드에 로봇이 붙어 있다', gB && gB.robotModel === 'Gen.1');
+  on('A');
+  await store.addGuideModel('Gen.3');
+  on('B');
+  await store.renameGuideModel('Gen.1', 'Gen.1A');
+  on('A'); await flush();
+  on('B'); await flush();
+  const set = [...sheet.models].sort().join(',');
+  check('시트 목록에 A 의 추가와 B 의 이름 바꾸기가 모두 남는다',
+        set === ['Gen.1A', 'Gen.2', 'Gen.3', 'Zephyr'].sort().join(','), JSON.stringify(sheet.models));
+  check('이름을 바꾸면 그 로봇의 가이드도 따라간다',
+        (sheet.guides.find((g) => g.codeOrTitle === 'E-500') || {}).robotModel === 'Gen.1A');
+  on('A');
+  await guidesheet.pullGuides();
+  check('A 가 받으면 바뀐 목록과 가이드가 내려온다',
+        (await store.listGuideModels()).includes('Gen.1A')
+        && !(await store.listGuideModels()).includes('Gen.1')
+        && (await store.listGuides()).find((g) => g.codeOrTitle === 'E-500').robotModel === 'Gen.1A');
+  const r = await store.deleteGuideModel('Gen.1A');
+  check('로봇을 지우면 가이드는 남고 미지정으로 옮겨진다',
+        r.moved === 1 && (await store.listGuides()).find((g) => g.codeOrTitle === 'E-500').robotModel === '');
+  const op = (await store.outbox()).find((o) => o.type === 'guidesheet-push');
+  await store.undoGuideModelChanges(op.changes);
+  check('취소하면 로봇 목록이 되살아난다', (await store.listGuideModels()).includes('Gen.1A'));
 }
 
 console.log('');

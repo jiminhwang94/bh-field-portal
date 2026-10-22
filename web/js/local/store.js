@@ -131,6 +131,7 @@ const guideOut = (g, withSteps) => {
   const out = {
     id: g.id,
     categoryType: g.categoryType,
+    robotModel: g.robotModel || '',
     codeOrTitle: g.codeOrTitle,
     summary: g.summary || '',
     requiredTools: g.requiredTools || '',
@@ -147,7 +148,7 @@ function matchesQuery(guide, query) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   const haystack = [
-    guide.codeOrTitle, guide.summary, guide.requiredTools,
+    guide.codeOrTitle, guide.summary, guide.requiredTools, guide.robotModel,
     ...(guide.commands || []).flatMap((c) => [c.label, c.cmd, c.desc]),
     ...(guide.steps || []).flatMap((s) => [s.instruction, s.expectedMetric]),
   ];
@@ -204,6 +205,7 @@ export async function saveGuide(payload, guideId = null) {
   const row = {
     id: guideId || newId(),
     categoryType: payload.categoryType,
+    robotModel: String(payload.robotModel ?? (existing ? existing.robotModel : '') ?? '').trim(),
     codeOrTitle: title,
     summary: (payload.summary || '').trim(),
     requiredTools: (payload.requiredTools || '').trim(),
@@ -223,6 +225,98 @@ export async function deleteGuide(id) {
   await idb.remove('guides', id);
   await queueGuideSheetPushIfOn([{ kind: 'guide', id, before: existing }]);
   return true;
+}
+
+// ------------------------------------------------------- 가이드 로봇 분류
+//
+// 같은 오류 코드라도 로봇(Gen.1 · Gen.2 · Zephyr …)마다 절차가 다르다. 그래서
+// 가이드는 **로봇 → 종류(오류 코드 · 하드웨어 · SW) → 목록** 으로 찾아 들어간다.
+// 로봇 목록은 팀 공통이라 시트의 [가이드 로봇] 탭과 주고받는다 — 가이드가 아직
+// 하나도 없는 로봇도 모두에게 보여야 하기 때문이다. 바꾼 것은 가이드와 같은 대기열
+// (guidesheet-push)에 kind:'model' 로 담겨, 올릴 때 시트 목록 위에 얹힌다.
+//   추가        { kind:'model', id: 새 이름, before: null }
+//   이름 바꾸기 { kind:'model', id: 새 이름, before: 옛 이름 }
+//   삭제        { kind:'model', id: 이름,    before: 이름 }
+export const DEFAULT_GUIDE_MODELS = ['Gen.1', 'Gen.2', 'Zephyr'];
+const GUIDE_MODELS_KEY = 'guideModels';
+
+/** 로봇 분류 목록. 한 번도 정한 적이 없으면 기본 셋. */
+export async function listGuideModels() {
+  const saved = await getMeta(GUIDE_MODELS_KEY, null);
+  return Array.isArray(saved) ? saved : [...DEFAULT_GUIDE_MODELS];
+}
+
+/** 시트에서 받은 목록을 그대로 기기에 둔다 (guidesheet 가 부른다). */
+export async function setGuideModels(models) {
+  const clean = [];
+  for (const raw of models || []) {
+    const name = String(raw || '').trim();
+    if (name && !clean.includes(name)) clean.push(name);
+  }
+  await setMeta(GUIDE_MODELS_KEY, clean);
+  return clean;
+}
+
+const sameName = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+
+export async function addGuideModel(name) {
+  name = String(name || '').trim();
+  if (!name) throw new Error('로봇 이름을 입력하세요.');
+  const models = await listGuideModels();
+  if (models.some((m) => sameName(m, name))) throw new Error('이미 있는 로봇입니다.');
+  await setGuideModels([...models, name]);
+  await queueGuideSheetPushIfOn([{ kind: 'model', id: name, before: null }]);
+  return name;
+}
+
+/** 이름을 바꾸면 그 로봇의 가이드도 함께 옮긴다. */
+export async function renameGuideModel(oldName, nextName) {
+  nextName = String(nextName || '').trim();
+  if (!nextName) throw new Error('로봇 이름을 입력하세요.');
+  if (nextName === oldName) return nextName;
+  const models = await listGuideModels();
+  if (models.some((m) => m !== oldName && sameName(m, nextName))) {
+    throw new Error('이미 있는 로봇입니다.');
+  }
+  await setGuideModels(models.map((m) => (m === oldName ? nextName : m)));
+  const changes = [{ kind: 'model', id: nextName, before: oldName }];
+  const stamp = now();
+  for (const g of await idb.getAll('guides')) {
+    if ((g.robotModel || '') !== oldName) continue;
+    await idb.put('guides', { ...g, robotModel: nextName, updatedAt: stamp });
+    changes.push({ kind: 'guide', id: g.id, before: g });
+  }
+  await queueGuideSheetPushIfOn(changes);
+  return nextName;
+}
+
+/** 지우면 그 로봇의 가이드는 지우지 않고 '로봇 미지정' 으로 옮긴다. */
+export async function deleteGuideModel(name) {
+  const models = await listGuideModels();
+  await setGuideModels(models.filter((m) => m !== name));
+  const changes = [{ kind: 'model', id: name, before: name }];
+  const stamp = now();
+  let moved = 0;
+  for (const g of await idb.getAll('guides')) {
+    if ((g.robotModel || '') !== name) continue;
+    await idb.put('guides', { ...g, robotModel: '', updatedAt: stamp });
+    changes.push({ kind: 'guide', id: g.id, before: g });
+    moved += 1;
+  }
+  await queueGuideSheetPushIfOn(changes);
+  return { moved };
+}
+
+/** [올릴 내용] 에서 취소했을 때 로봇 목록을 바꾸기 전으로 되돌린다. */
+export async function undoGuideModelChanges(changes) {
+  let models = await listGuideModels();
+  for (const c of [...(changes || [])].reverse()) {
+    if (c.kind !== 'model') continue;
+    if (!c.before) { models = models.filter((m) => m !== c.id); continue; }   // 추가 취소
+    if (c.before === c.id) { if (!models.includes(c.id)) models.push(c.id); continue; }  // 삭제 취소
+    models = models.map((m) => (m === c.id ? c.before : m));                   // 이름 되돌리기
+  }
+  await setGuideModels(models);
 }
 
 // -------------------------------------------------------------- 차량

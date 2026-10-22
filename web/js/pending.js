@@ -11,9 +11,10 @@ import { closeModal, h, openSheet, toast, when } from './ui.js';
 
 /** changes 를 "만듦 N · 고침 N · 지움 N" 으로 요약한다. */
 function summarize(changes) {
-  let created = 0; let touched = 0; let ordered = 0;
+  let created = 0; let touched = 0; let ordered = 0; let models = 0;
   for (const c of changes || []) {
     if (c.kind === 'order') ordered += 1;
+    else if (c.kind === 'model') models += 1;
     else if (c.before === null || c.before === undefined) created += 1;
     else touched += 1;
   }
@@ -21,6 +22,7 @@ function summarize(changes) {
   if (created) parts.push(`새로 만듦 ${created}`);
   if (touched) parts.push(`고치거나 지움 ${touched}`);
   if (ordered) parts.push('순서 바꿈');
+  if (models) parts.push(`로봇 분류 ${models}`);
   return parts.join(' · ') || '변경';
 }
 
@@ -123,7 +125,9 @@ async function undo(op) {
     await reportsheet.restoreStatusCache(op.sheetName, op.row, op.before);
   }
   if (op.type === 'guidesheet-push') {
-    await restoreRows('guides', op.changes);
+    // 로봇 분류(kind:'model')는 가이드 저장소의 줄이 아니라 목록이다 — 따로 되돌린다.
+    await restoreRows('guides', (op.changes || []).filter((c) => c.kind !== 'model'));
+    await store.undoGuideModelChanges(op.changes);
     await store.pruneOrphanMedia();
   }
   if (op.type === 'fieldsheet-push') {

@@ -320,7 +320,7 @@ check("탭을 통째로 쓰는 종류는 무엇을 바꿨는지(changes)를 함�
       "이게 없으면 마지막에 올린 사람이 다른 사람 변경을 통째로 덮어쓴다")
 for rel in ["web/js/guidesheet.js", "web/js/fieldsheet.js", "web/js/invsheet.js"]:
     check("%s — 올리기 전에 시트 것과 합친다" % os.path.basename(rel),
-          "async function mergeWithSheet(" in read(rel))
+          "function mergeWithSheet(" in read(rel))
 check("안 올린 항목 변경이 있으면 덮어쓰지 않는다",
       "'fieldsheet-push'" in fieldsheet and "skipped: 'pending'" in fieldsheet,
       "시트 내용으로 덮으면 방금 고친 것이 사라진다")
