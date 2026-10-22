@@ -25,7 +25,9 @@ def check(name, ok, detail=""):
         fails.append(name)
 
 
-css = read("web", "css", "app.css")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from webcss import all_css  # noqa: E402  (스타일 5개 파일을 차례대로)
+css = all_css()
 app = read("web", "js", "app.js")
 index = read("web", "index.html")
 report = read("web", "js", "views", "report.js")
@@ -47,7 +49,9 @@ check("홈 판정은 해시 주소로 한다", 'route.equals("/")' in java)
 
 print()
 print("== 2-가 · 3-가. 눌리는 것은 48px 이상 · 뒤로는 상단바 한 곳")
-check("버튼 기본 48px", ".btn { min-height: 48px; }" in css)
+# v3.28 에서 56px 로 올렸다 (장갑). 48px 아래로 내려가지 않는지만 본다.
+btn_heights = [int(v) for v in re.findall(r"\n\.btn \{[^}]*?min-height: (\d+)px", css)]
+check("버튼 기본 48px 이상", bool(btn_heights) and min(btn_heights) >= 48, str(btn_heights))
 check("상단바 뒤로 56px", ".topbar .btn--icon { min-width: 56px; min-height: 56px;" in css)
 check("화면 속 ← 링크가 하나도 없다", 'class="back"' not in views)
 # 올라간 첨부 타일이 <a> 였고 그 안에 ✕ 버튼이 있었다. 상세 화면의 첨부 링크(버튼 없음)는 그대로다.
@@ -92,8 +96,11 @@ check("제자리에 놓으면 저장하지 않는다", "if (order.join('|') === 
 print()
 print("== 8-가 · 추가 3. 바탕 회청 · 카드 흰색 · 글자 한 단계 크게")
 check("바탕 색 토큰이 있다", "--color-page:" in css and ".app, .screen { background: var(--color-page); }" in css)
-check("레일은 흰 틀", ".tabbar { background: var(--color-bg); }" in css)
-check("카드는 흰색 + 그림자", ".panel { background: var(--color-bg); box-shadow: var(--shadow-raise); }" in css)
+# v3.28(C-1) 에서 레일은 남색 메뉴가 되었다 — 바탕색이 토큰으로 정해져 있는지만 본다.
+check("레일 바탕은 토큰 색", ".tabbar {\n  background: var(--nav-bg);" in css)
+# v3.29(D2) 에서 테두리 없는 흰 카드 + 옅은 그림자가 되었다.
+check("카드는 흰색 + 그림자", ".panel { background: var(--color-bg); }" in css
+      and ".panel { border: 0; border-radius: 20px; box-shadow: var(--shadow-sm); }" in css)
 check("본문 17px", "font-size: 17px;\n  font-weight: 400;" in css)
 check("작은 글자가 남지 않았다 (12px 없음)", "font-size: 12px" not in css)
 check("표 글자 17px", ".table--touch td { font-size: 17px; }" in css)
@@ -102,7 +109,7 @@ print()
 print("== 추가 1. 이력 줄도 줄마다 카드")
 # `.row` 는 패널 안 버튼 묶음에도 쓰는 이름 — 목록 안의 줄에만 걸어야 상자 안의 상자가 안 생긴다.
 check("목록 안의 줄에만 테두리·흰 배경",
-      ".rows > .row, .list > .item, .rows > .item, .list > .row {\n  background: var(--color-bg);\n  border: 1px solid var(--color-border);" in css
+      ".rows > .row, .list > .item, .rows > .item, .list > .row {\n  background: var(--color-bg);" in css
       and "\n.row, .item {\n  background: var(--color-bg);" not in css)
 
 print()

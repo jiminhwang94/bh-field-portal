@@ -48,7 +48,9 @@ def check(name, ok, detail=""):
 
 print("화면 머리는 한 줄이다")
 
-css = read("web/css/app.css")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from webcss import all_css  # noqa: E402  (스타일 5개 파일을 차례대로)
+css = all_css()
 
 # 이 두 줄이 되살아나면 앱 전체가 다시 예전 디자인처럼 보인다.
 check(

@@ -30,7 +30,9 @@ api = read("web", "js", "api.js")
 invsheet = read("web", "js", "invsheet.js")
 pending = read("web", "js", "pending.js")
 gs = read("google-apps-script.gs")
-css = read("web", "css", "app.css")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from webcss import all_css  # noqa: E402  (스타일 5개 파일을 차례대로)
+css = all_css()
 
 print("== 분류로 묶는다")
 check("품목에 분류 칸이 있다 (모든 차량 공용)",

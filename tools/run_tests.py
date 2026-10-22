@@ -30,6 +30,10 @@ def find_node():
 
 
 def main(argv):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     e2e = "--e2e" in argv
     words = [a for a in argv if not a.startswith("--")]
     node = find_node()

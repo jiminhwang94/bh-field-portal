@@ -19,3 +19,4 @@ node_modules/
 playwright-report/
 test-results/
 fake-sheet*.json
+tests/e2e/.style-baseline.json

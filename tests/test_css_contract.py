@@ -37,7 +37,9 @@ def check(label, ok, detail=""):
         failures.append(label)
 
 
-css = open(os.path.join(WEB, "css", "app.css"), encoding="utf-8").read()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from webcss import all_css  # noqa: E402  (스타일 5개 파일을 차례대로)
+css = all_css()
 defined = set(re.findall(r"\.([a-zA-Z][\w-]*)", css))
 
 # 화면 파일이 실제로 쓰는 클래스를 모은다

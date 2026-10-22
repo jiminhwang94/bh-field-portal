@@ -1,0 +1,136 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   비욘드허니컴 · 현장 포털 — 스타일 (5개 파일)
+   ──────────────────────────────────────────────────────────────────────────
+   · 항상 흰 바탕 (다크 모드 없음 — 태블릿 설치 시 검은 배경 문제 해결)
+   · 좌측 세로 레일 내비게이션 (태블릿 가로 1024×768 / 데스크탑 공통)
+   · 흰색 · 잉크 · 코발트 블루 #0047ab · Pretendard
+   · 모든 조작 요소 44px 이상, 수량 버튼 48px
+   불러오는 차례가 곧 덮어쓰는 차례다: tokens.css → base.css → touch.css → focus.css → dashboard.css
+   (index.html 의 <link> 차례. 뒤 파일이 앞 파일을 다듬는다 — 차례를 바꾸지 말 것)
+   스타일을 고친 뒤에는: npx playwright test styles  (계산된 스타일이 기준과 같은지)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+@font-face {
+  font-family: "Pretendard Variable";
+  src: url("/fonts/PretendardVariable.woff2") format("woff2-variations");
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ══ 1. 토큰 ══════════════════════════════════════════════════════════ */
+:root {
+  --test-amber: #f5b301;      /* 테스트 모드 표시 */
+  --test-amber-ink: #3d2a00;
+  color-scheme: light;              /* 시스템 다크모드를 따르지 않는다 */
+
+  /* 면
+     태블릿을 밝은 현장에서 쓴다. 화면 시안에서 알맞아 보이던 아주 옅은 회색은
+     실제 태블릿에서 흰 바탕과 구분이 안 됐다("티가 잘 안 난다").
+     그래서 면·경계·보조 글자·부족 표시를 한 단계씩 진하게 잡는다.
+     코발트와 잉크는 잘 보이므로 그대로 둔다. */
+  --color-bg: #ffffff;
+  /* 화면 바탕. 카드·표·입력칸은 흰색(--color-bg)이고 그 뒤가 이 색이다.
+     둘이 다 흰색이면 카드와 바탕이 한 장으로 붙어 보인다 — 팀 피드백
+     "구분된 느낌이 없다". 밝은 현장에서도 갈라져 보이게 조금 진하게 잡았다. */
+  --color-page: #eef1f5;
+  /* 왼쪽 메뉴 (C-1) — 짙은 남색 틀. 본문은 밝게 두어 메뉴와 할 일이 갈라져 보인다. */
+  --nav-bg: #0a1730;
+  --nav-fg: #c9d3e4;
+  --nav-hover: rgba(255, 255, 255, .08);
+  --nav-active: #1e3d75;
+  --color-text-2: #2a303a;          /* 라벨 · 보조 본문 — 본문보다 한 단 옅게 */
+  --color-badge: #c9372f;           /* 메뉴 · 칩의 '부족' 숫자 동그라미 */
+  --color-on-dark-muted: #c9d1dd;   /* 검은 칩 위의 옅은 숫자 */
+  --color-on-accent-muted: #d5e1f7; /* 코발트 위의 옅은 글자 */
+  /* 상태 다섯 색 (D2) — 진한 색 · 옅은 면 · 아주 옅은 바탕. 가이드 종류도 같은 색을 빌려 쓴다 */
+  --st-all: #111418;   --st-all-tint: #eef0f3;   --st-all-soft: #f6f7f9;
+  --st-doing: #0047ab; --st-doing-tint: #e3ecfb; --st-doing-soft: #f1f5fd;
+  --st-swap: #b4400c;  --st-swap-tint: #fdebdd;  --st-swap-soft: #fff8f2;
+  --st-watch: #6131b4; --st-watch-tint: #efe8fb; --st-watch-soft: #f7f3fd;
+  --st-done: #0b7a45;  --st-done-tint: #ddf3e7;  --st-done-soft: #f2faf6;
+  --color-surface: #eef1f5;         /* 레일 · 목록 hover */
+  --color-surface-2: #e4e9f0;       /* 세그먼트 트랙 · 눌린 면 */
+  --color-text: #16181d;
+  --color-muted: #5a6270;           /* 보조 텍스트 */
+  --color-faint: #6f7784;           /* 3차 텍스트 · 표 머리 */
+  --color-disabled: #9aa2ae;
+  --color-border: #d2d8e1;
+  --color-border-strong: #b8c0cc;
+  --color-hairline: #dde2ea;        /* 셸 구분선 */
+
+  /* 코발트 블루 — 브랜드 강조색 */
+  --color-accent: #0047ab;
+  --color-accent-hover: #003a8c;
+  --color-accent-press: #002f73;
+  /* 코발트 자체는 잘 보이지만, 옅은 코발트 면(처리 현황 타일 · 알약)은
+     흰 바탕 위에서 거의 안 갈라졌다. 면도 한 단계 진하게 잡는다. */
+  --color-accent-tint: #dfe8fc;
+  --color-accent-tint-2: #c3d4f7;
+  --color-on-accent: #ffffff;
+
+  /* 상태 */
+  --color-ok: #0f7a45;
+  --color-ok-tint: #d9efe4;
+  --color-warn: #b45309;
+  --color-warn-tint: #fdeed8;
+  --color-danger: #b4231f;
+  --color-danger-tint: #fbe9e7;     /* 부족 행 배경 */
+  --color-danger-tint-2: #f5cfca;   /* 부족 알약 */
+  --color-danger-border: #db958e;
+  --color-danger-tint-hover: #f7dcd8;  /* 부족 행에 마우스를 올렸을 때 */
+
+  /* 서체 */
+  --font-body: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-heading: var(--font-body);
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  --font-heading-weight: 600;
+
+  /* 간격 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 22px;
+  --space-6: 28px;
+  --space-8: 36px;
+
+  /* 형태 */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 2px rgba(16, 18, 23, .09);
+  --shadow-raise: 0 1px 3px rgba(16, 18, 23, .16);
+  --shadow-md: 0 4px 16px rgba(16, 18, 23, .12);
+  --shadow-lg: 0 16px 40px rgba(16, 18, 23, .14);
+  --shadow-accent: 0 1px 2px rgba(0, 71, 171, .3);
+
+  /* 셸 치수 */
+  --rail-w: 232px;                   /* C-1: 글자가 붙은 왼쪽 메뉴 (좁은 태블릿에서는 104px 레일) */
+  --rail-item-h: 60px;
+  --topbar-h: 72px;
+  --touch-lg: 76px;   /* 검색 입력대 */
+  --touch-md: 62px;   /* 코드 버튼 */
+  --touch-sm: 48px;   /* 목록 행 · 도구 */
+
+  /* 하위 호환 별칭 — 기존 마크업의 var() 이름을 그대로 받는다 */
+  --color-divider: var(--color-border);
+  --color-neutral-100: var(--color-surface);
+  --color-neutral-200: var(--color-surface-2);
+  --color-neutral-300: var(--color-border);
+  --color-neutral-500: var(--color-faint);
+  --color-neutral-700: var(--color-muted);
+  --color-neutral-800: #2b323d;
+  --color-neutral-900: var(--color-text);
+  --color-accent-100: var(--color-accent-tint);
+  --color-accent-300: var(--color-accent-tint-2);
+  --color-accent-700: var(--color-accent);
+  --color-accent-800: var(--color-accent-hover);
+  --color-accent-900: var(--color-accent-press);
+  --danger: var(--color-danger);
+  --pending: var(--color-accent);
+  --warn: var(--color-warn);
+}

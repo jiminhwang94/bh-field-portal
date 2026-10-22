@@ -73,7 +73,7 @@ try:
     check("JS 를 javascript 로 준다", status == 200
           and headers.get("Content-Type", "").startswith("application/javascript"),
           headers.get("Content-Type", ""))
-    status, headers, _ = fetch(base, "/css/app.css")
+    status, headers, _ = fetch(base, "/css/tokens.css")
     check("CSS 를 text/css 로 준다", status == 200
           and headers.get("Content-Type", "").startswith("text/css"),
           headers.get("Content-Type", ""))

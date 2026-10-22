@@ -27,7 +27,9 @@ def check(name, ok, detail=""):
 guides = read("web", "js", "views", "guides.js")
 app = read("web", "js", "app.js")
 index = read("web", "index.html")
-css = read("web", "css", "app.css")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from webcss import all_css  # noqa: E402  (스타일 5개 파일을 차례대로)
+css = all_css()
 store = read("web", "js", "local", "store.js")
 
 print("== 왼쪽 메뉴 — 하는 일의 차례")

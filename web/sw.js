@@ -12,12 +12,12 @@ const CACHE = 'bh-shell-v3.29.0';
 // ⚠️ 화면 파일(js/css)을 추가하면 **이 목록에도 반드시 추가**해야 오프라인에서 열린다.
 //    (tests/test_offline_shell.py 가 빠진 파일이 있는지 검사한다)
 const SHELL = [
-  './', './index.html', './css/app.css', './manifest.webmanifest',
+  './', './index.html', './css/tokens.css', './css/base.css', './css/touch.css', './css/focus.css', './css/dashboard.css', './manifest.webmanifest',
   './js/app.js', './js/api.js', './js/sync.js', './js/sheets.js',
   './js/invsheet.js', './js/guidesheet.js', './js/reportsheet.js',
   './js/net.js', './js/install.js', './js/syncnow.js', './js/pending.js', './js/fieldsheet.js',
   './js/drivemedia.js', './js/update.js', './js/drivesheet.js', './js/connect.js', './js/changes.js',
-  './js/share.js', './js/ui.js', './js/mode.js',
+  './js/share.js', './js/ui.js', './js/mode.js', './js/errlog.js',
   './js/local/idb.js', './js/local/store.js',
   './js/views/guides.js', './js/views/inventory.js', './js/views/fields.js',
   './js/views/driving.js',
