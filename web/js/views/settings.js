@@ -5,6 +5,7 @@ import {
   getInstallLink, loadInstallLink,
 } from '../update.js';
 import { connectionState, ensureSheetConnection } from '../connect.js';
+import { testMode, enableTestMode, disableTestMode } from '../mode.js';
 
 /** 주소 칸을 사람이 직접 열었는가 (이 화면에 머무는 동안만). */
 let sheetFormOpen = false;
@@ -203,6 +204,26 @@ export async function settingsView(view) {
         <div id="installLinkBox">${installLinkHtml(getInstallLink())}</div>
       </details>
 
+      <details class="panel panel--fold" id="testPanel"${testMode() ? ' open' : ''}>
+        <summary class="panel__title">테스트 모드 ${testMode() ? '<span class="badge badge--warn">켜짐</span>' : ''}</summary>
+        <p class="muted" style="margin:14px 0;line-height:1.65">
+          저장 · 삭제 · 상태 바꾸기를 <strong>팀 시트가 아닌 연습용 시트</strong>에서 눌러 봅니다.
+          기기 안 자료도 따로 보관되어 진짜 리포트 · 가이드와 섞이지 않습니다.
+          연습용 시트는 PC 에서 <span class="mono">node tools/fake_sheet_server.mjs</span> 를 켜거나,
+          팀 시트를 복사해 만든 테스트용 Apps Script 주소를 씁니다.
+        </p>
+        <div class="field">
+          <label for="sTestUrl">연습용 시트 주소</label>
+          <input class="input mono" id="sTestUrl" value="${h((testMode() && testMode().url) || 'http://127.0.0.1:8790/exec')}"
+                 autocapitalize="off" spellcheck="false" />
+        </div>
+        <div class="row" style="gap:8px">
+          ${testMode()
+            ? '<button class="btn btn-dark" data-act="test-off" type="button">테스트 모드 끄기 (팀 시트로 돌아가기)</button>'
+            : '<button class="btn btn-secondary" data-act="test-on" type="button">테스트 모드 켜기</button>'}
+        </div>
+      </details>
+
       <details class="panel panel--fold">
         <summary class="panel__title">오프라인 사용</summary>
         <div class="row" style="gap:8px;margin:14px 0">
@@ -233,6 +254,24 @@ export async function settingsView(view) {
     const act = btn.dataset.act;
 
     if (act === 'install') { await installApp(); return; }
+    if (act === 'test-on') {
+      const url = $('#sTestUrl').value.trim();
+      if (url && !/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(url)) {
+        toast('주소는 https:// 또는 http://127.0.0.1 로 시작해야 합니다.', 'err');
+        return;
+      }
+      const okGo = await confirmDialog('테스트 모드 켜기',
+        '연습용 저장소로 앱을 다시 엽니다. 진짜 자료는 그대로 두었다가 끄면 돌아옵니다.', '켜기');
+      if (!okGo) return;
+      enableTestMode(url);
+      location.reload();
+      return;
+    }
+    if (act === 'test-off') {
+      disableTestMode();
+      location.reload();
+      return;
+    }
     if (act === 'install-help') { showManualGuide(); return; }
     if (act === 'sheets-help') { openSheetsGuide(settings); return; }
 

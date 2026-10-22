@@ -15,6 +15,7 @@ import { initSyncButton } from './syncnow.js';
 import { initInstallBanner } from './install.js';
 import { initNetStatus, ensureFirstData, catchUpFromSheet } from './net.js';
 import { initUpdateBanner } from './update.js';
+import { paintTestBanner } from './mode.js';
 
 const view = $('#view');
 const HEX = '[0-9a-f]{6,}';
@@ -369,6 +370,7 @@ window.addEventListener('bh-inventory-changed', paintNavBadge);
   // 화면은 건드리지 않는다 — 받는 시점은 사람이 정한다.
   import('./changes.js').then((c) => c.initChangeWatch()).catch(() => {});
 })();
+paintTestBanner();             // 테스트 모드면 맨 위 노란 띠
 registerServiceWorker();       // 오프라인에서 앱이 열리도록
 initUpdateBanner();            // 새 버전 안내 띠 (지난번 받아 둔 정보로 먼저 그린다)
 initNetStatus();               //  오프라인 표시 + 대기 작업 자동 처리

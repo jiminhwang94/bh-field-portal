@@ -4,6 +4,7 @@
 // (서버 app/sheets.py 의 전송 형식과 동일하게 맞춘다)
 import * as store from './local/store.js';
 import { isOnline, OfflineError } from './sync.js';
+import { testMode } from './mode.js';
 
 const META_HEADERS = ['작성일시', '작성자'];
 
@@ -235,6 +236,10 @@ export async function callAppsScript(payload, timeout = 60000) {
   }
   const settings = await store.getSettings();
   const endpoint = (settings.sheetsWebappUrl || '').trim();
+  // 테스트 모드에서는 팀 주소로 절대 보내지 않는다 (설정이 어떻게 꼬여도).
+  if (testMode() && endpoint === store.TEAM_WEBAPP_URL) {
+    throw new SheetsError('테스트 모드에서는 팀 시트에 보내지 않습니다. 설정에서 테스트 주소를 확인하세요.');
+  }
   checkEndpoint(endpoint);
   try {
     return await postDirect(endpoint, payload, timeout);

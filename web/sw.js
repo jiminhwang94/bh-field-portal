@@ -17,7 +17,7 @@ const SHELL = [
   './js/invsheet.js', './js/guidesheet.js', './js/reportsheet.js',
   './js/net.js', './js/install.js', './js/syncnow.js', './js/pending.js', './js/fieldsheet.js',
   './js/drivemedia.js', './js/update.js', './js/drivesheet.js', './js/connect.js', './js/changes.js',
-  './js/share.js', './js/ui.js',
+  './js/share.js', './js/ui.js', './js/mode.js',
   './js/local/idb.js', './js/local/store.js',
   './js/views/guides.js', './js/views/inventory.js', './js/views/fields.js',
   './js/views/driving.js',

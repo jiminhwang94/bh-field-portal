@@ -62,8 +62,8 @@ def main(argv):
             results.append(("e2e", None, 0.0, "node 를 찾지 못했습니다"))
         else:
             start = time.time()
-            npx = os.path.join(os.path.dirname(node), "npx.cmd" if os.name == "nt" else "npx")
-            proc = subprocess.run([npx, "playwright", "test"], cwd=ROOT, env=env,
+            cli = os.path.join(ROOT, "node_modules", "@playwright", "test", "cli.js")
+            proc = subprocess.run([node, cli, "test", "--reporter=line"], cwd=ROOT, env=env,
                                   capture_output=True, text=True, encoding="utf-8", errors="replace")
             tail = "\n".join((proc.stdout + proc.stderr).strip().splitlines()[-25:])
             results.append(("e2e (playwright)", proc.returncode == 0, time.time() - start, tail))

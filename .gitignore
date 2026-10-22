@@ -13,3 +13,9 @@ __pycache__/
 
 # 자동 백업 (로컬 전용 — 저장소에 넣지 않는다)
 backups/
+
+# 개발 도구 (npm) · 화면 검사 결과
+node_modules/
+playwright-report/
+test-results/
+fake-sheet*.json

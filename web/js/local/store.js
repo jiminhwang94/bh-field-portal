@@ -1,6 +1,7 @@
 // 기기 안 데이터 조작 — 앱의 모든 조회·생성·수정·삭제가 여기서 끝난다.
 // 화면(views) 은 이 파일만 보고 동작하므로 오프라인/온라인 구분이 필요 없다.
 import * as idb from './idb.js';
+import { testMode } from '../mode.js';
 
 export const CATEGORY_TYPES = ['ERROR_CODE', 'HARDWARE_SOP', 'SOFTWARE_CMD'];
 export const FIELD_TYPES = ['TEXT', 'TEXTAREA', 'NUMBER', 'DROPDOWN', 'MEDIA'];
@@ -112,6 +113,12 @@ export async function getSettings() {
   // 사람이 설정에서 직접 다른 주소로 바꾼 기기는 그대로 둔다.
   const url = String(merged.sheetsWebappUrl || '').trim();
   if (!url || PAST_WEBAPP_URLS.includes(url)) merged.sheetsWebappUrl = TEAM_WEBAPP_URL;
+  // 테스트 모드: 주소를 테스트 주소로 **강제**한다 (비어 있으면 아무 데도 안 보낸다).
+  const tm = testMode();
+  if (tm) {
+    merged.sheetsWebappUrl = tm.url;
+    merged.sheetsSpreadsheetId = tm.spreadsheetUrl || '';
+  }
   return merged;
 }
 

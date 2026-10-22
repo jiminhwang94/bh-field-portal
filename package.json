@@ -1,0 +1,15 @@
+{
+  "name": "bh-field-portal",
+  "private": true,
+  "description": "현장 포털 — 개발용 도구만 (앱 자체는 외부 라이브러리 없이 돈다)",
+  "scripts": {
+    "test": "python tools/run_tests.py",
+    "e2e": "playwright test",
+    "fake-sheet": "node tools/fake_sheet_server.mjs",
+    "typecheck": "tsc -p jsconfig.json"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.52.0",
+    "typescript": "5.8.3"
+  }
+}
