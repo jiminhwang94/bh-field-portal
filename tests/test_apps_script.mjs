@@ -1195,6 +1195,34 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
       && tabNames.indexOf('앱 버전') < opsAt, tabNames.join(','));
 }
 
+{ // 첨부 조각 올리기 (v3.30)
+  console.log('── 첨부 조각 올리기 — 끊겨도 이어 올린다');
+  const parts = ['AAAA', 'BBBB', 'CCCC'];
+  for (let i = 0; i < parts.length; i += 1) {
+    const r = call({ media: 'chunk', uploadId: 'mzz-test1', index: i, total: 3, data: parts[i] });
+    if (!r.ok) check(`조각 ${i} 를 받는다`, false, JSON.stringify(r));
+  }
+  call({ media: 'chunk', uploadId: 'mzz-test1', index: 1, total: 3, data: 'BBBB' });   // 같은 조각을 다시 (재시도)
+  const chunkDir = findPath('업로드 조각 (자동 정리)');
+  check('조각은 조각 폴더에 놓인다 · 다시 받은 조각은 새것 하나만 살아 있다',
+        chunkDir && chunkDir.files.filter((f) => f.name === 'mzz-test1.1' && !f.trashed).length === 1);
+  let r = call({ media: 'finish', uploadId: 'mzz-test2', total: 2, filename: 'x.jpg', mimeType: 'image/jpeg' });
+  check('빠진 조각이 있으면 파일을 만들지 않고 어느 조각인지 알려 준다', r.ok === false && JSON.stringify(r.missing) === '[0,1]', JSON.stringify(r));
+  r = call({ media: 'finish', uploadId: 'mzz-test1', total: 3, filename: '현장.jpg', mimeType: 'image/jpeg',
+             storeName: '조각점', dateText: '2099-08-01' });
+  const made = findPath('조각점', '2099-08-01', '사진');
+  check('조각을 이어 붙여 매장 → 날짜 → 사진 폴더에 파일 하나를 만든다', r.ok === true && made
+        && made.files.length === 1 && /drive\.google\.com/.test(r.url), JSON.stringify(r));
+  check('붙인 파일의 내용은 조각을 차례대로 이은 것이다', made && made.files[0] && made.files[0].getBlob()._bytes._b64 === 'AAAABBBBCCCC',
+        made && made.files[0] && JSON.stringify(made.files[0].getBlob()._bytes));
+  check('다 붙인 조각은 지운다', chunkDir.files.filter((f) => f.name.startsWith('mzz-test1.') && !f.trashed).length === 0);
+  const before = ss.getSheetByName('2099-09') ? ss.getSheetByName('2099-09').getLastRow() : 0;
+  call({ sheetName: '2099-09', headers: ['작성일시', '매장명', '현장 사진', '상태'],
+         row: ['2099-09-01 10:00', '조각점', r.url, '조치 진행 중'] });
+  const tab = ss.getSheetByName('2099-09');
+  check('미리 올린 첨부 주소도 시트에서 눌러 열리는 링크가 된다', tab.links.size > 0 && tab.getLastRow() > before);
+}
+
 console.log('='.repeat(62));
 if (failures.length) {
   console.log(`❌ 실패 ${failures.length}건: ${failures.join(', ')}`);

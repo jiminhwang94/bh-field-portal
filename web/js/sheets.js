@@ -6,6 +6,7 @@ import * as store from './local/store.js';
 import { isOnline, OfflineError } from './sync.js';
 import { testMode } from './mode.js';
 import { APP_VERSION } from './version.js';
+import { uploadResumable, forgetUploads } from './mediaupload.js';
 
 const META_HEADERS = ['작성일시', '작성자'];
 
@@ -102,7 +103,7 @@ function blobToBase64(blob) {
  * 첨부(사진·영상·PDF)는 시트에 박아 넣지 않고 드라이브에 올린 뒤 칸에 링크만 남긴다.
  * 그래야 영상도 올라가고, 이력 화면이 그 링크로 썸네일을 그릴 수 있다.
  */
-export async function buildPayload(report, fields, deviceName) {
+export async function buildPayload(report, fields, deviceName, { chunked = false } = {}) {
   const labels = fields.map((f) => f.fieldLabel);
   const byLabel = new Map();
   for (const item of report.payload || []) {
@@ -117,6 +118,7 @@ export async function buildPayload(report, fields, deviceName) {
   ];
   const media = [];
   const skipped = [];
+  const uploaded = [];            // 조각으로 미리 올린 것 { key, public, video }
   let budget = MEDIA_TOTAL_LIMIT;
   // 첨부는 공유 드라이브의 사진/동영상 → 매장 → 날짜 폴더로 들어간다.
   const storeName = findStoreName(report.payload);
@@ -130,6 +132,7 @@ export async function buildPayload(report, fields, deviceName) {
       row.push(item.value === null || item.value === undefined ? '' : String(item.value));
       continue;
     }
+    const early = [];               // 이 칸에 미리 올린 첨부 주소
     for (const attachment of item.media || []) {
       const filename = (attachment.filename || '').replace(/^.*\//, '');
       if (!filename) continue;
@@ -142,6 +145,16 @@ export async function buildPayload(report, fields, deviceName) {
         skipped.push({ filename, reason: '리포트 전체 용량 25MB 초과' }); continue;
       }
       budget -= blob.size;
+      const mimeType = attachment.mime || blob.type || 'application/octet-stream';
+      if (chunked) {
+        const up = await uploadResumable(blob, {
+          key: filename, filename: attachment.originalName || filename, mimeType, storeName, dateText,
+          label: `${mimeType.startsWith('video/') ? '영상' : '사진'} ${uploaded.length + 1}`,
+        }, callAppsScript);
+        early.push(up.url);
+        uploaded.push({ key: filename, public: up.public, video: mimeType.startsWith('video/') });
+        continue;
+      }
       media.push({
         column,
         filename: attachment.originalName || filename,
@@ -155,14 +168,14 @@ export async function buildPayload(report, fields, deviceName) {
     // 지워져 드라이브에는 있는데 리포트에서는 사라진다.
     // 새로 올린 것은 Apps Script 가 이 뒤에 이어 붙인다.
     const kept = (item.kept || []).map((l) => l.url).filter(Boolean);
-    row.push(kept.join('\n'));
+    row.push([...kept, ...early].join('\n'));
   }
 
   row.push(seedStatus(report.payload));
 
   return {
     sheetName: monthSheetName(report.createdAt),
-    headers, row, media, mediaSkipped: skipped,
+    headers, row, media, mediaSkipped: skipped, uploaded,
   };
 }
 
@@ -206,7 +219,13 @@ async function postDirect(endpoint, payload, timeout = 120000) {
     throw new SheetsError(`구글 응답을 해석할 수 없습니다: ${body.slice(0, 200)}`);
   }
   if (!result.ok) {
-    throw new SheetsError(`구글 시트 기록 실패: ${result.error || JSON.stringify(result)}`);
+    const err = new SheetsError(`구글 시트 기록 실패: ${result.error || JSON.stringify(result)}`);
+    // 조각 올리기를 모르는 옛 Apps Script 는 'sheetName 이 없습니다' 라고 답한다
+    if ((payload.media === 'chunk' || payload.media === 'finish') && /sheetName/.test(String(result.error || ''))) {
+      /** @type {any} */ (err).unsupported = true;
+    }
+    if (Array.isArray(result.missing)) /** @type {any} */ (err).missing = result.missing;
+    throw err;
   }
   return result;
 }
@@ -251,22 +270,34 @@ export async function callAppsScript(payload, timeout = 60000) {
     // 무엇이 막았는지 그대로 알려 준다 — 감추면 고칠 수가 없다.
     // 줄은 배열로 만들어 잇는다. 문자열 안에 줄바꿈 기호를 직접 쓰면
     // 편집 도구를 거치며 **진짜 줄바꿈으로 바뀌어** 파일이 깨진다.
-    throw new SheetsError([
+    // network — 연결이 끊긴 것(응답 자체를 못 받음). 시트가 '안 된다' 고 답한 것과 다르다:
+    // 올리기는 기기에 두었다가 저절로 다시 한다.
+    throw Object.assign(new SheetsError([
       '구글 시트에 연결하지 못했습니다.',
       `(${err && err.message ? err.message : '알 수 없는 오류'})`,
       '',
       '· 인터넷에 연결되어 있는지',
       '· 웹 앱 URL 이 /exec 로 끝나는지',
       "· Apps Script 배포의 [액세스 권한] 이 '모든 사용자' 인지 확인하세요.",
-    ].join(String.fromCharCode(10)));
+    ].join(String.fromCharCode(10))), { network: true });
   }
 }
 
-/** 리포트를 시트에 올린다. */
+/** 이 시트가 조각 올리기를 모르면(옛 Apps Script) 이번 실행 동안은 예전 방식으로 */
+let chunkUnsupported = false;
+
+/** 리포트를 시트에 올린다. 첨부는 조각으로 먼저 올리고(이어 올리기), 줄에는 주소를 쓴다. */
 export async function uploadReport(report) {
   const fields = await store.listFields();
   const deviceName = localStorage.getItem('bh_device_name') || '';
-  const payload = await buildPayload(report, fields, deviceName);
+  let payload;
+  try {
+    payload = await buildPayload(report, fields, deviceName, { chunked: !chunkUnsupported });
+  } catch (err) {
+    if (!(err && err.unsupported)) throw err;
+    chunkUnsupported = true;                       // 옛 시트 — 한 번에 보내는 예전 방식
+    payload = await buildPayload(report, fields, deviceName, { chunked: false });
+  }
 
   // 이미 시트에 있는 줄을 손보는 중이면 그 줄을 고쳐 쓴다.
   // 새로 올리면 같은 방문이 두 줄이 된다.
@@ -285,6 +316,7 @@ export async function uploadReport(report) {
     }, 120000)
     : await callAppsScript(payload, 120000);
 
+  await forgetUploads((payload.uploaded || []).map((u) => u.key));
   await store.markReport(report.id, {
     status: 'UPLOADED',
     sheetName: result.sheetName || payload.sheetName,
@@ -295,15 +327,16 @@ export async function uploadReport(report) {
     sheetName: result.sheetName || payload.sheetName,
     row: result.row,
     created: Boolean(result.created),
-    media: Number(result.media || 0),
+    media: Number(result.media || 0) + (payload.uploaded || []).length,
     mediaSkipped: [...payload.mediaSkipped, ...(result.mediaSkipped || [])],
     // 공유 드라이브에 못 닿으면 개인 드라이브로 간다 — 그대로 두면 안 되므로 알린다.
     mediaShared: result.mediaShared !== false,
     // 링크 공개가 막혀 비공개로 남은 첨부 수. 사진은 앱이 바이트를 직접 받아
     // 그리지만 **동영상은 그렇게 못 한다**(너무 크다). 그래서 동영상이 섞여 있고
     // 비공개가 있으면 화면에서 알려 준다.
-    mediaPrivate: Number(result.mediaPrivate || 0),
-    mediaVideos: payload.media.filter((m) => String(m.mimeType || '').startsWith('video/')).length,
+    mediaPrivate: Number(result.mediaPrivate || 0) + (payload.uploaded || []).filter((u) => !u.public).length,
+    mediaVideos: payload.media.filter((m) => String(m.mimeType || '').startsWith('video/')).length
+      + (payload.uploaded || []).filter((u) => u.video).length,
     spreadsheetUrl: spreadsheetUrl(await store.getSettings()),
   };
 }

@@ -540,8 +540,14 @@ export async function reportFormView(view) {
       return;
     }
     setSubmitState('구글 시트에 올리는 중…', true);
+    // 첨부를 조각으로 올리는 동안 몇 번째인지 보여 준다 (LTE 에서 오래 걸려도 멈춘 게 아니다)
+    const onProgress = (ev) => {
+      const d = ev.detail || {};
+      if (d.total) setSubmitState(`올리는 중 · ${d.label} ${Math.round((d.sent / d.total) * 100)}%`, true);
+    };
+    window.addEventListener('bh-upload-progress', onProgress);
     try {
-      const result = await api.uploadReportToSheet(saved.id);
+      const result = await api.uploadReportToSheet(saved.id).finally(() => window.removeEventListener('bh-upload-progress', onProgress));
       if (result.queued) {
         // 오프라인 — 기기에 저장해 두었다가 연결되면 자동으로 올린다.
         toast('기기에 저장했습니다. 인터넷에 연결되면 자동으로 시트에 올립니다.', 'ok');

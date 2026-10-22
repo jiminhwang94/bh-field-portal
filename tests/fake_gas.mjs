@@ -211,12 +211,21 @@ export function createFakeGas() {
         let at = 0;
         return { hasNext: () => at < list.length, next: () => list[at++] };
       },
+      getFilesByName(name) {
+        const list = folder.files.filter((f) => f.name === name);
+        let at = 0;
+        return { hasNext: () => at < list.length, next: () => list[at++] };
+      },
       getFiles() {
         const list = [...folder.files];
         let at = 0;
         return { hasNext: () => at < list.length, next: () => list[at++] };
       },
-      createFile(blob) {
+      createFile(blobOrName, content, mime) {
+        // 진짜 Folder.createFile 은 (blob) 과 (이름, 글자, 종류) 두 가지를 받는다
+        const blob = typeof blobOrName === 'string'
+          ? makeBlob([], mime || 'text/plain', blobOrName, String(content || ''))
+          : blobOrName;
         const file = {
           // 진짜 드라이브 id 처럼 공백·슬래시 없는 문자열이어야 한다.
           // 경로를 그대로 넣으면 주소에 공백이 섞여, 주소를 공백 기준으로
@@ -309,9 +318,10 @@ export function createFakeGas() {
   // 진짜 Blob 은 setName · setContentType 이 **자기를 돌려준다.** 가짜에 없으면
   // `resp.getBlob().setName(...)` 이 undefined 가 되어 뒤가 조용히 무너진다.
 
-  function makeBlob(bytes, mime, name) {
+  function makeBlob(bytes, mime, name, text = '') {
     const blob = {
-      _bytes: bytes, mime, name,
+      _bytes: bytes, mime, name, _text: text,
+      getDataAsString: () => blob._text,
       getBytes: () => blob._bytes,
       getContentType: () => blob.mime,
       getName: () => blob.name,
@@ -436,9 +446,11 @@ export function createFakeGas() {
     DriveApp: makeDrive(),
     UrlFetchApp: fakeUrlFetch,
     PropertiesService: fakeProperties,
+    MimeType: { PLAIN_TEXT: 'text/plain', JSON: 'application/json' },
     Drive: fakeAdvancedDrive,
     Utilities: {
       base64Decode: (text) => ({ _b64: text, length: String(text).length }),
+      // (조각 이어 붙이기 검사용) 이어 붙인 base64 를 그대로 들고 다닌다
       newBlob: (bytes, mime, name) => makeBlob(bytes, mime, name),
       base64Encode: (bytes) => `b64(${(bytes && bytes.length) || 0})`,
       /**

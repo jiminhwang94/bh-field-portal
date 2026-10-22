@@ -65,6 +65,11 @@ function handleRequest(e) {
       return handleErrors(ss, body);
     }
 
+    // 큰 첨부를 조각으로 — 끊겨도 이어 올린다 (리포트의 media 배열과 다른 '글자' 값)
+    if (body.media === 'chunk' || body.media === 'finish') {
+      return handleMediaUpload(ss, body);
+    }
+
     // 연결 테스트
     if (body.ping) {
       var names = ss.getSheets().map(function (s) { return s.getName(); });
@@ -194,6 +199,8 @@ function handleRequest(e) {
         legacyImages[li].column = placed.map[lc - 1] || lc;
       }
       var inserted = insertImages(sheet, legacyImages, target);
+      // 조각으로 미리 올린 첨부는 주소로 온다 — 그 칸도 파란 링크로 살린다
+      relinkDriveCells(sheet, target, aligned);
 
       SpreadsheetApp.flush();
       logChange(ss, body, '리포트 추가', sheetName + ' ' + target + '행', reportSummary(headers, row));
@@ -2805,6 +2812,7 @@ function backupIfDue(ss) {
     var folder = folderByName(root.folder, BACKUP_FOLDER_NAME);
     var copy = DriveApp.getFileById(ss.getId()).makeCopy(ss.getName() + ' 백업 ' + today, folder);
     props.setProperty(BACKUP_PROP, today);
+    cleanupChunks(ss);
     // 30일 지난 백업은 휴지통으로 (드라이브 휴지통에서 30일 더 되살릴 수 있다)
     var cut = new Date(Date.now() - BACKUP_KEEP_DAYS * 86400000);
     var cutText = Utilities.formatDate(cut, 'Asia/Seoul', 'yyyy-MM-dd');
@@ -2928,4 +2936,86 @@ function inventoryDiff(before, after) {
   if (vplus.length) bits.push('차량 추가: ' + vplus.join(', '));
   if (vminus.length) bits.push('차량 삭제: ' + vminus.join(', '));
   return bits.join(' / ');
+}
+
+
+/* ============================================================ 첨부 조각 올리기 (v3.30)
+ *
+ * 현장 LTE 에서 20MB 영상을 한 번에 보내다 끊기면 처음부터 다시 보내야 했다.
+ * 이제 1.5MB 조각으로 나눠 보내고, 끊기면 **받은 조각 다음부터** 이어 보낸다.
+ *   { media: 'chunk', uploadId, index, total, data(base64) }     → 조각 하나 보관
+ *   { media: 'finish', uploadId, total, filename, mimeType, storeName, dateText }
+ *     → 조각을 이어 붙여 드라이브(매장 → 날짜 → 사진/동영상)에 파일 하나로 만든다
+ * 조각은 바이트 수가 3의 배수라 base64 글자를 그대로 이어 붙이면 원래 파일이 된다.
+ * 조각은 '업로드 조각' 폴더에 두었다가 다 붙이면 지운다. 버려진 조각은 이틀 뒤 지운다.
+ */
+var CHUNK_FOLDER_NAME = '업로드 조각 (자동 정리)';
+var CHUNK_KEEP_MS = 2 * 86400000;
+
+function chunkFolder(ss) {
+  return folderByName(mediaRoot(ss).folder, CHUNK_FOLDER_NAME);
+}
+
+function safeUploadId(value) {
+  var id = String(value || '').replace(/[^A-Za-z0-9_-]/g, '');
+  if (!id) throw new Error('uploadId 가 없습니다.');
+  return id.slice(0, 64);
+}
+
+function trashByName(folder, name) {
+  var it = folder.getFilesByName(name);
+  while (it.hasNext()) {
+    var f = it.next();
+    if (!f.isTrashed()) f.setTrashed(true);
+  }
+}
+
+function handleMediaUpload(ss, body) {
+  var id = safeUploadId(body.uploadId);
+  var folder = chunkFolder(ss);
+  if (body.media === 'chunk') {
+    var index = Math.floor(Number(body.index));
+    if (!(index >= 0)) return json({ ok: false, error: '조각 번호가 없습니다.' });
+    var name = id + '.' + index;
+    trashByName(folder, name);                 // 같은 조각을 다시 받으면 새것으로
+    folder.createFile(name, String(body.data || ''), MimeType.PLAIN_TEXT);
+    return json({ ok: true, index: index });
+  }
+  // finish
+  var total = Math.floor(Number(body.total) || 0);
+  if (total < 1) return json({ ok: false, error: '조각 수가 없습니다.' });
+  var parts = [];
+  var missing = [];
+  for (var i = 0; i < total; i++) {
+    var it = folder.getFilesByName(id + '.' + i);
+    var found = null;
+    while (it.hasNext()) {
+      var f = it.next();
+      if (!f.isTrashed()) found = f;
+    }
+    if (found) parts.push(found); else missing.push(i);
+  }
+  if (missing.length) return json({ ok: false, missing: missing, error: '빠진 조각이 있습니다: ' + missing.join(',') });
+  var text = '';
+  for (var p = 0; p < parts.length; p++) text += parts[p].getBlob().getDataAsString();
+  var mime = String(body.mimeType || 'application/octet-stream');
+  var blob = Utilities.newBlob(Utilities.base64Decode(text), mime, String(body.filename || '첨부'));
+  var target = mediaTargetFolder(mediaRoot(ss).folder, mime, body.storeName, body.dateText);
+  var file = target.createFile(blob);
+  var shared = sharePublic(file);
+  for (var t = 0; t < parts.length; t++) parts[t].setTrashed(true);
+  return json({ ok: true, url: file.getUrl(), id: file.getId(), public: shared });
+}
+
+/** 버려진 조각 정리 — 매일 백업 때 함께. uploadId 앞부분이 만든 시각(36진수)이다. */
+function cleanupChunks(ss) {
+  try {
+    var files = chunkFolder(ss).getFiles();
+    var cut = Date.now() - CHUNK_KEEP_MS;
+    while (files.hasNext()) {
+      var f = files.next();
+      var born = parseInt(String(f.getName()).split('-')[0], 36);
+      if (born && born < cut && !f.isTrashed()) f.setTrashed(true);
+    }
+  } catch (err) { /* 정리 실패는 다음 날 다시 */ }
 }

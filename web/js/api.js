@@ -223,10 +223,14 @@ export const api = {
     try {
       return await uploadReport(report);
     } catch (err) {
-      if (err.offline) {
+      // 오프라인 · 연결 끊김은 기기에 두었다가 저절로 다시 올린다 (첨부는 받은 조각 다음부터).
+      // 현장 LTE 는 '켜져 있는데 끊기는' 일이 잦다 — 예전에는 그때 '업로드 실패' 로 멈췄다.
+      if (err.offline || err.network) {
         await store.enqueue({ type: 'sheet', reportId: id });
         await store.markReport(id, { status: 'QUEUED', errorMessage: null });
-        return { queued: true, message: err.message };
+        return { queued: true,
+                 message: err.offline ? err.message
+                   : '연결이 불안정해 기기에 저장했습니다. 연결되면 받은 부분 다음부터 자동으로 이어 올립니다.' };
       }
       await store.markReport(id, { status: 'FAILED', errorMessage: err.message });
       throw err;
