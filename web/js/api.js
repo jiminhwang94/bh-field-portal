@@ -5,9 +5,11 @@
 import * as store from './local/store.js';
 import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
-         spreadsheetUrl } from './sheets.js';
+         spreadsheetUrl, callAppsScript } from './sheets.js';
 
-export const APP_VERSION = '3.29.0';
+// 버전은 version.js 한 곳에 있다 (python tools/release.py 로 올린다)
+export { APP_VERSION } from './version.js';
+import { APP_VERSION } from './version.js';
 
 export const api = {
   /** 앱 버전 정보. 기기 안에 있는 값만 쓴다 — 물어볼 서버가 없다. */
@@ -174,6 +176,34 @@ export const api = {
     const reportsheet = await import('./reportsheet.js');
     return reportsheet.setStatus(sheetName, row, status);
   },
+
+  // 휴지통 — 시트 '휴지통' 탭 (지운 가이드 · 리포트). 되살리면 원래 탭으로 돌아간다.
+  listTrash: async () => (await callAppsScript({ trash: 'list' }, 30000)).items || [],
+  restoreTrash: (row) => callAppsScript({ trash: 'restore', row }, 60000),
+
+  // 충돌 — 내가 고치는 사이 남이 먼저 고친 가이드
+  guideConflicts: async () => (await import('./guidesheet.js')).listConflicts(),
+  async resolveGuideConflict(id, keepMine) {
+    const r = await (await import('./guidesheet.js')).resolveConflict(id, keepMine);
+    flushSoon();
+    return r;
+  },
+
+  /** 확인할 것 — 홈 알림 · 설정 맨 위 칸이 쓴다 (기기 안에서만 센다, 빠르다). */
+  async attention() {
+    const ob = await store.outbox();
+    const oldest = ob.reduce((m, o) => (o.queuedAt && (!m || o.queuedAt < m) ? o.queuedAt : m), '');
+    const oldestMin = oldest ? Math.floor((Date.now() - new Date(oldest).getTime()) / 60000) : 0;
+    const errlog = await import('./errlog.js');
+    return {
+      pending: ob.length,
+      oldestMin,
+      failed: (await store.getMeta('flushFailed', '')) || '',
+      conflicts: ((await (await import('./guidesheet.js')).listConflicts()) || []).length,
+      errors: await errlog.pendingErrors(),
+    };
+  },
+  sendErrorsNow: async () => (await import('./errlog.js')).flushErrors(),
 
   getReport: (id) => store.getReport(id),
   createReport: (payload) => store.saveReport(payload),

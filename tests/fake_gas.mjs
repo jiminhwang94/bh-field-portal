@@ -265,7 +265,10 @@ export function createFakeGas() {
   // 검사에서 시각을 바꿔 가며 앱이 '새 내용' 을 알아보는지 확인한다.
   let spreadsheetUpdatedAt = new Date(2026, 8, 14, 9, 0, 0);
   allFiles.set('testid', { getId: () => 'testid', getName: () => '테스트 시트',
-                           getLastUpdated: () => spreadsheetUpdatedAt });
+                           getLastUpdated: () => spreadsheetUpdatedAt,
+                           // 매일 백업 — 스프레드시트를 통째로 복사한다
+                           makeCopy: (name, folder) => folder.createFile(
+                             makeBlob([], 'application/vnd.google-apps.spreadsheet', name)) });
 
   // 검사마다 켜고 끈다. true = 공유 드라이브가 링크 공개를 막는 현장.
   let SHARED_DRIVE_BLOCKS_LINK_SHARING = false;
@@ -335,6 +338,7 @@ export function createFakeGas() {
   };
 
   const scriptProps = new Map();
+  const scriptCache = new Map();
   const fakeProperties = {
     getScriptProperties: () => ({
       getProperty: (k) => (scriptProps.has(k) ? scriptProps.get(k) : null),
@@ -415,7 +419,15 @@ export function createFakeGas() {
       },
     },
     LockService: {
-      getScriptLock: () => ({ waitLock() {}, releaseLock() {} }),
+      getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }),
+    },
+    // 6시간 보관 캐시 — 같은 수량 작업을 두 번 받았는지 · 기기 기록을 얼마 만에 했는지
+    CacheService: {
+      getScriptCache: () => ({
+        get: (k) => (scriptCache.has(k) ? scriptCache.get(k) : null),
+        put: (k, v) => { scriptCache.set(k, String(v)); },
+        remove: (k) => { scriptCache.delete(k); },
+      }),
     },
     ContentService: {
       createTextOutput: (text) => ({ _text: text, setMimeType() { return this; } }),
@@ -465,7 +477,7 @@ export function createFakeGas() {
   }
 
   return {
-    gs, ss, consumerSS, call, findPath, allFiles, fetchCalls, driveUpdates, scriptProps,
+    gs, ss, consumerSS, call, findPath, allFiles, fetchCalls, driveUpdates, scriptProps, scriptCache,
     FakeSheet, FakeSpreadsheet,
     get driveTree() { return driveTree; },
     set blockSharing(v) { SHARED_DRIVE_BLOCKS_LINK_SHARING = v; },

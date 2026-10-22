@@ -93,6 +93,10 @@ export async function settingsView(view) {
     api.listGuides().then((r) => r.items.length).catch(() => 0),
     api.listInventory().then((r) => r.items.length).catch(() => 0),
   ]);
+  const [attn, conflicts] = await Promise.all([
+    api.attention().catch(() => ({ pending: 0, conflicts: 0, errors: 0, failed: '' })),
+    api.guideConflicts().catch(() => []),
+  ]);
 
   view.innerHTML = `
     <div id="pageRoot">
@@ -105,6 +109,7 @@ export async function settingsView(view) {
       </div>
 
       <div class="settings-list">
+      ${checkPanelHtml(attn, conflicts)}
       <div class="panel" id="sheetPanel">
         <h2 class="panel__title">구글 시트</h2>
         <div class="row" style="gap:8px;margin-bottom:${showSheetForm ? '14px' : '0'};flex-wrap:wrap">
@@ -204,6 +209,11 @@ export async function settingsView(view) {
         <div id="installLinkBox">${installLinkHtml(getInstallLink())}</div>
       </details>
 
+      <details class="panel panel--fold" id="trashPanel">
+        <summary class="panel__title">휴지통 <span class="muted" style="font-weight:500">지운 가이드 · 리포트 되살리기</span></summary>
+        <div id="trashBody" class="trash-body"><p class="muted">열면 시트에서 목록을 받아 옵니다.</p></div>
+      </details>
+
       <details class="panel panel--fold" id="testPanel"${testMode() ? ' open' : ''}>
         <summary class="panel__title">테스트 모드 ${testMode() ? '<span class="badge badge--warn">켜짐</span>' : ''}</summary>
         <p class="muted" style="margin:14px 0;line-height:1.65">
@@ -248,12 +258,70 @@ export async function settingsView(view) {
 
   const root = $('#pageRoot');
 
+  /** 휴지통 — 펼칠 때 시트에서 받는다 (자주 안 쓰므로 미리 받지 않는다) */
+  async function loadTrash() {
+    const body = $('#trashBody');
+    if (!body) return;
+    if (!isOnline()) { body.innerHTML = '<p class="muted">인터넷에 연결되면 볼 수 있습니다.</p>'; return; }
+    body.innerHTML = '<p class="muted">받는 중…</p>';
+    try {
+      const items = await api.listTrash();
+      body.innerHTML = items.length ? `
+        <div class="trash-rows">
+          ${items.map((t) => `
+            <div class="trash-row${t.restored ? ' is-done' : ''}">
+              <span class="trash-row__kind" data-kind="${h(t.kind)}">${h(t.kind)}</span>
+              <span class="trash-row__main">
+                <b>${h(t.name)}</b>
+                <span class="muted">${h(t.at)} · ${h(t.by)}${t.restored ? ` · 되살림 ${h(t.restored)}` : ''}</span>
+              </span>
+              ${t.restored ? '' : `<button class="btn btn-secondary btn--sm" data-act="trash-restore"
+                 data-row="${t.row}" data-name="${h(t.name)}" type="button">되살리기</button>`}
+            </div>`).join('')}
+        </div>` : '<p class="muted">휴지통이 비어 있습니다.</p>';
+    } catch (err) {
+      body.innerHTML = `<p class="hint" style="color:var(--color-danger)">${h(err.message)}</p>`;
+    }
+  }
+  const trashPanel = $('#trashPanel');
+  if (trashPanel) trashPanel.addEventListener('toggle', () => { if (trashPanel.open) loadTrash(); });
+
   root.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
 
     if (act === 'install') { await installApp(); return; }
+    if (act === 'conflict-mine' || act === 'conflict-theirs') {
+      const keepMine = act === 'conflict-mine';
+      btn.disabled = true;
+      try {
+        await api.resolveGuideConflict(btn.dataset.id, keepMine);
+        toast(keepMine ? '내 것으로 올립니다.' : '남의 것을 그대로 둡니다.', 'ok');
+        settingsView(view);
+      } catch (err) { btn.disabled = false; toast(err.message, 'err'); }
+      return;
+    }
+    if (act === 'send-errors') {
+      btn.disabled = true;
+      try {
+        const n = await api.sendErrorsNow();
+        toast(n ? `오류 ${n}건을 시트 '오류기록' 탭에 보냈습니다.` : '보낼 오류가 없습니다.', 'ok');
+        settingsView(view);
+      } catch (err) { btn.disabled = false; toast(err.message, 'err'); }
+      return;
+    }
+    if (act === 'trash-restore') {
+      const okGo = await confirmDialog('되살리기', `'${btn.dataset.name}' 을(를) 원래 자리로 되돌립니다.`, '되살리기');
+      if (!okGo) return;
+      btn.disabled = true;
+      try {
+        await api.restoreTrash(Number(btn.dataset.row));
+        toast('되살렸습니다. [새로고침] 하면 이 기기에도 보입니다.', 'ok');
+        loadTrash();
+      } catch (err) { btn.disabled = false; toast(err.message, 'err'); }
+      return;
+    }
     if (act === 'test-on') {
       const url = $('#sTestUrl').value.trim();
       if (url && !/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(url)) {
@@ -411,4 +479,43 @@ function openSheetsGuide(settings) {
       <button class="btn btn--primary" type="button" data-act="close">확인</button>
     </div>`);
   return body;
+}
+
+/**
+ * 확인할 것 — 사람이 손대야 하는 것만 모은다. 없으면 칸 자체가 없다.
+ *  · 올리지 못한 것 (실패했거나 30분 넘게 남음)
+ *  · 남이 먼저 고친 가이드 (내 것 / 남의 것 고르기)
+ *  · 시트로 아직 못 보낸 현장 오류
+ */
+function checkPanelHtml(attn, conflicts) {
+  const stuck = attn.pending && (attn.failed || attn.oldestMin >= 30);
+  if (!stuck && !conflicts.length && !attn.errors) return '';
+  return `
+    <div class="panel panel--check" id="checkPanel">
+      <h2 class="panel__title">확인할 것</h2>
+      ${stuck ? `
+        <div class="check-item" data-tone="bad">
+          <b>올리지 못한 것 ${attn.pending}건</b>
+          <span>${attn.failed ? h(attn.failed) : '30분 넘게 올라가지 않았습니다.'}
+            위 [새로고침] 을 눌러 다시 올리거나, 상단 칩에서 무엇이 남았는지 봅니다.</span>
+        </div>` : ''}
+      ${conflicts.map((c) => `
+        <div class="check-item" data-tone="warn">
+          <b>남이 먼저 고친 가이드 — ${h(c.title)}</b>
+          <span>${c.mine ? '내가 고친 내용' : '내가 지우려던 것'}을 올리기 전에 다른 사람이 먼저 고쳤습니다.
+            지금 시트에는 남의 것이 있습니다.</span>
+          <div class="check-item__acts">
+            <button class="btn btn-secondary btn--sm" data-act="conflict-theirs" data-id="${h(c.id)}" type="button">남의 것 그대로</button>
+            <button class="btn btn-dark btn--sm" data-act="conflict-mine" data-id="${h(c.id)}" type="button">${c.mine ? '내 것으로 덮기' : '그래도 지우기'}</button>
+          </div>
+        </div>`).join('')}
+      ${attn.errors ? `
+        <div class="check-item">
+          <b>시트로 아직 못 보낸 오류 ${attn.errors}건</b>
+          <span>연결되면 저절로 '오류기록' 탭으로 갑니다.</span>
+          <div class="check-item__acts">
+            <button class="btn btn-secondary btn--sm" data-act="send-errors" type="button">지금 보내기</button>
+          </div>
+        </div>` : ''}
+    </div>`;
 }

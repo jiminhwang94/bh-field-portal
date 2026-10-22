@@ -42,7 +42,11 @@ export function describeSent(byType) {
 
 async function fetchStamp() {
   const { callAppsScript } = await import('./sheets.js');
-  const result = await callAppsScript({ changed: true }, 15000);
+  const pending = await store.outboxCount();
+  const result = await callAppsScript({ changed: true, pending }, 15000);
+  if (result && typeof result.minVersion === 'string') {
+    import('./update.js').then((u) => u.applyMinVersion(result.minVersion)).catch(() => {});
+  }
   return String((result && result.changedAt) || '');
 }
 

@@ -172,8 +172,9 @@ async function setQuantity(vehicleName, partName, quantity, stamp) {
   await idb.put('quantities', {
     key, vehicleName, partName, quantity: value, updatedAt,
   });
+  // opId — 같은 작업을 다시 보내도(응답을 못 받은 재시도) 시트가 두 번 더하지 않게 한다.
   await enqueue({ type: 'quantity', vehicleName, partName,
-                  quantity: value, before, updatedAt });
+                  quantity: value, before, updatedAt, opId: newId() });
   return value;
 }
 

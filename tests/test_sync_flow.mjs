@@ -128,6 +128,7 @@ globalThis.__server = async (body) => {
   return out;
 };
 
+const qtyApplied = new Map();      // opId → 이미 적용한 목표값 (.gs 의 CacheService 몫)
 async function serve(body) {
   if (body.inventory === 'pull') return readInv();
   if (body.inventory === 'push') { writeInv(body.vehicles, body.items); return readInv(); }
@@ -137,7 +138,14 @@ async function serve(body) {
       // 시트에 없는 품목·차량은 다른 기기가 지운 것이다 — 되살리지 않는다.
       const p = sheet.inv && sheet.inv.parts.find((x) => x.name === op.partName);
       if (!p || !sheet.inv.vehicles.includes(op.vehicleName)) continue;
-      p.qty[op.vehicleName] = op.quantity;
+      // 진짜 시트(.gs)와 같은 규칙 — before · opId 가 오면 바뀐 만큼만 더한다
+      if (op.opId && typeof op.before === 'number') {
+        const from = qtyApplied.has(op.opId) ? qtyApplied.get(op.opId) : op.before;
+        p.qty[op.vehicleName] = Math.max(0, (p.qty[op.vehicleName] || 0) + (op.quantity - from));
+        qtyApplied.set(op.opId, op.quantity);
+      } else {
+        p.qty[op.vehicleName] = op.quantity;
+      }
     }
     return readInv();
   }
@@ -385,6 +393,63 @@ console.log('\n[11] 가이드 로봇 분류 — 한 기기는 추가, 다른 기
   const op = (await store.outbox()).find((o) => o.type === 'guidesheet-push');
   await store.undoGuideModelChanges(op.changes);
   check('취소하면 로봇 목록이 되살아난다', (await store.listGuideModels()).includes('Gen.1A'));
+}
+
+console.log('\n[12] 재고 — 두 기기가 같은 칸을 동시에 바꾸면 둘 다 반영된다');
+{
+  await freshTeam();
+  on('B');
+  const idB = await itemId('1호차', '배터리');
+  await store.updateInventoryItem(idB, { delta: 2 });     // B: 3 → 5 (아직 안 올림)
+  on('A');
+  const idA = await itemId('1호차', '배터리');
+  await store.updateInventoryItem(idA, { delta: 1 });     // A: 3 → 4
+  await store.updateInventoryItem(idA, { delta: 1 });     // A: 4 → 5 (한 작업으로 합쳐진다)
+  await flush();
+  on('B');
+  await flush();
+  const p = sheet.inv.parts.find((x) => x.name === '배터리');
+  check('시트 수량 = 3 + A(+2) + B(+2) = 7 (예전엔 나중에 올린 쪽 값 5 로 덮였다)', p.qty['1호차'] === 7, String(p.qty['1호차']));
+  check('B 기기도 시트의 합친 값을 받는다', (await qtyOf('1호차', '배터리')) === 7, String(await qtyOf('1호차', '배터리')));
+}
+
+console.log('\n[13] 가이드 — 둘이 같은 가이드를 고치면 나중 사람은 덮지 않고 충돌로 남긴다');
+{
+  round += 1;
+  sheet.guides = []; failNext = 0;
+  on('A');
+  await store.saveGuide({ categoryType: 'ERROR_CODE', codeOrTitle: 'E-900 충돌 검사', summary: '처음' });
+  await flush();
+  on('B');
+  await guidesheet.pullGuides();
+  on('A');
+  await guidesheet.pullGuides();
+  const gA = (await store.listGuides()).find((x) => x.codeOrTitle === 'E-900 충돌 검사');
+  on('B');
+  const gB = (await store.listGuides()).find((x) => x.codeOrTitle === 'E-900 충돌 검사');
+  await store.saveGuide({ ...gB, summary: 'B 가 먼저 고침' }, gB.id);
+  await flush();
+  on('A');                                     // A 는 B 의 수정을 모른 채 고친다
+  await store.saveGuide({ ...gA, summary: 'A 가 나중에 고침' }, gA.id);
+  await flush();
+  const row = sheet.guides.find((x) => x.codeOrTitle === 'E-900 충돌 검사');
+  check('먼저 올린 B 의 수정이 시트에 남는다', row && row.summary === 'B 가 먼저 고침', row && row.summary);
+  const conflicts = await guidesheet.listConflicts();
+  check('A 의 수정은 충돌로 보관된다 (버리지 않는다)', conflicts.length === 1 && conflicts[0].mine
+        && conflicts[0].mine.summary === 'A 가 나중에 고침' && conflicts[0].theirs.summary === 'B 가 먼저 고침');
+  await guidesheet.resolveConflict(conflicts[0].id, true);   // A 가 [내 것으로] 를 고른다
+  await flush();
+  const row2 = sheet.guides.find((x) => x.codeOrTitle === 'E-900 충돌 검사');
+  check('[내 것으로] 를 고르면 그때 덮는다', row2 && row2.summary === 'A 가 나중에 고침', row2 && row2.summary);
+  check('충돌 목록이 비워진다', (await guidesheet.listConflicts()).length === 0);
+  on('B');
+  await store.saveGuide({ categoryType: 'ERROR_CODE', codeOrTitle: 'E-901 혼자 고침', summary: '하나' });
+  await flush();
+  const solo = (await store.listGuides()).find((x) => x.codeOrTitle === 'E-901 혼자 고침');
+  await store.saveGuide({ ...solo, summary: '둘' }, solo.id);
+  await flush();
+  check('혼자 고친 것은 충돌이 아니다', (await guidesheet.listConflicts()).length === 0
+        && sheet.guides.find((x) => x.codeOrTitle === 'E-901 혼자 고침').summary === '둘');
 }
 
 console.log('');

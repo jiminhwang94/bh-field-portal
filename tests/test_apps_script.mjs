@@ -970,7 +970,7 @@ check('시각을 ISO 로 돌려준다', c1.ok === true && /^2026-09-14T/.test(c1
 env.updatedAt = new Date(2026, 8, 14, 9, 5, 0);
 const c2 = call({ changed: true });
 check('시트가 바뀌면 시각도 바뀐다', c2.changedAt !== c1.changedAt);
-check('자료는 딸려 오지 않는다 (가벼운 물음)', Object.keys(c2).sort().join(',') === 'changedAt,ok');
+check('자료는 딸려 오지 않는다 (가벼운 물음 — 최소 버전만 함께)', Object.keys(c2).sort().join(',') === 'changedAt,minVersion,ok', Object.keys(c2).join(','));
 
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1077,6 +1077,123 @@ call({ inventory: 'qty', ops: [
 check('지워진 품목·차량의 늦은 [+] 는 줄·열을 되살리지 않는다',
       invRows().length === rowsBefore && invTab().getLastColumn() === colsBefore
       && !invRows().some((r) => r[0] === '지워진 부품'));
+
+{ // 운영 검사는 이 블록 안에서만 이름을 쓴다
+// ─────────────────────────────────────────────── 운영 (v3.30) — 백업 · 변경기록 · 휴지통 · 기기 · 오류
+console.log('── 운영: 매일 백업');
+const today = new Date();
+const pad2 = (n) => String(n).padStart(2, '0');
+const todayText = `${today.getFullYear()}-${pad2(today.getMonth() + 1)}-${pad2(today.getDate())}`;
+env.scriptProps.delete('LAST_BACKUP_DAY');
+const backupDir = () => findPath('시트 백업');
+// 30일 지난 옛 백업 하나를 미리 둔다 — 휴지통으로 가야 한다
+call({ changed: true });
+const oldBackup = backupDir().createFile({ name: '테스트 시트 백업 2000-01-01', mime: 'x', getBytes: () => [] });
+env.scriptProps.delete('LAST_BACKUP_DAY');
+call({ changed: true, device: '검사기기', app: '3.30.0', pending: 2 });
+const backups = backupDir().files.filter((f) => f.name === `테스트 시트 백업 ${todayText}`);
+check('5분 물음이 하루 한 번 스프레드시트를 복사해 둔다', backups.length >= 1, backupDir().files.map((f) => f.name).join(' | '));
+call({ changed: true });
+check('같은 날 두 번은 복사하지 않는다',
+      backupDir().files.filter((f) => f.name === `테스트 시트 백업 ${todayText}` && !f.trashed).length === backups.length);
+check('30일 지난 백업은 휴지통으로 (드라이브 휴지통에서 30일 더 되살릴 수 있다)', oldBackup.trashed === true);
+
+console.log('── 운영: 기기 탭 · 최소 버전');
+const devTab = () => ss.getSheetByName('기기');
+const devRow = (name) => {
+  const t = devTab(); const n = t.getLastRow();
+  for (let r = 3; r <= n; r += 1) if (t.getRange(r, 1).getValue() === name) return t.getRange(r, 1, 1, 5).getValues()[0];
+  return null;
+};
+check('5분 물음에 실린 기기 이름 · 버전 · 올리지 못한 건수가 기기 탭에 적힌다',
+      devRow('검사기기') && devRow('검사기기')[1] === '3.30.0' && devRow('검사기기')[3] === 2,
+      JSON.stringify(devRow('검사기기')));
+check('최소 버전 칸이 비어 있으면 최소 버전도 빈 값', call({ changed: true }).minVersion === '');
+devTab().getRange(1, 2).setValue('3.31.0');
+check('기기 탭 B1 의 최소 버전을 5분 물음과 새 버전 물음이 함께 돌려준다',
+      call({ changed: true }).minVersion === '3.31.0' && call({ release: 'latest' }).minVersion === '3.31.0');
+devTab().getRange(1, 2).setValue('');
+
+console.log('── 운영: 리포트 변경기록 · 휴지통 · 줄 확인');
+const H = ['작성일시', '작성자', '매장명', '증상 요약', '조치 내용', '상태'];
+const logTab = () => ss.getSheetByName('변경기록');
+const logRows = () => { const t = logTab(); const n = t.getLastRow(); return n < 3 ? [] : t.getRange(3, 1, n - 2, 6).getValues(); };
+call({ sheetName: '2099-07', headers: H, row: ['2099-07-01 09:00', '가', '첫째점', '소음', '조치1', '조치 진행 중'], device: '김현장', app: '3.30.0' });
+call({ sheetName: '2099-07', headers: H, row: ['2099-07-02 09:00', '가', '둘째점', '멈춤', '조치2', '조치 진행 중'], device: '김현장', app: '3.30.0' });
+call({ sheetName: '2099-07', headers: H, row: ['2099-07-03 09:00', '가', '셋째점', '센서', '조치3', '조치 진행 중'], device: '김현장', app: '3.30.0' });
+const last = logRows()[logRows().length - 1];
+check('리포트를 올리면 변경기록에 시각 · 기기 · 버전 · 무엇이 한 줄', last && last[1] === '김현장' && last[2] === '3.30.0'
+      && last[3] === '리포트 추가' && String(last[5]).includes('셋째점'), JSON.stringify(last));
+
+const month = () => ss.getSheetByName('2099-07');
+const storeAt = (r) => month().getRange(r, 3).getValue();
+// 다른 기기가 첫째 줄(3행)을 지워 줄이 한 칸씩 올라갔다고 하자. 이 기기는 아직 '셋째점 = 5행' 으로 알고 있다.
+call({ reports: 'delete', sheetName: '2099-07', row: 3, expect: { createdAt: '2099-07-01 09:00', store: '첫째점' }, device: '박사무' });
+check('줄 확인과 함께 지우면 그 줄이 지워진다', storeAt(3) === '둘째점' && storeAt(4) === '셋째점');
+let res = call({ reports: 'status', sheetName: '2099-07', row: 5, status: '조치 완료',
+                 expect: { createdAt: '2099-07-03 09:00', store: '셋째점' }, device: '김현장' });
+check('★ 줄이 올라가 옛 줄 번호(5행)로 와도 같은 리포트(4행)를 찾아 상태를 바꾼다',
+      res.ok === true && res.row === 4 && month().getRange(4, 6).getValue() === '조치 완료', JSON.stringify(res));
+res = call({ reports: 'delete', sheetName: '2099-07', row: 4, expect: { createdAt: '2099-07-09 09:00', store: '없는점' } });
+check('★ 맞는 줄이 없으면 엉뚱한 줄을 지우지 않고 멈춘다 (conflict)',
+      res.ok === false && res.conflict === true && storeAt(3) === '둘째점' && storeAt(4) === '셋째점', JSON.stringify(res));
+check('상태 변경은 바뀌기 전 → 후로 기록된다', logRows().some((r) => r[3] === '상태' && r[5] === '조치 진행 중 → 조치 완료'));
+
+const trashTab = () => ss.getSheetByName('휴지통');
+let trash = call({ trash: 'list' });
+check('지운 리포트는 휴지통에 통째로 남는다', trash.ok && trash.items.length >= 1 && trash.items[0].kind === '리포트'
+      && trash.items[0].name.includes('첫째점') && trash.items[0].by === '박사무', JSON.stringify(trash.items[0]));
+res = call({ trash: 'restore', row: trash.items[0].row, device: '박사무' });
+check('휴지통에서 되살리면 그 달 탭에 다시 들어간다', res.ok === true
+      && [3, 4, 5].some((r) => storeAt(r) === '첫째점'), JSON.stringify(res));
+check('되살린 것은 되살림 칸에 적혀 다시 되살릴 수 없다',
+      call({ trash: 'restore', row: trash.items[0].row }).ok === false && call({ trash: 'list' }).items[0].restored !== '');
+
+console.log('── 운영: 가이드 지우기 → 휴지통');
+const keep = { id: 'g-keep', categoryType: 'HARDWARE_SOP', codeOrTitle: '남는 가이드', summary: '', requiredTools: '',
+               commands: [], steps: [{ instruction: '하나', expectedMetric: '' }], updatedAt: '' };
+const gone = { id: 'g-gone', categoryType: 'HARDWARE_SOP', codeOrTitle: '지울 가이드', summary: '요약', requiredTools: '',
+               commands: [], steps: [{ instruction: '둘', expectedMetric: '' }], updatedAt: '' };
+call({ guides: 'push', items: [keep, gone], device: '김현장' });
+call({ guides: 'push', items: [keep], device: '이기사' });
+trash = call({ trash: 'list' });
+const gTrash = trash.items.find((t) => t.kind === '가이드' && t.name.includes('지울 가이드'));
+check('★ 가이드를 지우면 누가 지웠는지와 함께 휴지통에 남는다 (예전엔 흔적이 없었다)', gTrash && gTrash.by === '이기사',
+      JSON.stringify(trash.items.slice(0, 3)));
+check('가이드 변경 요약이 변경기록에 남는다', logRows().some((r) => r[3] === '가이드' && String(r[5]).includes('삭제(휴지통): 지울 가이드')));
+res = call({ trash: 'restore', row: gTrash.row });
+const back = call({ guides: 'pull' }).items.find((g) => g.id === 'g-gone');
+check('휴지통에서 되살린 가이드가 같은 ID 로 탭에 돌아온다', res.ok && back && back.summary === '요약');
+
+console.log('── 운영: 재고 수량은 바뀐 만큼만 (다른 기기 변경과 합친다)');
+call({ inventory: 'push', vehicles: ['합차'], items: [{ vehicleName: '합차', partName: '패드', category: '', quantity: 3, minQuantity: 0 }] });
+const padQty = () => { const t = ss.getSheetByName('차량재고'); for (let r = 3; r <= t.getLastRow(); r += 1) if (t.getRange(r, 1).getValue() === '패드') return t.getRange(r, 4).getValue(); return null; };
+// 다른 기기가 3 → 5 로 올렸다. 이 기기는 3 을 보고 [+] 한 번 (3 → 4)
+call({ inventory: 'qty', ops: [{ type: 'quantity', vehicleName: '합차', partName: '패드', quantity: 5 }] });
+call({ inventory: 'qty', ops: [{ type: 'quantity', vehicleName: '합차', partName: '패드', quantity: 4, before: 3, opId: 'op-1' }], device: '김현장' });
+check('★ 두 기기가 같은 칸을 바꿔도 둘 다 반영된다 (3 → 다른 기기 +2 → 내 +1 = 6)', padQty() === 6, String(padQty()));
+call({ inventory: 'qty', ops: [{ type: 'quantity', vehicleName: '합차', partName: '패드', quantity: 4, before: 3, opId: 'op-1' }] });
+check('응답을 못 받아 같은 작업을 다시 보내도 두 번 더하지 않는다', padQty() === 6, String(padQty()));
+call({ inventory: 'qty', ops: [{ type: 'quantity', vehicleName: '합차', partName: '패드', quantity: 6, before: 3, opId: 'op-1' }] });
+check('같은 작업에 [+] 를 더 눌러 합쳐 보내면 새로 누른 만큼만 더한다 (4 → 6 이면 +2)', padQty() === 8, String(padQty()));
+call({ inventory: 'qty', ops: [{ type: 'quantity', vehicleName: '합차', partName: '패드', quantity: 1 }] });
+check('예전 앱(바꾸기 전 값 없음)은 예전처럼 그 값으로 적는다', padQty() === 1, String(padQty()));
+check('수량 변경이 변경기록에 남는다 (부품 · 차량 전 → 후)', logRows().some((r) => r[3] === '재고 수량' && String(r[5]).includes('패드 · 합차 5→6')));
+
+console.log('── 운영: 오류기록');
+res = call({ errors: 'push', device: '김현장', app: '3.30.0', items: [
+  { at: '2099-07-03 10:00', screen: '#/report/new', message: '업로드 실패: 시간 초과', detail: 'stack…' },
+] });
+const errTab = ss.getSheetByName('오류기록');
+check('기기에서 모은 오류가 오류기록 탭에 쌓인다', res.ok && res.saved === 1 && errTab
+      && errTab.getRange(3, 5).getValue() === '업로드 실패: 시간 초과' && errTab.getRange(3, 2).getValue() === '김현장');
+check('마지막 오류가 기기 탭에도 보인다', String(devRow('김현장')[4]).includes('업로드 실패'));
+const tabNames = ss.getSheets().map((x) => x.getName());
+const opsAt = tabNames.indexOf('기기');
+check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 탭만 그 뒤)',
+      tabNames.slice(opsAt, opsAt + 4).join(',') === '기기,변경기록,오류기록,휴지통'
+      && tabNames.indexOf('앱 버전') < opsAt, tabNames.join(','));
+}
 
 console.log('='.repeat(62));
 if (failures.length) {

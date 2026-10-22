@@ -14,7 +14,8 @@ export function seedFromEntry(entry, { edit = false } = {}) {
     serial: (entry.values.find((v) => v.label.includes('시리얼')) || {}).value || '',
     // 고치기로 들어왔으면 어느 줄을 고쳐 쓸지 함께 넘긴다.
     // 이게 없으면 저장할 때 같은 방문이 두 줄이 된다.
-    sheetLink: edit ? { sheetName: entry.sheetName, row: entry.row } : null,
+    sheetLink: edit ? { sheetName: entry.sheetName, row: entry.row,
+                        createdAt: entry.createdAt || '', store: entry.store || '' } : null,
     values: edit ? entry.values : null,
     // 이미 올라가 있는 사진·영상. 이걸 안 넘기면 저장할 때 시트의 링크가
     // 빈 칸으로 덮여 **드라이브에는 있는데 리포트에서는 사라진다.**

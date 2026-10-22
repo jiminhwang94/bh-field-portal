@@ -290,3 +290,50 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 4px var(--test-amber); }
   overflow: hidden; text-overflow: ellipsis; box-shadow: var(--shadow-raise);
 }
 .test-banner:hover { color: var(--test-amber-ink); }
+
+/* ── 확인할 것 — 홈 띠 · 설정 칸 (v3.30) ──────────────────────────────── */
+.home2--alert { grid-template-rows: auto 150px minmax(440px, 1fr); }
+.h2-alerts { grid-column: 1 / -1; display: flex; gap: 10px; flex-wrap: wrap; }
+.h2-alert {
+  flex: 1 1 260px; display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 10px 16px;
+  border-radius: 16px; background: var(--color-bg); box-shadow: var(--shadow-sm);
+  border-left: 6px solid var(--st-swap); color: var(--color-text); text-decoration: none;
+}
+.h2-alert[data-tone="bad"] { border-left-color: var(--color-danger); background: var(--color-danger-tint); }
+.h2-alert b { font-size: 16px; }
+.h2-alert span { font-size: 14px; color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.h2-alert__go { margin-left: auto; font-size: 22px; }
+.hist-overdue-chip {
+  margin-top: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 0; cursor: pointer;
+  background: var(--st-swap-tint); color: var(--st-swap); font: inherit; font-weight: 700;
+}
+.hist-row.is-overdue .hist-row__status { color: var(--color-danger); font-weight: 800; }
+.panel--check { border-left: 6px solid var(--st-swap); }
+.check-item { display: flex; flex-direction: column; gap: 4px; padding: 12px 0; border-top: 1px solid var(--color-hairline); }
+.check-item:first-of-type { border-top: 0; }
+.check-item[data-tone="bad"] b { color: var(--color-danger); }
+.check-item span { color: var(--color-muted); font-size: 15px; }
+.check-item__acts { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.trash-body { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.trash-rows { display: flex; flex-direction: column; }
+.trash-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--color-hairline); }
+.trash-row:first-child { border-top: 0; }
+.trash-row.is-done { opacity: .55; }
+.trash-row__kind { flex: none; min-width: 52px; padding: 4px 8px; border-radius: 8px; text-align: center;
+  font-size: 13px; font-weight: 800; background: var(--color-surface-2); }
+.trash-row__kind[data-kind="가이드"] { background: var(--st-doing-tint); color: var(--st-doing); }
+.trash-row__kind[data-kind="리포트"] { background: var(--st-watch-tint); color: var(--st-watch); }
+.trash-row__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.trash-row__main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 최소 버전 — 앱이 너무 오래됐으면 화면을 덮는다 */
+.version-gate {
+  position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 16px;
+  background: var(--nav-bg);
+}
+.version-gate__box {
+  max-width: 460px; width: 100%; padding: 28px; border-radius: 22px; background: var(--color-bg);
+  display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow-raise);
+}
+.version-gate__box h2 { margin: 0; font-size: 24px; }
+.version-gate__box p { margin: 0; line-height: 1.6; }

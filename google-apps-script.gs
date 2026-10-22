@@ -27,6 +27,10 @@ var IMAGE_GAP = 8;
 
 function doPost(e) {
   var out = handleRequest(e);
+  try {
+    var asked = (e && e.postData && e.postData.contents) ? JSON.parse(e.postData.contents) : {};
+    if (asked.device && !asked.changed) touchDevice(SpreadsheetApp.getActiveSpreadsheet(), asked);
+  } catch (err) { /* 기기 기록 실패는 응답과 상관없다 */ }
   // 탭 순서 고정 — 요청을 처리한 뒤 매번 맞춘다. 사람이 손으로 옮겨 놓아도
   // 다음 기록 때 제자리로 돌아온다. 5분마다 오는 가벼운 물음(changed)은 건너뛴다.
   try {
@@ -48,7 +52,17 @@ function handleRequest(e) {
     // 시트가 마지막으로 바뀐 시각 — 태블릿이 5분마다 이것만 물어본다.
     // 자료를 받는 것이 아니라 "달라진 게 있나" 만 보는 것이라 아주 가볍다.
     if (body.changed) {
-      return handleChanged(ss);
+      return handleChanged(ss, body);
+    }
+
+    // 휴지통 — 지운 가이드 · 리포트 목록과 되살리기
+    if (body.trash) {
+      return handleTrash(ss, body);
+    }
+
+    // 기기에서 모은 오류
+    if (body.errors === 'push') {
+      return handleErrors(ss, body);
     }
 
     // 연결 테스트
@@ -113,7 +127,7 @@ function handleRequest(e) {
       return handleReleasePublish(ss, body);
     }
     if (body.release === 'latest') {
-      return handleReleaseLatest(ss);
+      return handleReleaseLatest(ss, body);
     }
     // 사람에게 보내 주는 **바뀌지 않는** 설치 주소를 갱신한다
     if (body.release === 'install') {
@@ -182,6 +196,7 @@ function handleRequest(e) {
       var inserted = insertImages(sheet, legacyImages, target);
 
       SpreadsheetApp.flush();
+      logChange(ss, body, '리포트 추가', sheetName + ' ' + target + '행', reportSummary(headers, row));
       return json({
         ok: true,
         sheetName: sheetName,
@@ -268,7 +283,8 @@ function openMonthSheet(ss, name) {
 // 흐트러졻다. 그래서 요청을 처리한 뒤 매번 여기서 한 번 맞춘다. 제자리에 있는
 // 탭은 건드리지 않으므로 평소에는 아무 일도 하지 않는다.
 // ═══════════════════════════════════════════════════════════════════
-var TAB_ORDER_TAIL = ['운행일지 항목', '리포트 항목', '앱 설치 링크', '앱 버전'];
+var TAB_ORDER_TAIL = ['운행일지 항목', '리포트 항목', '앱 설치 링크', '앱 버전',
+                      '기기', '변경기록', '오류기록', '휴지통'];
 
 function arrangeTabs(ss) {
   var sheets = ss.getSheets();
@@ -577,15 +593,20 @@ function handleInventory(ss, body) {
 
     if (body.inventory === 'push') {
       if (!sheet) sheet = ss.insertSheet(INV_SHEET_NAME);
+      var invBefore = readInventory(sheet);
       writeInventory(sheet, body.vehicles || [], body.items || []);
       SpreadsheetApp.flush();
-      return json(readInventory(sheet));
+      var invAfter = readInventory(sheet);
+      var invLine = inventoryDiff(invBefore, invAfter);
+      if (invLine) logChange(ss, body, '재고 구성', '차량재고', invLine);
+      return json(invAfter);
     }
 
     if (body.inventory === 'qty') {
       if (!sheet) sheet = ss.insertSheet(INV_SHEET_NAME);
-      applyQuantityOps(sheet, body.ops || []);
+      var qtyLines = applyQuantityOps(sheet, body.ops || []);
       SpreadsheetApp.flush();
+      if (qtyLines.length) logChange(ss, body, '재고 수량', qtyLines.length + '건', qtyLines.join(' / '));
       return json(readInventory(sheet));
     }
 
@@ -725,6 +746,9 @@ function readInventory(sheet) {
  * 늦게 올라온 [+] 한 번에 되살아났다. 새 품목·차량은 push 로만 생긴다.
  */
 function applyQuantityOps(sheet, ops) {
+  var lines = [];
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (err) { cache = null; }
   for (var i = 0; i < ops.length; i++) {
     var op = ops[i] || {};
     if (op.type === 'quantity-delete') continue;   // 품목 삭제는 push 가 처리한다
@@ -755,8 +779,26 @@ function applyQuantityOps(sheet, ops) {
     }
     if (row < 0) continue;           // 지워진 품목
 
-    sheet.getRange(row, col).setValue(Math.max(0, Math.floor(Number(op.quantity) || 0)));
+    var target = Math.max(0, Math.floor(Number(op.quantity) || 0));
+    var current = Math.max(0, Math.floor(Number(sheet.getRange(row, col).getValue()) || 0));
+    var next = target;
+    // 바꾸기 전 값(before)과 작업 번호(opId)가 오면 **바뀐 만큼만** 더한다.
+    // 그 사이 다른 기기가 같은 칸을 바꿨어도 그 변경을 덮어쓰지 않고 합친다.
+    // 같은 작업을 다시 보내면(응답을 못 받아 재시도) 이미 적용한 만큼은 빼고 더한다.
+    var base = op.before;
+    if (op.opId && typeof base === 'number' && base >= 0) {
+      var key = 'qty:' + String(op.opId);
+      var applied = cache ? cache.get(key) : null;
+      var from = applied !== null && applied !== undefined && applied !== '' ? Number(applied) : base;
+      next = Math.max(0, current + (target - from));
+      if (cache) cache.put(key, String(target), 21600);
+    }
+    if (next !== current) {
+      sheet.getRange(row, col).setValue(next);
+      lines.push(part + ' · ' + vehicle + ' ' + current + '→' + next);
+    }
   }
+  return lines;
 }
 
 /* ============================================================ 가이드 열람용 탭
@@ -816,6 +858,7 @@ function handleFields(ss, body) {
   try {
     // count 는 **실제로 적은 줄 수** 다 (같은 이름은 합쳐지므로 보낸 수와 다를 수 있다)
     var written = writeFieldSheet(ss, body.items || []);
+    logChange(ss, body, '리포트 항목', FIELD_SHEET, '항목 ' + written + '개로 다시 씀');
     return json({ ok: true, count: written });
   } finally {
     lock.releaseLock();
@@ -1049,6 +1092,7 @@ function handleDrivingPush(ss, body) {
     written.push(name);
     total += byYear[y].length;
   }
+  logChange(ss, body, '운행일지', vehicle, '기록 ' + total + '줄 · ' + written.join(', '));
   return json({ ok: true, sheetName: written[0] || '', sheets: written, count: total });
 }
 
@@ -1231,6 +1275,8 @@ function handleGuides(ss, body) {
   try {
     var items = body.items || [];
     var counts = {};
+    var diff = { added: [], changed: [], removed: [] };
+    var modelsBefore = readGuideModels(ss);
     for (var type in GUIDE_SHEETS) {
       var list = [];
       for (var i = 0; i < items.length; i++) {
@@ -1239,13 +1285,29 @@ function handleGuides(ss, body) {
       list.sort(function (a, b) {
         return String(a.codeOrTitle || '').localeCompare(String(b.codeOrTitle || ''), 'ko');
       });
+      var oldTab = ss.getSheetByName(GUIDE_SHEETS[type]);
+      guideDiff(oldTab ? readGuideSheet(oldTab, type) : [], list, diff, function (gone) {
+        putInTrash(ss, body, '가이드', GUIDE_SHEETS[type] + ' · ' + gone.codeOrTitle, gone);
+      });
       writeGuideSheet(ss, GUIDE_SHEETS[type], list);
       counts[type] = list.length;
     }
     if (Object.prototype.toString.call(body.models) === '[object Array]') {
       writeGuideModels(ss, body.models);
+      var after = readGuideModels(ss) || [];
+      if ((modelsBefore || []).join('|') !== after.join('|')) {
+        logChange(ss, body, '가이드 로봇', '로봇 분류', (modelsBefore || []).join(', ') + ' → ' + after.join(', '));
+      }
     }
     SpreadsheetApp.flush();
+    if (diff.added.length || diff.changed.length || diff.removed.length) {
+      logChange(ss, body, '가이드', '추가 ' + diff.added.length + ' · 수정 ' + diff.changed.length
+                + ' · 삭제 ' + diff.removed.length,
+                [diff.added.length ? '추가: ' + diff.added.join(', ') : '',
+                 diff.changed.length ? '수정: ' + diff.changed.join(', ') : '',
+                 diff.removed.length ? '삭제(휴지통): ' + diff.removed.join(', ') : '']
+                  .filter(function (x) { return x; }).join(' / '));
+    }
     return json({ ok: true, counts: counts });
   } finally {
     lock.releaseLock();
@@ -1730,10 +1792,10 @@ function handleReleasePublish(ss, body) {
  *   { release: 'latest' } → { ok, version, build, url, sizeMb, notes, publishedAt }
  * 탭이 없거나 비어 있으면 version 이 빈 문자열이다 — 오류가 아니다.
  */
-function handleReleaseLatest(ss) {
+function handleReleaseLatest(ss, body) {
   var link = installLinkRow(ss);
   var empty = { ok: true, version: '', build: '', url: '', sizeMb: 0, notes: '', publishedAt: '',
-                installUrl: link.installUrl, downloadUrl: link.downloadUrl };
+                installUrl: link.installUrl, downloadUrl: link.downloadUrl, minVersion: minAppVersion(ss) };
   var sheet = releaseSheet(ss, false);
   if (!sheet || sheet.getLastRow() < 2) return json(empty);
   var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, RELEASE_HEADER.length).getValues();
@@ -1745,7 +1807,7 @@ function handleReleaseLatest(ss) {
     if (!best || compareVersions(v, best.version) > 0) {
       best = { ok: true, version: v, build: String(r[1] || ''), publishedAt: cellText(r[2]),
                url: url, sizeMb: Number(r[4]) || 0, notes: String(r[5] || ''),
-               installUrl: link.installUrl, downloadUrl: link.downloadUrl };
+               installUrl: link.installUrl, downloadUrl: link.downloadUrl, minVersion: minAppVersion(ss) };
     }
   });
   return json(best || empty);
@@ -1959,12 +2021,15 @@ function handleReleaseInstall(ss, body) {
  * 파일 수정 시각이기 때문이다. 드라이브에 닿지 못하면 빈 문자열을 준다.
  * 앱은 빈 값을 "모른다" 로 보고 아무 표시도 하지 않는다.
  */
-function handleChanged(ss) {
+function handleChanged(ss, body) {
   var stamp = '';
   try {
     stamp = DriveApp.getFileById(ss.getId()).getLastUpdated().toISOString();
   } catch (err) { /* 드라이브 권한이 없거나 잠시 안 닿음 */ }
-  return json({ ok: true, changedAt: stamp });
+  // 하루 한 번 백업 · 기기 기록 — 5분마다 오는 이 물음에 얹는다 (트리거가 필요 없다)
+  backupIfDue(ss);
+  touchDevice(ss, body || {}, { pending: body && body.pending });
+  return json({ ok: true, changedAt: stamp, minVersion: minAppVersion(ss) });
 }
 
 /** 매장 → 날짜 → 사진/동영상 순으로 내려가며 폴더를 만든다. */
@@ -2194,9 +2259,11 @@ function handleReports(ss, body) {
     try {
       var target = ss.getSheetByName(String(body.sheetName || '').trim());
       if (!target) return json({ ok: false, error: '그 달의 시트가 없습니다.' });
-      var rowIndex = Math.floor(Number(body.row) || 0);
+      var rowIndex = resolveReportRow(target, Math.floor(Number(body.row) || 0), body.expect);
       if (rowIndex < REPORT_DATA_ROW) {
-        return json({ ok: false, error: '줄 번호가 올바르지 않습니다.' });
+        return json({ ok: false, conflict: Boolean(body.expect), error: body.expect
+          ? '그 리포트를 시트에서 찾지 못했습니다. 다른 기기에서 지웠거나 옮겼을 수 있습니다 — 이력을 새로고침해 주세요.'
+          : '줄 번호가 올바르지 않습니다.' });
       }
       var line = body.row_values || [];
       if (!line.length) return json({ ok: false, error: 'row 가 비어 있습니다.' });
@@ -2237,6 +2304,7 @@ function handleReports(ss, body) {
       // setValues 는 글자로만 적으므로, 첨부 칸을 다시 파란 링크로 살린다.
       relinkDriveCells(target, rowIndex, line);
       SpreadsheetApp.flush();
+      logChange(ss, body, '리포트 수정', body.sheetName + ' ' + rowIndex + '행', reportSummary(body.headers || [], body.row_values || []));
       return json({ ok: true, sheetName: body.sheetName, row: rowIndex,
                     media: savedU.count, mediaSkipped: savedU.skipped,
                     spreadsheetUrl: ss.getUrl() });
@@ -2252,12 +2320,22 @@ function handleReports(ss, body) {
     try {
       var sheetD = ss.getSheetByName(String(body.sheetName || '').trim());
       if (!sheetD) return json({ ok: false, error: '그 달의 시트가 없습니다.' });
-      var rowD = Math.floor(Number(body.row) || 0);
+      var rowD = resolveReportRow(sheetD, Math.floor(Number(body.row) || 0), body.expect);
       if (rowD < REPORT_DATA_ROW || rowD > sheetD.getLastRow()) {
-        return json({ ok: false, error: '줄 번호가 올바르지 않습니다.' });
+        return json({ ok: false, conflict: Boolean(body.expect), error: body.expect
+          ? '그 리포트를 시트에서 찾지 못했습니다. 이미 지워졌을 수 있습니다 — 이력을 새로고침해 주세요.'
+          : '줄 번호가 올바르지 않습니다.' });
       }
+      // 지우기 전에 통째로 휴지통에 — 설정 → 휴지통에서 되살린다
+      var blockD = blockForRow(sheetD, rowD);
+      var widthD = blockD ? blockD.headers.length : sheetD.getLastColumn();
+      var valuesD = sheetD.getRange(rowD, 1, 1, Math.max(widthD, 1)).getDisplayValues()[0];
+      var headersD = blockD ? blockD.headers : [];
+      putInTrash(ss, body, '리포트', String(body.sheetName) + ' · ' + reportName(headersD, valuesD),
+                 { sheetName: String(body.sheetName), headers: headersD, row: valuesD });
       sheetD.deleteRow(rowD);
       SpreadsheetApp.flush();
+      logChange(ss, body, '리포트 삭제', body.sheetName + ' ' + rowD + '행', reportSummary(headersD, valuesD));
       return json({ ok: true, sheetName: body.sheetName, row: rowD });
     } finally {
       lockD.releaseLock();
@@ -2270,13 +2348,18 @@ function handleReports(ss, body) {
     try {
       var target = ss.getSheetByName(String(body.sheetName || '').trim());
       if (!target) return json({ ok: false, error: '그 달의 시트가 없습니다.' });
-      var rowIndex = Math.floor(Number(body.row) || 0);
+      var rowIndex = resolveReportRow(target, Math.floor(Number(body.row) || 0), body.expect);
       if (rowIndex < REPORT_DATA_ROW) {
-        return json({ ok: false, error: '줄 번호가 올바르지 않습니다.' });
+        return json({ ok: false, conflict: Boolean(body.expect), error: body.expect
+          ? '그 리포트를 시트에서 찾지 못했습니다. 다른 기기에서 지웠거나 옮겼을 수 있습니다 — 이력을 새로고침해 주세요.'
+          : '줄 번호가 올바르지 않습니다.' });
       }
       var col = statusColumn(target, rowIndex, true);
+      var wasStatus = String(target.getRange(rowIndex, col).getValue() || '');
       target.getRange(rowIndex, col).setValue(String(body.status || ''));
       SpreadsheetApp.flush();
+      logChange(ss, body, '상태', body.sheetName + ' ' + rowIndex + '행 · ' + String((body.expect || {}).store || ''),
+                (wasStatus || '(없음)') + ' → ' + String(body.status || ''));
       return json({ ok: true, row: rowIndex, column: col,
                     status: String(body.status || '') });
     } finally {
@@ -2479,4 +2562,370 @@ function json(payload) {
 /** 브라우저로 URL 을 직접 열었을 때 상태 확인용 */
 function doGet() {
   return json({ ok: true, message: '현장 리포트 수집 스크립트가 동작 중입니다.' });
+}
+
+/* ============================================================ 운영 — 백업 · 변경기록 · 휴지통 · 기기 · 오류
+ *
+ * v3.30. 누가 언제 무엇을 바꿨는지 알 수 있어야 하고, 실수로 지운 것은 되살릴 수
+ * 있어야 한다. 예전에 가이드 3건이 사라졌는데 누가 언제 지웠는지 알 방법이 없었다.
+ *
+ *  - 매일 백업     : 하루 한 번 스프레드시트를 통째로 복사해 '시트 백업' 폴더에 둔다 (30일 보관)
+ *  - 변경기록 탭   : 쓰기 요청마다 시각 · 기기 · 종류 · 대상 · 내용 한 줄
+ *  - 휴지통 탭     : 지운 가이드 · 리포트를 통째로 보관 → 앱 설정에서 [되살리기]
+ *  - 기기 탭       : 기기마다 앱 버전 · 마지막 연결 · 올리지 못한 건수. B1 에 최소 버전
+ *  - 오류기록 탭   : 기기에서 난 오류를 모아 둔다
+ *
+ * 새 권한은 쓰지 않는다 (DriveApp · CacheService 는 이미 있는 권한 안이다) — 권한이 늘면
+ * 배포한 사람이 다시 승인할 때까지 태블릿 전체가 시트에 못 닿는다.
+ */
+var LOG_SHEET = '변경기록';
+var LOG_HEADER = ['시각', '기기 · 사람', '앱 버전', '종류', '대상', '내용'];
+var LOG_WIDTHS = [140, 130, 80, 110, 220, 520];
+var LOG_KEEP = 5000;                  // 이보다 많으면 오래된 줄부터 지운다
+var TRASH_SHEET = '휴지통';
+var TRASH_HEADER = ['지운 시각', '기기 · 사람', '종류', '이름', '되살림', '자료(고치지 마세요)'];
+var TRASH_WIDTHS = [140, 130, 90, 300, 140, 80];
+var DEVICE_SHEET = '기기';
+var DEVICE_HEADER = ['기기 · 사람', '앱 버전', '마지막 연결', '올리지 못한 것', '마지막 오류'];
+var DEVICE_WIDTHS = [160, 90, 150, 110, 420];
+var ERROR_SHEET = '오류기록';
+var ERROR_HEADER = ['시각', '기기 · 사람', '앱 버전', '화면', '내용', '자세히'];
+var ERROR_WIDTHS = [140, 130, 80, 140, 360, 420];
+var BACKUP_FOLDER_NAME = '시트 백업';
+var BACKUP_KEEP_DAYS = 30;
+var BACKUP_PROP = 'LAST_BACKUP_DAY';
+
+function nowText() {
+  return Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+}
+
+function opsSheet(ss, name, header, widths) {
+  var sheet = ss.getSheetByName(name);
+  if (sheet) return sheet;
+  sheet = ss.insertSheet(name);
+  sheet.getRange(2, 1, 1, header.length).setValues([header]).setFontWeight('bold').setBackground('#eef1f5');
+  sheet.setFrozenRows(2);
+  for (var c = 0; c < widths.length; c++) sheet.setColumnWidth(c + 1, widths[c]);
+  return sheet;
+}
+
+/** 표 끝에 한 줄 (2행이 머리줄) */
+function appendRow(sheet, values) {
+  var at = Math.max(sheet.getLastRow(), 2) + 1;
+  sheet.getRange(at, 1, 1, values.length).setValues([values]);
+  return at;
+}
+
+function who(body) {
+  return String((body && body.device) || '').trim() || '(이름 없는 기기)';
+}
+
+function clip(text, n) {
+  text = String(text === undefined || text === null ? '' : text);
+  return text.length > n ? text.slice(0, n - 1) + '…' : text;
+}
+
+/** 변경기록 한 줄. 실패해도 본래 일은 막지 않는다. */
+function logChange(ss, body, kind, target, detail) {
+  try {
+    var sheet = opsSheet(ss, LOG_SHEET, LOG_HEADER, LOG_WIDTHS);
+    appendRow(sheet, [nowText(), who(body), String(body.app || ''), kind, clip(target, 200), clip(detail, 900)]);
+    var extra = sheet.getLastRow() - 2 - LOG_KEEP;
+    if (extra > 200) {                       // 한 번에 몰아서 지운다 (줄 지우기는 느리다)
+      for (var i = 0; i < extra; i++) sheet.deleteRow(3);
+    }
+  } catch (err) { /* 기록 실패가 쓰기를 막으면 안 된다 */ }
+}
+
+/** 휴지통에 넣는다. data 는 되살릴 때 쓰는 원래 모습 (JSON) */
+function putInTrash(ss, body, kind, name, data) {
+  try {
+    var sheet = opsSheet(ss, TRASH_SHEET, TRASH_HEADER, TRASH_WIDTHS);
+    appendRow(sheet, [nowText(), who(body), kind, clip(name, 200), '', JSON.stringify(data)]);
+  } catch (err) { /* 휴지통 실패가 지우기를 막지는 않는다 */ }
+}
+
+/**
+ * 휴지통 — 목록 · 되살리기.
+ *   { trash: 'list' }              → { items: [{ row, at, by, kind, name, restored }] }  (최근 것이 앞)
+ *   { trash: 'restore', row }      → 그 줄을 원래 자리에 되돌리고 '되살림' 칸에 적는다
+ */
+function handleTrash(ss, body) {
+  var sheet = ss.getSheetByName(TRASH_SHEET);
+  if (body.trash === 'list') {
+    if (!sheet || sheet.getLastRow() < 3) return json({ ok: true, items: [] });
+    var n = sheet.getLastRow() - 2;
+    var rows = sheet.getRange(3, 1, n, TRASH_HEADER.length).getValues();
+    var items = [];
+    for (var i = rows.length - 1; i >= 0 && items.length < 200; i--) {
+      items.push({ row: i + 3, at: cellText(rows[i][0]), by: String(rows[i][1] || ''),
+                   kind: String(rows[i][2] || ''), name: String(rows[i][3] || ''),
+                   restored: String(rows[i][4] || '') });
+    }
+    return json({ ok: true, items: items });
+  }
+  if (body.trash !== 'restore') return json({ ok: false, error: '알 수 없는 요청입니다.' });
+  if (!sheet) return json({ ok: false, error: '휴지통이 비어 있습니다.' });
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var at = Math.floor(Number(body.row) || 0);
+    if (at < 3 || at > sheet.getLastRow()) return json({ ok: false, error: '그 줄이 없습니다.' });
+    var line = sheet.getRange(at, 1, 1, TRASH_HEADER.length).getValues()[0];
+    if (String(line[4] || '')) return json({ ok: false, error: '이미 되살렸습니다.' });
+    var data = JSON.parse(String(line[5] || '{}'));
+    var kind = String(line[2] || '');
+    var result;
+    if (kind === '가이드') result = restoreGuide(ss, data);
+    else if (kind === '리포트') result = restoreReport(ss, data);
+    else return json({ ok: false, error: '되살릴 수 없는 종류입니다: ' + kind });
+    sheet.getRange(at, 5).setValue(nowText() + ' · ' + who(body));
+    logChange(ss, body, '되살림', kind + ' · ' + String(line[3] || ''), '휴지통 ' + at + '행에서');
+    SpreadsheetApp.flush();
+    return json({ ok: true, kind: kind, result: result });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function restoreGuide(ss, guide) {
+  var tab = GUIDE_SHEETS[guide.categoryType];
+  if (!tab) throw new Error('가이드 종류를 알 수 없습니다.');
+  var sheet = ss.getSheetByName(tab);
+  var list = sheet ? readGuideSheet(sheet, guide.categoryType) : [];
+  var kept = [];
+  for (var i = 0; i < list.length; i++) if (list[i].id !== guide.id) kept.push(list[i]);
+  kept.push(guide);
+  kept.sort(function (a, b) {
+    return String(a.codeOrTitle || '').localeCompare(String(b.codeOrTitle || ''), 'ko');
+  });
+  writeGuideSheet(ss, tab, kept);
+  return { id: guide.id };
+}
+
+function restoreReport(ss, data) {
+  var picked = openMonthSheet(ss, data.sheetName);
+  var sheet = picked.sheet;
+  var placed = placeForRow(sheet, data.headers || [], picked.created);
+  var aligned = [];
+  for (var f = 0; f < placed.width; f++) aligned.push('');
+  var row = data.row || [];
+  for (var r = 0; r < row.length; r++) {
+    var to = placed.map[r] || 0;
+    if (to >= 1) aligned[to - 1] = row[r];
+  }
+  sheet.getRange(placed.target, 1, 1, aligned.length).setValues([aligned]);
+  relinkDriveCells(sheet, placed.target, aligned);
+  return { sheetName: data.sheetName, row: placed.target };
+}
+
+/* ----------------------------------------------------------- 기기 · 최소 버전 */
+
+/**
+ * 기기 탭을 갱신한다 — 같은 기기는 한 줄. 5분마다 오는 물음까지 매번 적으면 느리므로
+ * 같은 기기는 20분에 한 번만 적는다 (CacheService).
+ */
+function touchDevice(ss, body, extra) {
+  var name = String((body && body.device) || '').trim();
+  if (!name) return;
+  try {
+    var cache = CacheService.getScriptCache();
+    var ckey = 'dev:' + name;
+    var force = extra && (extra.error || extra.pending !== undefined && extra.pending > 0);
+    if (!force && cache.get(ckey) === String(body.app || '')) return;
+    var sheet = opsSheet(ss, DEVICE_SHEET, DEVICE_HEADER, DEVICE_WIDTHS);
+    if (!String(sheet.getRange(1, 1).getValue() || '')) {
+      sheet.getRange(1, 1).setValue('최소 버전 (이보다 낮으면 앱이 업데이트를 요구합니다) →');
+    }
+    var last = sheet.getLastRow();
+    var at = -1;
+    if (last >= 3) {
+      var names = sheet.getRange(3, 1, last - 2, 1).getValues();
+      for (var i = 0; i < names.length; i++) {
+        if (String(names[i][0] || '').trim() === name) { at = i + 3; break; }
+      }
+    }
+    if (at < 0) at = Math.max(last, 2) + 1;
+    var line = sheet.getRange(at, 1, 1, DEVICE_HEADER.length).getValues()[0];
+    line[0] = name;
+    line[1] = String(body.app || line[1] || '');
+    line[2] = nowText();
+    if (extra && extra.pending !== undefined) line[3] = Number(extra.pending) || 0;
+    if (extra && extra.error) line[4] = clip(extra.error, 300);
+    sheet.getRange(at, 1, 1, DEVICE_HEADER.length).setValues([line]);
+    cache.put(ckey, String(body.app || ''), 1200);
+  } catch (err) { /* 기기 기록 실패는 무시 */ }
+}
+
+/** 기기 탭 B1 의 최소 버전 (없으면 '') */
+function minAppVersion(ss) {
+  try {
+    var sheet = ss.getSheetByName(DEVICE_SHEET);
+    return sheet ? cellText(sheet.getRange(1, 2).getValue()) : '';
+  } catch (err) { return ''; }
+}
+
+/* ----------------------------------------------------------- 오류기록 */
+
+/** { errors: 'push', items: [{ at, screen, message, detail }] } */
+function handleErrors(ss, body) {
+  var items = body.items || [];
+  if (!items.length) return json({ ok: true, saved: 0 });
+  var sheet = opsSheet(ss, ERROR_SHEET, ERROR_HEADER, ERROR_WIDTHS);
+  var rows = [];
+  for (var i = 0; i < items.length && i < 50; i++) {
+    var e = items[i] || {};
+    rows.push([clip(e.at || nowText(), 40), who(body), String(body.app || ''), clip(e.screen, 80),
+               clip(e.message, 400), clip(e.detail, 1500)]);
+  }
+  var at = Math.max(sheet.getLastRow(), 2) + 1;
+  sheet.getRange(at, 1, rows.length, ERROR_HEADER.length).setValues(rows);
+  var extra = sheet.getLastRow() - 2 - 3000;
+  for (var d = 0; d < extra; d++) sheet.deleteRow(3);
+  touchDevice(ss, body, { error: rows[rows.length - 1][4] });
+  return json({ ok: true, saved: rows.length });
+}
+
+/* ----------------------------------------------------------- 매일 백업 */
+
+/**
+ * 하루 한 번 스프레드시트를 통째로 복사한다. 5분마다 오는 물음(changed)이 부른다 —
+ * 그래서 트리거를 따로 만들 필요가 없다 (만들려면 새 권한이 필요하다).
+ * 편집기에서 dailyBackup 을 시간 트리거로 걸어 두어도 된다 (같은 날 두 번은 안 한다).
+ */
+function backupIfDue(ss) {
+  var today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty(BACKUP_PROP) === today) return null;
+  var lock = LockService.getScriptLock();
+  if (lock.tryLock && !lock.tryLock(0)) return null;     // 다른 요청이 하는 중
+  try {
+    if (props.getProperty(BACKUP_PROP) === today) return null;
+    var root = mediaRoot(ss);
+    var folder = folderByName(root.folder, BACKUP_FOLDER_NAME);
+    var copy = DriveApp.getFileById(ss.getId()).makeCopy(ss.getName() + ' 백업 ' + today, folder);
+    props.setProperty(BACKUP_PROP, today);
+    // 30일 지난 백업은 휴지통으로 (드라이브 휴지통에서 30일 더 되살릴 수 있다)
+    var cut = new Date(Date.now() - BACKUP_KEEP_DAYS * 86400000);
+    var cutText = Utilities.formatDate(cut, 'Asia/Seoul', 'yyyy-MM-dd');
+    var files = folder.getFiles();
+    var trashed = 0;
+    while (files.hasNext()) {
+      var f = files.next();
+      var m = String(f.getName()).match(/백업 (\d{4}-\d{2}-\d{2})$/);
+      if (m && m[1] < cutText && !f.isTrashed()) { f.setTrashed(true); trashed++; }
+    }
+    return { name: copy.getName(), trashed: trashed };
+  } catch (err) {
+    return { error: String(err) };
+  } finally {
+    if (lock.releaseLock) lock.releaseLock();
+  }
+}
+
+function dailyBackup() {
+  return backupIfDue(SpreadsheetApp.getActiveSpreadsheet());
+}
+
+/* ----------------------------------------------------------- 리포트 줄 확인 */
+
+/**
+ * 줄 번호만 믿고 고치거나 지우면, 그 사이 다른 기기가 위쪽 줄을 지웠을 때
+ * **엉뚱한 줄**이 바뀐다. 앱이 그 줄의 작성일시 · 매장명(expect)을 함께 보내면
+ * 맞는지 보고, 다르면 같은 내용의 줄을 찾아 그 줄을 쓴다. 못 찾으면 멈춘다.
+ * expect 가 없으면(옛 앱) 예전처럼 줄 번호를 믿는다.
+ */
+function resolveReportRow(sheet, rowIndex, expect) {
+  if (!expect || !expect.createdAt) return rowIndex;
+  var last = sheet.getLastRow();
+  var width = sheet.getLastColumn();
+  if (last < REPORT_DATA_ROW || width < 1) return -1;
+  var display = sheet.getRange(1, 1, last, width).getDisplayValues();
+  var want = String(expect.createdAt).trim();
+  var wantStore = String(expect.store || '').trim();
+  // 한 탭에 항목 묶음이 여럿일 수 있다 — 줄마다 자기 항목 줄로 열을 찾는다.
+  var cAt = -1, cStore = -1, found = [];
+  for (var r = 0; r < display.length; r++) {
+    var cells = display[r];
+    if (isHeaderRow(cells)) {
+      cAt = -1; cStore = -1;
+      for (var c = 0; c < cells.length; c++) {
+        var name = String(cells[c] || '').trim();
+        if (name === REPORT_FIRST_HEADER && cAt < 0) cAt = c;
+        if ((name.indexOf('매장') >= 0 || name.indexOf('식당') >= 0) && cStore < 0) cStore = c;
+      }
+      continue;
+    }
+    if (cAt < 0 || String(cells[cAt] || '').trim() !== want) continue;
+    if (wantStore && cStore >= 0 && String(cells[cStore] || '').trim() !== wantStore) continue;
+    found.push(r + 1);
+  }
+  if (found.indexOf(rowIndex) >= 0) return rowIndex;   // 그 자리 그대로
+  return found.length === 1 ? found[0] : -1;           // 옮겨졌으면 찾은 자리 · 애매하면 멈춘다
+}
+
+
+/* ----------------------------------------------------------- 기록용 요약 */
+
+/** 리포트 한 줄 요약 — 매장 · 작성일시 · 증상 앞부분 */
+function reportSummary(headers, row) {
+  var pick = function (word) {
+    for (var i = 0; i < headers.length; i++) {
+      if (String(headers[i] || '').indexOf(word) >= 0) return String(row[i] || '').trim();
+    }
+    return '';
+  };
+  return [pick('매장') || pick('식당'), pick('작성일시'), clip(pick('증상'), 60)]
+    .filter(function (x) { return x; }).join(' · ');
+}
+
+function reportName(headers, row) {
+  var s = reportSummary(headers, row);
+  return s || '(내용 없음)';
+}
+
+/** 가이드 탭 하나의 전후 비교 — 지운 것은 onRemoved 로 넘긴다 (휴지통) */
+function guideDiff(before, after, diff, onRemoved) {
+  var key = function (g) { return g.id || ('t:' + String(g.codeOrTitle || '').trim()); };
+  var shape = function (g) {
+    return JSON.stringify([g.robotModel || '', g.codeOrTitle || '', g.summary || '', g.requiredTools || '',
+      (g.commands || []).map(function (c) { return [c.label || '', c.cmd || '', c.desc || '']; }),
+      (g.steps || []).map(function (s) { return [s.instruction || '', s.expectedMetric || '']; })]);
+  };
+  var old = {};
+  for (var i = 0; i < before.length; i++) old[key(before[i])] = before[i];
+  var seen = {};
+  for (var j = 0; j < after.length; j++) {
+    var k = key(after[j]);
+    seen[k] = true;
+    if (!old[k]) diff.added.push(after[j].codeOrTitle);
+    else if (shape(old[k]) !== shape(after[j])) diff.changed.push(after[j].codeOrTitle);
+  }
+  for (var o in old) {
+    if (!seen[o]) {
+      diff.removed.push(old[o].codeOrTitle);
+      onRemoved(old[o]);
+    }
+  }
+}
+
+/** 재고 구성(차량 · 품목)의 전후 비교 한 줄 — 바뀐 게 없으면 '' */
+function inventoryDiff(before, after) {
+  var parts = function (inv) {
+    var out = [];
+    (inv.items || []).forEach(function (it) { if (out.indexOf(it.partName) < 0) out.push(it.partName); });
+    return out;
+  };
+  var pb = parts(before), pa = parts(after);
+  var vb = before.vehicles || [], va = after.vehicles || [];
+  var bits = [];
+  var plus = pa.filter(function (p) { return pb.indexOf(p) < 0; });
+  var minus = pb.filter(function (p) { return pa.indexOf(p) < 0; });
+  var vplus = va.filter(function (v) { return vb.indexOf(v) < 0; });
+  var vminus = vb.filter(function (v) { return va.indexOf(v) < 0; });
+  if (plus.length) bits.push('품목 추가: ' + plus.join(', '));
+  if (minus.length) bits.push('품목 삭제: ' + minus.join(', '));
+  if (vplus.length) bits.push('차량 추가: ' + vplus.join(', '));
+  if (vminus.length) bits.push('차량 삭제: ' + vminus.join(', '));
+  return bits.join(' / ');
 }

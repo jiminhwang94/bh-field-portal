@@ -53,6 +53,7 @@ export async function checkForUpdate({ force = false } = {}) {
   lastCheckAt = Date.now();
   try {
     const r = await callAppsScript({ release: 'latest' }, 20000);
+    if (r && typeof r.minVersion === 'string') applyMinVersion(r.minVersion);
     current = r && r.version
       ? { version: String(r.version), build: String(r.build || ''), url: String(r.url || ''),
           sizeMb: Number(r.sizeMb) || 0, notes: String(r.notes || ''),
@@ -146,4 +147,55 @@ export function settingsLine() {
               style="margin-left:6px">업데이트</button>`;
   }
   return '· 최신입니다';
+}
+
+
+// ─────────────────────────────────────────────── 최소 버전 (기기 탭 B1)
+//
+// 시트를 바꾸는 방식이 달라지면(예: 수량을 '바뀐 만큼' 으로) 옛 앱이 계속 쓰면 안 될 때가
+// 있다. 관리자가 시트 '기기' 탭 B1 에 최소 버전을 적으면, 그보다 낮은 앱은 화면을 덮고
+// 업데이트를 요구한다. 올리지 못한 내용은 기기에 그대로 있다 (업데이트 뒤 올라간다).
+const MIN_KEY = 'minVersion';
+
+export async function applyMinVersion(min) {
+  try {
+    await store.setMeta(MIN_KEY, String(min || ''));
+  } catch { /* 저장 실패해도 이번 화면은 그린다 */ }
+  paintVersionGate(String(min || ''));
+}
+
+/** 부팅 때 — 지난번에 받아 둔 최소 버전으로 먼저 판단한다 (오프라인이어도). */
+export async function initVersionGate() {
+  try {
+    paintVersionGate(String((await store.getMeta(MIN_KEY, '')) || ''));
+  } catch { /* 없으면 막지 않는다 */ }
+}
+
+function paintVersionGate(min) {
+  let gate = document.getElementById('version-gate');
+  const tooOld = Boolean(min) && compareVersions(APP_VERSION, min) < 0;
+  if (!tooOld) { if (gate) gate.remove(); return; }
+  if (!gate) {
+    gate = document.createElement('div');
+    gate.id = 'version-gate';
+    gate.className = 'version-gate';
+    gate.setAttribute('role', 'alertdialog');
+    gate.setAttribute('aria-modal', 'true');
+    document.body.append(gate);
+    gate.addEventListener('click', (ev) => {
+      const btn = /** @type {HTMLElement} */ (ev.target).closest('[data-act]');
+      if (!btn) return;
+      if (current && hasNewer(current)) startUpdate(current);
+      else location.reload();
+    });
+  }
+  gate.innerHTML = `
+    <div class="version-gate__box">
+      <h2>앱 업데이트가 필요합니다</h2>
+      <p>이 기기는 <b class="tnum">v${h(APP_VERSION)}</b> 입니다. 팀 시트가 <b class="tnum">v${h(min)}</b> 이상을 요구합니다.</p>
+      <p class="muted">올리지 못한 리포트 · 재고 변경은 기기에 그대로 있습니다. 업데이트 뒤 자동으로 올라갑니다.</p>
+      <button class="btn btn-primary" data-act="gate-update" type="button">
+        ${current && hasNewer(current) ? `v${h(current.version)} 받기` : '다시 열기 (새 화면 받기)'}
+      </button>
+    </div>`;
 }

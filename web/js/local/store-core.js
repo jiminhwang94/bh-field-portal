@@ -160,6 +160,7 @@ export async function compactOutbox() {
   const lastPushByType = new Map();      // '*-push' 는 종류별 마지막 1건만
   const lastStatusByRow = new Map();     // 같은 줄의 상태는 마지막 것만
   const firstBefore = new Map();         // 되돌릴 값은 맨 처음 것
+  const firstOpId = new Map();           // 작업 번호도 맨 처음 것 (시트가 이미 받은 만큼을 안다)
   const mergedChanges = new Map();       // 종류별로 합친 changes
   for (const row of rows) {
     if (PUSH_TYPES.has(row.type)) {
@@ -183,6 +184,7 @@ export async function compactOutbox() {
     // 다만 되돌릴 값(before)은 **맨 처음 것**을 이어받아야 한다.
     // 안 그러면 [+]를 세 번 누른 뒤 취소했을 때 중간값으로 돌아간다.
     if (!firstBefore.has(key)) firstBefore.set(key, row.before);
+    if (!firstOpId.has(key) && row.opId) firstOpId.set(key, row.opId);
     lastByTarget.set(key, row.id);
   }
   for (const row of rows) {
@@ -208,6 +210,7 @@ export async function compactOutbox() {
     }
     // 남는 한 건이 맨 처음의 '바꾸기 전' 값을 이어받는다.
     const origin = firstBefore.get(key);
-    if (row.before !== origin) await idb.put('outbox', { ...row, before: origin });
+    const opId = firstOpId.get(key) || row.opId;
+    if (row.before !== origin || row.opId !== opId) await idb.put('outbox', { ...row, before: origin, opId });
   }
 }

@@ -5,6 +5,7 @@
 import * as store from './local/store.js';
 import { isOnline, OfflineError } from './sync.js';
 import { testMode } from './mode.js';
+import { APP_VERSION } from './version.js';
 
 const META_HEADERS = ['작성일시', '작성자'];
 
@@ -171,10 +172,12 @@ async function postDirect(endpoint, payload, timeout = 120000) {
   const timer = setTimeout(() => controller.abort(), timeout);
   let res;
   try {
+    // 누가 · 어느 버전으로 보냈는지 — 시트의 변경기록 · 기기 탭에 적힌다.
+    const device = localStorage.getItem('bh_device_name') || '';
     res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ device, app: APP_VERSION, ...payload }),
       redirect: 'follow',
       signal: controller.signal,
     });
@@ -274,6 +277,8 @@ export async function uploadReport(report) {
       reports: 'update',
       sheetName: link.sheetName,
       row: link.row,
+      // 줄 번호만 믿으면 그 사이 다른 기기가 위쪽 줄을 지웠을 때 엉뚱한 줄을 고친다.
+      expect: link.createdAt ? { createdAt: link.createdAt, store: link.store || '' } : undefined,
       headers: payload.headers,
       row_values: payload.row,
       media: payload.media,

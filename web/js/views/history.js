@@ -32,6 +32,14 @@ const STATUS_ICON = {
 const stIcon = (cls) => `<svg class="st-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
   stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${STATUS_ICON[cls]}"/></svg>`;
 
+/** 끝나지 않은 채 이만큼 지나면 '늦음' 으로 눈에 띄게 (홈과 같은 기준) */
+const OVERDUE_DAYS = 7;
+function openDays(entry) {
+  const at = new Date(String(entry.createdAt || entry.date || '').replace(' ', 'T'));
+  if (Number.isNaN(at.getTime())) return 0;
+  return Math.floor((Date.now() - at.getTime()) / 86400000) + 1;
+}
+
 /** 끝나지 않은 건이 며칠째인가 — '오늘' · 'N일째'. 끝난 건은 빈 글자. */
 function ageText(entry) {
   if (entry.status === '조치 완료') return '';
@@ -426,6 +434,8 @@ export async function reportListView(view, params = null) {
   let data = { entries: [], fromCache: false, error: null };
   let filter = null;          // null = 전체
   let query = params ? (params.get('q') || '') : '';
+  // 홈의 'N일 넘게 끝나지 않은 리포트' 에서 들어오면 그것만 본다
+  let overdueOnly = Boolean(params && params.get('old'));
   let localItems = [];
   let selectedKey = openKey;
 
@@ -440,6 +450,7 @@ export async function reportListView(view, params = null) {
     const q = query.trim().toLowerCase();
     return (data.entries || []).filter((e) => {
       if (filter && e.status !== filter) return false;
+      if (overdueOnly && (e.status === '조치 완료' || openDays(e) < OVERDUE_DAYS)) return false;
       if (!q) return true;
       return [e.store, e.date, e.createdAt, e.code, e.summary, e.author]
         .some((v) => String(v || '').toLowerCase().includes(q));
@@ -469,7 +480,9 @@ export async function reportListView(view, params = null) {
     return `<div class="hist-chips hist-tiles" role="group" aria-label="상태로 거르기">
       ${tile(null, '전체', (data.entries || []).length, 'all')}
       ${order.map((v) => tile(v, trackOf(v).short, c[v], trackOf(v).cls)).join('')}
-    </div>`;
+    </div>
+    ${overdueOnly ? `<button class="hist-overdue-chip" data-act="overdue-off" type="button">
+      ${OVERDUE_DAYS}일 넘게 끝나지 않은 것만 보는 중 · 모두 보기 ✕</button>` : ''}`;
   }
 
   function rowsHtml() {
@@ -485,8 +498,9 @@ export async function reportListView(view, params = null) {
         const detail = [e.code, e.summary].filter(Boolean).join(' · ');
         const t = trackOf(e.status);
         const age = ageText(e);
+        const late = e.status !== '조치 완료' && openDays(e) >= OVERDUE_DAYS;
         return `
-          <button class="hist-row${on ? ' is-on' : ''}" data-act="open" data-key="${h(e.key)}"
+          <button class="hist-row${on ? ' is-on' : ''}${late ? ' is-overdue' : ''}" data-act="open" data-key="${h(e.key)}"
                   data-track="${t.cls}" type="button" aria-pressed="${on}">
             <span class="hist-row__top">
               <span class="hist-row__date tnum">${h(shortDate(e.date))}</span>
@@ -627,6 +641,12 @@ export async function reportListView(view, params = null) {
     if (!btn || btn.closest('#histPanel')) return;     // 상세 안의 버튼은 bindEntry 가 맡는다
     const act = btn.dataset.act;
 
+    if (act === 'overdue-off') {
+      overdueOnly = false;
+      history.replaceState(null, '', '#/reports');
+      paint();
+      return;
+    }
     if (act === 'filter') {
       const value = btn.dataset.value || null;
       filter = filter === value ? null : value;

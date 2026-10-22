@@ -38,7 +38,8 @@ export async function pushGuides(changes = null) {
   // 합칠 때 시트를 한 번만 읽는다 — 가이드와 로봇 분류가 같은 응답에 들어 있다.
   const sheet = changes && changes.length
     ? await callAppsScript({ guides: 'pull' }, 60000) : null;
-  const guides = mergeWithSheet(await idb.getAll('guides'), changes, sheet);
+  const conflicts = [];
+  const guides = mergeWithSheet(await idb.getAll('guides'), changes, sheet, conflicts);
   const models = mergeModels(await store.listGuideModels(), changes, sheet);
   const items = guides.map((g) => ({
     id: g.id,
@@ -62,7 +63,54 @@ export async function pushGuides(changes = null) {
   const result = await callAppsScript({ guides: 'push', items, models }, 60000);
   await store.setMeta(SHEET_IDS_KEY, items.map((g) => g.id).filter(Boolean));
   await store.setGuideModels(models);
-  return result;
+  if (conflicts.length) await rememberConflicts(conflicts);
+  return { ...result, conflicts: conflicts.length };
+}
+
+// ─────────────────────────────────────────────── 충돌 — 남이 먼저 고친 가이드
+//
+// 내가 고치기 시작한 뒤 다른 사람이 같은 가이드를 고쳐 올렸으면, 내 것으로 덮지 않는다.
+// 시트에는 **남의 것을 그대로 두고**, 내 것은 '충돌' 로 보관해 사람이 고르게 한다
+// (설정 → 확인할 것 · 홈에 알림). 예전에는 나중에 올린 사람이 앞사람 것을 말없이 덮었다.
+const CONFLICT_KEY = 'guideConflicts';
+
+/** 시트에 적히는 모양으로 줄인다 — 이 모양이 다르면 '내용이 다르다' */
+function sheetShape(g) {
+  if (!g) return '';
+  const t = (v) => String(v || '').trim();
+  return JSON.stringify([
+    t(g.categoryType), t(g.robotModel), t(g.codeOrTitle), t(g.summary), t(g.requiredTools),
+    (g.commands || []).filter((c) => t(c.cmd)).map((c) => [t(c.label), t(c.cmd), t(c.desc)]),
+    (g.steps || []).filter((s) => t(s.instruction)).map((s) => [t(s.instruction), t(s.expectedMetric)]),
+  ]);
+}
+
+async function rememberConflicts(list) {
+  const prev = (await store.getMeta(CONFLICT_KEY, [])) || [];
+  const byId = new Map(prev.map((c) => [c.id, c]));
+  for (const c of list) byId.set(c.id, c);
+  await store.setMeta(CONFLICT_KEY, [...byId.values()]);
+}
+
+export async function listConflicts() {
+  return (await store.getMeta(CONFLICT_KEY, [])) || [];
+}
+
+/** 충돌 하나를 정리한다. keepMine=true 면 내 것을 다시 저장해 올린다 (이번에는 덮는다). */
+export async function resolveConflict(id, keepMine) {
+  const list = await listConflicts();
+  const c = list.find((x) => x.id === id);
+  await store.setMeta(CONFLICT_KEY, list.filter((x) => x.id !== id));
+  if (!c || !keepMine) return null;
+  if (!c.mine) {                         // 내가 지우려던 것 → 지금 지운다
+    await store.deleteGuide(id).catch(() => {});
+    return { deleted: true };
+  }
+  // 남의 것을 '고치기 시작한 모습' 으로 깔고 그 위에 내 것을 저장한다 — 그래야 이번에는
+  // "남이 먼저 고쳤다" 로 다시 걸리지 않고 내 것이 올라간다.
+  await idb.put('guides', { ...c.mine, ...c.theirs, id });
+  const { id: _drop, createdAt, updatedAt, ...payload } = c.mine;
+  return store.saveGuide(payload, id);
 }
 
 /**
@@ -96,7 +144,7 @@ function mergeModels(local, changes, sheet) {
  * 시트를 못 받으면 **올리지 않는다** (오류를 넘겨 대기열에 남긴다). 예전에는
  * 기기 내용을 통째로 올려서, 다른 기기에서 지운 가이드가 시트에 되살아났다.
  */
-function mergeWithSheet(local, changes, pulled) {
+function mergeWithSheet(local, changes, pulled, conflicts = []) {
   if (!changes || !changes.length || !pulled) return local;
   const sheet = pulled.items || [];
   if (!sheet.length) return local;
@@ -104,6 +152,9 @@ function mergeWithSheet(local, changes, pulled) {
   const mine = new Map(local.map((g) => [g.id, g]));
   const guideChanges = changes.filter((c) => c.kind !== 'model');
   const touched = new Set(guideChanges.map((c) => c.id));
+  // 고치기 **시작할 때** 모습 (같은 가이드를 여러 번 고쳤으면 맨 처음 것)
+  const baseOf = new Map();
+  for (const c of guideChanges) if (!baseOf.has(c.id)) baseOf.set(c.id, c.before || null);
   // 예전 기기는 시트에서 받은 가이드에 **다른 ID** 를 붙여 들고 있다. 그 ID 로
   // 지우면 시트 줄과 짝이 안 맞아 지운 가이드가 남는다 — 제목으로도 알아본다.
   const titleKey = (g) => `${g.categoryType}|${String(g.codeOrTitle || '').trim()}`;
@@ -118,6 +169,16 @@ function mergeWithSheet(local, changes, pulled) {
     if ((!id || !mine.has(id)) && !(id && touched.has(id))
         && touchedTitles.has(titleKey(row))) continue;
     if (id && touched.has(id)) {
+      const base = baseOf.get(id);
+      // 내가 시작한 뒤 시트 것이 달라졌다 = 다른 사람이 먼저 고쳤다. 내 것으로 덮지 않는다.
+      const theirsChanged = base && sheetShape(row) !== sheetShape(base);
+      const mineDiffers = !mine.has(id) || sheetShape(mine.get(id)) !== sheetShape(row);
+      if (theirsChanged && mineDiffers) {
+        conflicts.push({ id, title: String(row.codeOrTitle || ''), categoryType: row.categoryType,
+                         at: new Date().toISOString(), theirs: row, mine: mine.get(id) || null });
+        out.push(row);
+        continue;
+      }
       if (mine.has(id)) out.push(mine.get(id));     // 고친 것. 지운 것은 빠진다.
       continue;
     }
