@@ -209,6 +209,18 @@ export async function settingsView(view) {
         <div id="installLinkBox">${installLinkHtml(getInstallLink())}</div>
       </details>
 
+      <div class="panel" id="viewPanel">
+        <h2 class="panel__title">보기</h2>
+        <div class="row" style="gap:12px;align-items:center;flex-wrap:wrap">
+          <button class="btn ${document.documentElement.getAttribute('data-contrast') === 'high' ? 'btn-dark' : 'btn-secondary'}"
+                  data-act="toggle-contrast" type="button"
+                  aria-pressed="${document.documentElement.getAttribute('data-contrast') === 'high'}">
+            고대비 (야외 · 햇빛) ${document.documentElement.getAttribute('data-contrast') === 'high' ? '켜짐' : '꺼짐'}
+          </button>
+          <span class="muted">글자와 테두리를 진하게 — 햇빛 아래에서도 잘 보이게</span>
+        </div>
+      </div>
+
       <details class="panel panel--fold" id="trashPanel">
         <summary class="panel__title">휴지통 <span class="muted" style="font-weight:500">지운 가이드 · 리포트 되살리기</span></summary>
         <div id="trashBody" class="trash-body"><p class="muted">열면 시트에서 목록을 받아 옵니다.</p></div>
@@ -292,6 +304,14 @@ export async function settingsView(view) {
     const act = btn.dataset.act;
 
     if (act === 'install') { await installApp(); return; }
+    if (act === 'toggle-contrast') {
+      const on = document.documentElement.getAttribute('data-contrast') !== 'high';
+      if (on) document.documentElement.setAttribute('data-contrast', 'high');
+      else document.documentElement.removeAttribute('data-contrast');
+      try { if (on) localStorage.setItem('bh_contrast', 'high'); else localStorage.removeItem('bh_contrast'); } catch { /* 이번만 */ }
+      settingsView(view);
+      return;
+    }
     if (act === 'conflict-mine' || act === 'conflict-theirs') {
       const keepMine = act === 'conflict-mine';
       btn.disabled = true;

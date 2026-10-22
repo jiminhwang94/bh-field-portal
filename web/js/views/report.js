@@ -13,6 +13,7 @@ import {
 
 import { ICON, SEED_KEY, trackOf, warnPrivateVideo } from './report-common.js';
 import { showSheetEntry } from './history.js';
+import { guidesForCode, parseParts, partsText } from '../insights.js';
 
 // **작성 중 내용을 되살리지 않는다.**
 //
@@ -103,6 +104,11 @@ export async function reportFormView(view) {
   // 받아 둔 목록으로 먼저 그리고, 최신 목록은 화면을 그린 뒤에 받아 갈아 끼운다.
   const numberField = fields.find(
     (f) => f.fieldLabel.replace(/\s/g, '').includes('리포트번호'));
+  // 오류 코드를 적으면 그 가이드를 바로 보여 준다 · 사용 부품은 차량 재고에서 고른다
+  const codeField = fields.find((f) => f.fieldLabel.replace(/\s/g, '').includes('오류코드'));
+  const partsField = fields.find((f) => f.fieldLabel.includes('부품'));
+  const allGuides = codeField ? (await api.listGuides()).items : [];
+  const inventory = partsField ? (await api.listInventory()).items : [];
   let reportNumbers = numberField ? await cachedRequestNumbers() : [];
   let manualNumber = false;   // '직접 입력…' 을 고른 뒤에는 목록으로 되돌리지 않는다
 
@@ -291,6 +297,8 @@ export async function reportFormView(view) {
         clearTimeout(visitTimer);
         visitTimer = setTimeout(paintPastVisits, 350);
       }
+      if (codeField && id === codeField.id) paintCodeHelper();
+      if (partsField && id === partsField.id) paintPartsHelper();
     });
     root.addEventListener('change', (ev) => {
       const id = ev.target.dataset.input;
@@ -309,6 +317,95 @@ export async function reportFormView(view) {
     });
     $('#reportForm').addEventListener('submit', submit);
     paintPastVisits();
+    mountHelpers();
+  }
+
+  // ─── 오류 코드 → 가이드 · 사용 부품 ← 차량 재고 ───────────────────────────
+  const MY_VEHICLE_KEY = 'bh_my_vehicle';
+  function fieldBox(field) {
+    const input = field && document.querySelector(`#reportForm [data-input="${field.id}"]`);
+    return input ? input.closest('.field') : null;
+  }
+  function mountHelpers() {
+    const codeBox = fieldBox(codeField);
+    if (codeBox && !codeBox.querySelector('.field-helper')) {
+      codeBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="codeHelper"></div>');
+      paintCodeHelper();
+    }
+    const partsBox = fieldBox(partsField);
+    if (partsBox && inventory.length && !partsBox.querySelector('.field-helper')) {
+      partsBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="partsHelper"></div>');
+      paintPartsHelper();
+    }
+  }
+  function paintCodeHelper() {
+    const box = $('#codeHelper');
+    if (!box || !codeField) return;
+    const hits = guidesForCode(values[codeField.id].value, allGuides);
+    box.innerHTML = hits.map((g) => `
+      <button class="guide-hint" data-act="peek-guide" data-id="${h(g.id)}" type="button">
+        <b>가이드</b> ${h(g.codeOrTitle)}${g.robotModel ? ` · ${h(g.robotModel)}` : ''} <span aria-hidden="true">보기 ›</span>
+      </button>`).join('');
+  }
+  function myVehicle() {
+    const names = [...new Set(inventory.map((i) => i.vehicleName))];
+    const saved = localStorage.getItem(MY_VEHICLE_KEY);
+    return names.includes(saved) ? saved : names[0] || '';
+  }
+  function paintPartsHelper() {
+    const box = $('#partsHelper');
+    if (!box || !partsField) return;
+    const vehicles = [...new Set(inventory.map((i) => i.vehicleName))];
+    const car = myVehicle();
+    const chosen = new Map(parseParts(values[partsField.id].value).map((p) => [p.name, p.n]));
+    const items = inventory.filter((i) => i.vehicleName === car);
+    box.innerHTML = `
+      <div class="parts-pick">
+        <span class="parts-pick__head">${vehicles.length > 1
+          ? vehicles.map((v) => `<button class="chip${v === car ? ' is-on' : ''}" data-act="pick-car" data-car="${h(v)}" type="button">${h(v)}</button>`).join('')
+          : `<span class="muted">${h(car)}</span>`}
+          <span class="muted">에서 골라 넣기 · 올리면 재고에서 뺍니다</span></span>
+        <span class="parts-pick__list">
+          ${items.map((i) => {
+            const n = chosen.get(i.partName) || 0;
+            return `<button class="part-chip${n ? ' is-on' : ''}${i.quantity < 1 ? ' is-empty' : ''}" data-act="pick-part"
+                      data-part="${h(i.partName)}" type="button" aria-pressed="${n > 0}">
+                      ${h(i.partName)} <small class="tnum">${n ? `×${n}` : `${i.quantity}개`}</small></button>`;
+          }).join('')}
+        </span>
+      </div>`;
+  }
+  function addPart(name) {
+    const list = parseParts(values[partsField.id].value);
+    const hit = list.find((p) => p.name === name);
+    if (hit) hit.n += 1; else list.push({ name, n: 1 });
+    values[partsField.id].value = partsText(list);
+    const input = /** @type {HTMLInputElement} */ (document.querySelector(`#reportForm [data-input="${partsField.id}"]`));
+    if (input) input.value = values[partsField.id].value;
+    paintPartsHelper();
+  }
+  /** 새 리포트를 올릴 때 한 번만 — 고른 부품을 내 차량 재고에서 뺀다 */
+  async function deductParts(reportId) {
+    if (!partsField || editingLink) return;
+    const doneKey = `bh_parts_done_${reportId}`;
+    if (localStorage.getItem(doneKey)) return;
+    const car = myVehicle();
+    const used = parseParts(values[partsField.id].value);
+    const moved = [];
+    let low = 0;
+    for (const p of used) {
+      const item = inventory.find((i) => i.vehicleName === car && i.partName === p.name);
+      if (!item) continue;
+      const updated = await api.patchInventory(item.id, { delta: -p.n }).catch(() => null);
+      if (!updated) continue;
+      moved.push(`${p.name} ×${p.n}`);
+      if (item.minQuantity > 0 && updated.quantity < item.minQuantity) low += 1;
+    }
+    localStorage.setItem(doneKey, '1');
+    if (moved.length) {
+      window.dispatchEvent(new Event('bh-inventory-changed'));
+      toast(`재고에서 뺐습니다 (${car}): ${moved.join(', ')}${low ? ` · 보충 필요 ${low}건` : ''}`, 'ok');
+    }
   }
 
   /**
@@ -458,6 +555,9 @@ export async function reportFormView(view) {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
+    if (act === 'peek-guide') { peekGuide(btn.dataset.id); return; }
+    if (act === 'pick-car') { localStorage.setItem('bh_my_vehicle', btn.dataset.car); paintPartsHelper(); return; }
+    if (act === 'pick-part') { addPart(btn.dataset.part); return; }
 
     if (act === 'capture' || act === 'record' || act === 'pick') {
       const input = $({ capture: '#mediaCapture', record: '#mediaRecord', pick: '#mediaPick' }[act]);
@@ -539,6 +639,7 @@ export async function reportFormView(view) {
       setSubmitState(idleLabel(), false);
       return;
     }
+    deductParts(saved.id).catch(() => {});      // 쓴 부품은 올리기 결과와 상관없이 재고에서 뺀다
     setSubmitState('구글 시트에 올리는 중…', true);
     // 첨부를 조각으로 올리는 동안 몇 번째인지 보여 준다 (LTE 에서 오래 걸려도 멈춘 게 아니다)
     const onProgress = (ev) => {
@@ -583,3 +684,14 @@ export async function reportFormView(view) {
   }
 }
 
+/** 쓰던 리포트를 두고 가이드를 창으로 본다 (화면을 옮기면 적던 내용이 사라진다) */
+async function peekGuide(id) {
+  const g = await api.getGuide(id).catch(() => null);
+  if (!g) { toast('가이드를 찾지 못했습니다.', 'err'); return; }
+  openSheet(g.codeOrTitle, `
+    ${g.summary ? `<p class="hd-text">${h(g.summary)}</p>` : ''}
+    ${g.requiredTools ? `<p class="muted">준비 · ${h(g.requiredTools)}</p>` : ''}
+    <ol class="peek-steps">${(g.steps || []).map((st) => `<li>${h(st.instruction)}</li>`).join('')}</ol>
+    ${(g.commands || []).length ? `<div class="peek-cmds">${g.commands.map((c) => `<code>${h(c.cmd)}</code>`).join('')}</div>` : ''}
+    <p class="muted">가이드 전체는 리포트를 올린 뒤 [가이드] 에서 볼 수 있습니다.</p>`);
+}

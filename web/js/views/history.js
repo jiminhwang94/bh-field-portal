@@ -12,6 +12,11 @@ import {
 } from '../reportsheet.js';
 
 import { ICON, seedFromEntry, TRACK, trackOf, warnPrivateVideo } from './report-common.js';
+import { guidesForCode } from '../insights.js';
+
+/** 상세에서 오류 코드 → 가이드를 잇는 데 쓴다 (기기 안 가이드, 화면을 열 때 한 번 받는다) */
+let knownGuides = [];
+const loadGuides = () => api.listGuides().then((r) => { knownGuides = r.items || []; }).catch(() => {});
 
 // ------------------------------------------------------------ 이력 목록
 const STATUS = {
@@ -122,7 +127,10 @@ function entryDetailHtml(entry) {
         <span class="hd2-head__text">
           <span class="hd-meta">${h([entry.sheetName, when(entry.createdAt || entry.date), entry.author]
             .filter((v) => v && v !== '-').join(' · '))}</span>
-          <h2 class="hd-title">${h(entry.store || '(식당명 없음)')}</h2>
+          ${entry.store
+            ? `<a class="hd-title hd-title--link" href="#/store?name=${encodeURIComponent(entry.store)}"
+                  title="이 매장의 지난 기록">${h(entry.store)} <span aria-hidden="true">›</span></a>`
+            : '<h2 class="hd-title">(식당명 없음)</h2>'}
         </span>
         <span class="hd2-badge" data-track="${t.cls}">${stIcon(t.cls)}${h(entry.status)}${age ? ` · ${age}` : ''}</span>
       </div>
@@ -137,7 +145,7 @@ function entryDetailHtml(entry) {
       </div>
       <div class="hd2-row" data-sec="symptom">
         ${label('symptom', '증상')}
-        <div class="hd2-body">${text(p.symptom, '적힌 증상이 없습니다.')}</div>
+        <div class="hd2-body">${text(p.symptom, '적힌 증상이 없습니다.')}${guideLinksHtml(entry)}</div>
       </div>
       <div class="hd2-row" data-sec="action">
         ${label('action', '조치')}
@@ -409,6 +417,7 @@ const wideHist = () => window.matchMedia('(min-width: 1000px)').matches;
 
 export async function reportListView(view, params = null) {
   loading(view);
+  await loadGuides();
 
   const settings = await api.getSettings();
   if (!settings.sheetsReady) {
@@ -589,6 +598,7 @@ export async function reportListView(view, params = null) {
           <span class="page-head__meta"><span id="histMeta"></span> · <span id="histSync"></span></span>
           <span class="page-head__spacer"></span>
           <select class="select" id="histMonth" aria-label="월 선택"></select>
+          <a class="btn btn-secondary" href="#/stats">통계</a>
           <button class="btn btn-secondary" data-act="refresh" type="button">시트에서 받기</button>
         </div>
         <div class="hist-filter">
@@ -831,4 +841,16 @@ export async function reportDetailView(view, reportId) {
       location.hash = '#/reports';
     }
   });
+}
+
+/** 리포트의 오류 코드에 맞는 가이드로 가는 길 — 없으면 '만들기' */
+function guideLinksHtml(entry) {
+  if (!entry.code) return '';
+  const hits = guidesForCode(entry.code, knownGuides);
+  if (!hits.length) {
+    return `<a class="hd-guide hd-guide--none" href="#/guides/new/ERROR_CODE">
+      ${h(entry.code)} 가이드가 아직 없습니다 · 만들기 ›</a>`;
+  }
+  return hits.map((g) => `<a class="hd-guide" href="#/guides/${h(g.id)}">
+      <b>가이드</b> ${h(g.codeOrTitle)}${g.robotModel ? ` <small>${h(g.robotModel)}</small>` : ''} <span aria-hidden="true">›</span></a>`).join('');
 }

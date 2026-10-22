@@ -12,6 +12,8 @@ import { drivingView } from './views/driving.js';
 import { fieldsView } from './views/fields.js';
 import { reportFormView } from './views/report.js';
 import { reportListView, reportDetailView } from './views/history.js';
+import { storeHistoryView } from './views/store.js';
+import { statsView } from './views/stats.js';
 import { settingsView } from './views/settings.js';
 import { initSyncButton } from './syncnow.js';
 import { initInstallBanner } from './install.js';
@@ -27,6 +29,8 @@ const HEX = '[0-9a-f]{6,}';
 const routes = [
   [/^\/?$/, mainView],
   [/^\/search$/, searchView],
+  [/^\/store$/, (m, q) => storeHistoryView(view, q.get('name'))],   // 매장별 이력
+  [/^\/stats$/, (m, q) => statsView(view, q)],                      // 통계
   [/^\/guides$/, () => guideHubView(view)],        // 가이드 탭 — 로봇 고르기
   [/^\/guides\/assign$/, () => guideAssignView(view)],  // 로봇 한 번에 지정
   // 로봇 하나 — 종류(오류 코드 · 하드웨어 · SW) 셋과 그 목록
@@ -206,6 +210,7 @@ async function mainView() {
           ${month ? tally.map((t) => `
             <span class="h2-tally" data-track="${TRACK_CLS[t.s]}"><span class="h2-tally__dot"></span>${h(SHORT_STATUS[t.s])} <b class="tnum">${t.n}</b></span>`).join('') : ''}
           <span class="spacer"></span>
+          <a class="h2-more" href="#/stats">통계 ›</a>
           <a class="h2-more" href="#/reports">전체 ›</a>
         </div>
         <form class="home-search" id="histSearch" role="search">

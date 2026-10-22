@@ -79,6 +79,7 @@ export async function guideDetailView(view, guideId) {
                 </div>`).join('')}
               ${guide.commands.length > 1 ? '<button class="btn btn-secondary btn--sm" data-act="copy-all" type="button">전체 복사</button>' : ''}
             </section>` : ''}
+          <section class="gd-box" id="gdReports" hidden></section>
           <p class="gd-meta">${h(when(guide.updatedAt))} 수정</p>
         </aside>
       </div>
@@ -86,6 +87,7 @@ export async function guideDetailView(view, guideId) {
 
   // 단계 사진은 기기 안에 있다 — 그린 뒤에 채워 넣는다.
   hydrateMedia(view);
+  paintGuideReports(guide).catch(() => {});      // 이 오류로 쓴 리포트 (기기 사본에서)
 
   const paintProgress = () => {
     const n = $('#gdDone');
@@ -563,4 +565,30 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
   }
 
   render();
+}
+
+/**
+ * 이 오류 코드로 쓴 리포트 — 기기에 받아 둔 최근 3달 이력에서 찾는다.
+ * 상세 화면 아래 칸(#gdReports)에 채운다. 없으면 칸을 숨긴다.
+ */
+export async function paintGuideReports(guide) {
+  const box = document.getElementById('gdReports');
+  if (!box || guide.categoryType !== 'ERROR_CODE') { if (box) box.hidden = true; return; }
+  const { loadEntries, normCode, guideCode, openDays } = await import('../insights.js');
+  const code = normCode(guideCode(guide));
+  const { entries } = await loadEntries(3);
+  const mine = entries.filter((e) => normCode(e.code) === code);
+  if (!mine.length) { box.hidden = true; return; }
+  const { trackOf } = await import('./report-common.js');
+  box.hidden = false;
+  box.innerHTML = `
+    <h2 class="panel__title">이 오류로 쓴 리포트 <span class="tnum">${mine.length}</span>건 <span class="muted">최근 3달</span></h2>
+    <div class="gd-reports">
+      ${mine.slice(0, 8).map((e) => `
+        <a class="gd-report" data-track="${trackOf(e.status).cls}" href="#/reports?open=${encodeURIComponent(e.key)}">
+          <span class="gd-report__top"><b class="tnum">${h((e.date || '').slice(5))}</b>
+            <span>${h(trackOf(e.status).short)}${e.status !== '조치 완료' ? ` · ${openDays(e)}일째` : ''}</span></span>
+          <span class="gd-report__store">${h(e.store || '(매장 없음)')}</span>
+        </a>`).join('')}
+    </div>`;
 }
