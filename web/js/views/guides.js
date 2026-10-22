@@ -93,6 +93,24 @@ const NONE_LABEL = '로봇 미지정';
 const CAT_SHORT = { ERROR_CODE: '오류 코드', HARDWARE_SOP: '하드웨어 교체', SOFTWARE_CMD: 'SW · 명령어' };
 const CAT_ORDER = ['ERROR_CODE', 'HARDWARE_SOP', 'SOFTWARE_CMD'];
 const LAST_CAT_KEY = 'bh_guide_cat';
+const CAT_TINY = { ERROR_CODE: '오류', HARDWARE_SOP: '하드웨어', SOFTWARE_CMD: 'SW' };
+const CAT_ICON = {
+  ERROR_CODE: 'M12 8v5M12 16.5v.01M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18',
+  HARDWARE_SOP: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z',
+  SOFTWARE_CMD: 'M4 6h16v12H4zM7 10l3 2-3 2M12 15h5',
+};
+const catIcon = (t) => `<svg class="cat-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${CAT_ICON[t]}"/></svg>`;
+
+/**
+ * 로봇마다 색 — 목록에 놓인 차례로 정해진다 (같은 로봇은 어디서나 같은 색).
+ * 목록에 없는 이름은 회색.
+ */
+const ROBOT_COLORS = ['#1e3d75', '#0e6e78', '#7a4a12', '#4a3a8c', '#2f5d2a', '#7a2e4a'];
+export function robotColor(name, models) {
+  const i = (models || []).indexOf(name);
+  return i < 0 ? '#5a6270' : ROBOT_COLORS[i % ROBOT_COLORS.length];
+}
 
 const modelKey = (g) => (g.robotModel || '').trim() || NONE;
 const modelLabel = (key) => (key === NONE ? NONE_LABEL : key);
@@ -192,7 +210,11 @@ export async function guideListView(view, categoryType) {
   });
 }
 
-// ---------------------------------------------------------------- 가이드 탭 — 로봇 고르기
+// ---------------------------------------------------------------- 가이드 탭 — 로봇 띠 (D2)
+//
+// 로봇마다 가로 띠 하나. 왼쪽은 로봇 색 블록(이름 · 건수), 오른쪽은 종류 셋이
+// 타일로 바로 놓여 있어 **한 번 눌러 그 종류 목록으로** 간다 (로봇 → 종류 두 번이 아니라).
+// 맨 아래 '로봇 미지정' 띠에서 한 번에 지정하기로 넘어간다.
 export async function guideHubView(view) {
   loading(view);
   const all = (await api.listGuides()).items;
@@ -203,46 +225,57 @@ export async function guideHubView(view) {
     const k = modelKey(g);
     if (k !== NONE && !keys.includes(k)) keys.push(k);
   }
-  if (all.some((g) => modelKey(g) === NONE)) keys.push(NONE);
+  const unassigned = all.filter((g) => modelKey(g) === NONE).length;
 
-  const card = (key) => {
+  const band = (key) => {
     const list = all.filter((g) => modelKey(g) === key);
-    const TINY = { ERROR_CODE: '오류', HARDWARE_SOP: '하드웨어', SOFTWARE_CMD: 'SW' };
-    const cats = CAT_ORDER.map((t) => `
-      <span class="model-card__cat"><b class="tnum">${list.filter((g) => g.categoryType === t).length}</b>${TINY[t]}</span>`).join('');
+    const last = list.reduce((m, g) => (g.updatedAt > m ? g.updatedAt : m), '');
     return `
-      <div class="model-card${key === NONE ? ' model-card--none' : ''}">
-        <a class="model-card__main" href="${modelHref(key)}">
-          <span class="model-card__name">${h(modelLabel(key))}</span>
-          <span class="model-card__count tnum">${list.length}<small>건</small></span>
-          <span class="model-card__cats">${cats}</span>
-        </a>
-        ${key === NONE || !models.includes(key) ? '' : `
-          <button class="model-card__more" data-act="model-menu" data-name="${h(key)}" type="button"
-                  aria-label="${h(key)} 이름 바꾸기 · 삭제">⋯</button>`}
-      </div>`;
+      <section class="rband" style="--robot:${robotColor(key, models)}">
+        <div class="rband__id">
+          <a class="rband__main" href="${modelHref(key)}">
+            <span class="rband__kicker">로봇</span>
+            <span class="rband__name">${h(key)}</span>
+            <span class="rband__meta">가이드 <span class="tnum">${list.length}</span>건${last ? ` · ${h(when(last, { time: false }))} 수정` : ''}</span>
+          </a>
+          ${models.includes(key) ? `
+            <button class="rband__more" data-act="model-menu" data-name="${h(key)}" type="button"
+                    aria-label="${h(key)} 이름 바꾸기 · 삭제">⋯</button>` : ''}
+        </div>
+        <div class="rband__cats">
+          ${CAT_ORDER.map((t) => `
+            <a class="rcat" data-cat="${t}" href="${modelHref(key, t)}">
+              <span class="rcat__name">${catIcon(t)}${h(CAT_SHORT[t])}</span>
+              <span class="rcat__foot"><b class="rcat__n tnum">${list.filter((g) => g.categoryType === t).length}</b><span>보기 ›</span></span>
+            </a>`).join('')}
+        </div>
+      </section>`;
   };
 
   view.innerHTML = `
     <div id="pageRoot" class="page-stack">
       <div class="page-head">
         <h1 class="page-head__title">가이드</h1>
-        <span class="page-head__meta">로봇을 고르세요 · 전체 <span class="tnum">${all.length}</span>건</span>
+        <form class="page-search" id="guideSearch" role="search">
+          <input class="input" id="guideSearchQ" type="search" autocomplete="off" enterkeyhint="search"
+                 aria-label="가이드 검색" placeholder="오류 코드 · 증상 · 부품 검색" />
+        </form>
         <span class="page-head__spacer"></span>
-        <button class="btn btn-secondary" data-act="add-model" type="button">＋ 로봇 추가</button>
+        <button class="btn btn-secondary" data-act="add-model" type="button">＋ 로봇</button>
         <a class="btn btn-primary" href="#/guides/new">＋ 가이드 작성</a>
       </div>
-      <form class="search-row" id="guideSearch" role="search">
-        <input class="input" id="guideSearchQ" type="search" autocomplete="off" enterkeyhint="search"
-               aria-label="가이드 검색" placeholder="오류 코드 · 증상 · 부품으로 모든 로봇에서 찾기" />
-        <button class="btn btn-primary" type="submit">검색</button>
-      </form>
-      <div class="model-grid">
-        ${keys.map(card).join('')}
-        <button class="model-card model-card--add" data-act="add-model" type="button">
-          <span class="model-card__plus" aria-hidden="true">＋</span>
-          <span class="model-card__name">로봇 추가</span>
-        </button>
+      <div class="rbands">
+        ${keys.map(band).join('')}
+        ${unassigned ? `
+          <section class="rband rband--none">
+            <span class="rband__q" aria-hidden="true">?</span>
+            <span class="rband__text">
+              <b>로봇 미지정 <span class="tnum">${unassigned}</span>건</b>
+              <span>예전에 만든 가이드 — 골라서 한 번에 로봇을 정하세요</span>
+            </span>
+            <a class="btn btn-secondary" href="${modelHref(null)}">목록 보기</a>
+            <a class="btn btn-dark" href="#/guides/assign">한 번에 지정하기</a>
+          </section>` : ''}
       </div>
     </div>`;
 
@@ -260,6 +293,120 @@ export async function guideHubView(view) {
     }
     if (btn.dataset.act === 'model-menu') {
       openModelMenu(btn.dataset.name, { onDone: () => { closeModal(); guideHubView(view); } });
+    }
+  });
+}
+
+// ---------------------------------------------------------------- 로봇 한 번에 지정
+//
+// 로봇 분류가 생기기 전에 만든 가이드는 전부 '로봇 미지정' 이다. 하나씩 [수정] 에
+// 들어가 고르기에는 많아서, 여러 개를 골라 로봇 버튼 하나로 옮긴다.
+// 기본은 미지정만 보이고, [전체] 로 바꾸면 이미 정한 것도 다시 옮길 수 있다.
+export async function guideAssignView(view) {
+  loading(view);
+  const models = await api.listGuideModels();
+  let all = (await api.listGuides()).items;
+  let scope = all.some((g) => modelKey(g) === NONE) ? 'none' : 'all';
+  const picked = new Set();
+
+  const list = () => (scope === 'none' ? all.filter((g) => modelKey(g) === NONE) : all);
+
+  function rowsHtml() {
+    const rows = list();
+    if (!rows.length) {
+      return '<div class="empty">로봇이 정해지지 않은 가이드가 없습니다. 모두 정리됐습니다.</div>';
+    }
+    return rows.map((g) => {
+      const { code, title } = splitTitle(g);
+      const on = picked.has(g.id);
+      return `
+        <label class="pick-row${on ? ' is-on' : ''}">
+          <input type="checkbox" class="pick-row__box" data-id="${g.id}" ${on ? 'checked' : ''} />
+          <span class="pick-row__code tnum">${h(code || CAT_TINY[g.categoryType])}</span>
+          <span class="pick-row__title">${h(title)}</span>
+          <span class="pick-row__meta">${h(CAT_SHORT[g.categoryType])} · ${h(modelLabel(modelKey(g)))}</span>
+        </label>`;
+    }).join('');
+  }
+
+  function barHtml() {
+    const n = picked.size;
+    return `
+      <span class="assign-bar__count"><b class="tnum">${n}</b>개 선택${n ? ' →' : ''}</span>
+      <span class="assign-bar__hint">${n ? '어느 로봇으로 옮길까요?' : '위에서 가이드를 고르세요'}</span>
+      <span class="spacer"></span>
+      ${models.map((m, i) => `
+        <button class="assign-bar__robot" data-act="assign" data-model="${h(m)}" type="button"
+                style="--robot:${robotColor(m, models)}" ${n ? '' : 'disabled'}>${h(m)}</button>`).join('')}
+      ${scope === 'all' ? `<button class="assign-bar__robot assign-bar__robot--none" data-act="assign" data-model=""
+                type="button" ${n ? '' : 'disabled'}>미지정으로</button>` : ''}`;
+  }
+
+  function paint() {
+    $('#assignRows').innerHTML = rowsHtml();
+    $('#assignBar').innerHTML = barHtml();
+    const none = all.filter((g) => modelKey(g) === NONE).length;
+    view.querySelectorAll('[data-scope]').forEach((b) => {
+      const on = b.dataset.scope === scope;
+      b.classList.toggle('is-on', on);
+      b.setAttribute('aria-pressed', String(on));
+      b.querySelector('.tnum').textContent = b.dataset.scope === 'none' ? none : all.length;
+    });
+  }
+
+  view.innerHTML = `
+    <div id="pageRoot" class="page-stack">
+      <div class="page-head">
+        <a class="crumb" href="#/guides">가이드</a>
+        <h1 class="page-head__title">로봇 한 번에 지정</h1>
+        <span class="page-head__spacer"></span>
+        <button class="inv-chip" data-scope="none" type="button">로봇 미지정 <span class="tnum">0</span></button>
+        <button class="inv-chip" data-scope="all" type="button">전체 <span class="tnum">0</span></button>
+        <button class="btn btn-secondary" data-act="select-all" type="button">모두 선택</button>
+      </div>
+      <section class="assign-list scroll" id="assignRows"></section>
+      <div class="assign-bar" id="assignBar"></div>
+    </div>`;
+  paint();
+
+  const root = $('#pageRoot');
+  root.addEventListener('change', (ev) => {
+    const box = ev.target.closest('.pick-row__box');
+    if (!box) return;
+    if (box.checked) picked.add(box.dataset.id); else picked.delete(box.dataset.id);
+    box.closest('.pick-row').classList.toggle('is-on', box.checked);
+    $('#assignBar').innerHTML = barHtml();
+  });
+  root.addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-scope], [data-act]');
+    if (!btn) return;
+    if (btn.dataset.scope) { scope = btn.dataset.scope; picked.clear(); paint(); return; }
+    if (btn.dataset.act === 'select-all') {
+      const ids = list().map((g) => g.id);
+      const every = ids.length && ids.every((id) => picked.has(id));
+      ids.forEach((id) => (every ? picked.delete(id) : picked.add(id)));
+      paint();
+      return;
+    }
+    if (btn.dataset.act === 'assign') {
+      const model = btn.dataset.model;
+      const ids = [...picked];
+      if (!ids.length) return;
+      btn.disabled = true;
+      try {
+        const { moved } = await api.assignGuideModel(ids, model);
+        toast(`가이드 ${moved}건을 '${model || NONE_LABEL}' 로 옮겼습니다.`, 'ok');
+        all = (await api.listGuides()).items;
+        picked.clear();
+        if (scope === 'none' && !all.some((g) => modelKey(g) === NONE)) {
+          location.hash = '#/guides';
+          return;
+        }
+        paint();
+      } catch (err) {
+        toast(err.message, 'err');
+        btn.disabled = false;
+      }
     }
   });
 }
@@ -308,9 +455,9 @@ export async function guideModelView(view, key, categoryType) {
       <div class="guide-browse">
         <nav class="guide-cats" aria-label="가이드 종류">
           ${CAT_ORDER.map((t) => `
-            <a class="guide-cat${t === type ? ' is-on' : ''}" href="${modelHref(key, t)}"
+            <a class="guide-cat${t === type ? ' is-on' : ''}" data-cat="${t}" href="${modelHref(key, t)}"
                ${t === type ? 'aria-current="page"' : ''}>
-              <span class="guide-cat__name">${h(CAT_SHORT[t])}</span>
+              <span class="guide-cat__name">${catIcon(t)}${h(CAT_SHORT[t])}</span>
               <span class="guide-cat__count tnum">${ofType(t).length}</span>
             </a>`).join('')}
         </nav>

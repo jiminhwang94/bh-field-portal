@@ -7,7 +7,7 @@ import * as sync from './sync.js';
 import { uploadReport, testConnection, extractSpreadsheetId,
          spreadsheetUrl } from './sheets.js';
 
-export const APP_VERSION = '3.28.0';
+export const APP_VERSION = '3.29.0';
 
 export const api = {
   /** 앱 버전 정보. 기기 안에 있는 값만 쓴다 — 물어볼 서버가 없다. */
@@ -49,6 +49,11 @@ export const api = {
     const renamed = await store.renameGuideModel(oldName, nextName);
     flushSoon();
     return renamed;
+  },
+  assignGuideModel: async (ids, model) => {
+    const result = await store.assignGuideModel(ids, model);
+    flushSoon();
+    return result;
   },
   deleteGuideModel: async (name) => {
     const result = await store.deleteGuideModel(name);

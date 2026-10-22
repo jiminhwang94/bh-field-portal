@@ -610,6 +610,26 @@ const TRACK = [
 ];
 const trackOf = (value) => TRACK.find((t) => t.value === value) || TRACK[2];
 
+/** 상태마다 모양이 다른 아이콘 — 색을 못 가려도 모양으로 읽힌다 (홈과 같은 그림). */
+const STATUS_ICON = {
+  doing: 'M21 12a9 9 0 1 1-3-6.7M21 3v6h-6',
+  swap: 'M7 7h11l-3-3M17 17H6l3 3',
+  watch: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6',
+  done: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M8 12.5l2.5 2.5L16 9.5',
+  all: 'M4 6h16M4 12h16M4 18h16',
+};
+const stIcon = (cls) => `<svg class="st-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${STATUS_ICON[cls]}"/></svg>`;
+
+/** 끝나지 않은 건이 며칠째인가 — '오늘' · 'N일째'. 끝난 건은 빈 글자. */
+function ageText(entry) {
+  if (entry.status === '조치 완료') return '';
+  const at = new Date(String(entry.createdAt || entry.date || '').replace(' ', 'T'));
+  if (Number.isNaN(at.getTime())) return '';
+  const days = Math.floor((Date.now() - at.getTime()) / 86400000);
+  return days <= 0 ? '오늘' : `${days + 1}일째`;
+}
+
 /**
  * 동영상이 비공개로 남았으면 알린다.
  *
@@ -676,52 +696,69 @@ function entryParts(entry) {
 
 function entryDetailHtml(entry) {
   const p = entryParts(entry);
+  const t = trackOf(entry.status);
+  const ICON = {
+    robot: 'M6 8h12v10H6zM9 8V5h6v3M9 12h.01M15 12h.01M10 15h4',
+    symptom: 'M12 8v5M12 16.5v.01M12 3 2 20h20z',
+    action: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z',
+    media: 'M4 8h3l2-3h6l2 3h3v11H4zM12 10.5a3 3 0 1 0 0 6a3 3 0 1 0 0-6',
+  };
+  const label = (sec, text) => `
+    <span class="hd2-label"><span class="hd2-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON[sec]}"/></svg></span>${text}</span>`;
   const text = (list, empty) => (list.length
     ? list.map((v) => `<p class="hd-text">${h(v.value)}</p>`).join('')
     : `<p class="hd-text hd-text--empty">${empty}</p>`);
+  const age = ageText(entry);
   return `
-    <div class="hd">
-      <div class="hd-head">
-        <span class="hd-meta">${h([entry.sheetName, when(entry.createdAt || entry.date), entry.author]
-          .filter((v) => v && v !== '-').join(' · '))}</span>
-        <h2 class="hd-title">${h(entry.store || '(식당명 없음)')}</h2>
+    <div class="hd2">
+      <div class="hd2-head">
+        <span class="hd2-head__text">
+          <span class="hd-meta">${h([entry.sheetName, when(entry.createdAt || entry.date), entry.author]
+            .filter((v) => v && v !== '-').join(' · '))}</span>
+          <h2 class="hd-title">${h(entry.store || '(식당명 없음)')}</h2>
+        </span>
+        <span class="hd2-badge" data-track="${t.cls}">${stIcon(t.cls)}${h(entry.status)}${age ? ` · ${age}` : ''}</span>
       </div>
 
-      <section class="hd-sec">
-        <h3 class="hd-sec__title">로봇</h3>
-        ${p.robot.length ? `<div class="hd-facts">
-          ${p.robot.map((v) => `<span class="hd-fact"><span class="hd-fact__k">${h(v.label)}</span><b class="hd-fact__v">${h(v.value)}</b></span>`).join('')}
-        </div>` : '<p class="hd-text hd-text--empty">적힌 로봇 정보가 없습니다.</p>'}
-      </section>
-
-      <section class="hd-sec">
-        <h3 class="hd-sec__title">증상</h3>
-        ${text(p.symptom, '적힌 증상이 없습니다.')}
-      </section>
-
-      <section class="hd-sec">
-        <h3 class="hd-sec__title">조치</h3>
-        ${text(p.action, '적힌 조치가 없습니다.')}
-        ${p.result.map((v) => `<span class="hd-result">${h(v.label)} · <b>${h(v.value)}</b></span>`).join('')}
-      </section>
-
-      <section class="hd-sec">
-        <h3 class="hd-sec__title">사진 · 영상 <span class="tnum">${entry.links.length}</span></h3>
-        ${entry.links.length ? `
-          <div class="media-grid hd-media">
-            ${entry.links.map((l, i) => `
-              <button class="media-tile" data-act="view" data-idx="${i}" type="button"
-                      style="padding:0;cursor:zoom-in" aria-label="${h(l.label)} 크게 보기">
-                ${l.id
-                  ? `<img src="${h(thumbUrl(l.id, 400))}" alt="${h(l.label)}" loading="lazy"
-                          data-drive="${h(l.id)}"
-                          onerror="this.classList.add('is-broken')" />`
-                  : ''}
-                <span class="media-tile__none">열어 보기</span>
-                <span class="media-tile__name">${h(l.label)}</span>
-              </button>`).join('')}
-          </div>` : '<p class="hd-text hd-text--empty">첨부가 없습니다.</p>'}
-      </section>
+      <div class="hd2-row" data-sec="robot">
+        ${label('robot', '로봇')}
+        <div class="hd2-body">
+          ${p.robot.length ? `<div class="hd-facts">
+            ${p.robot.map((v) => `<span class="hd-fact"><span class="hd-fact__k">${h(v.label)}</span><b class="hd-fact__v">${h(v.value)}</b></span>`).join('')}
+          </div>` : '<p class="hd-text hd-text--empty">적힌 로봇 정보가 없습니다.</p>'}
+        </div>
+      </div>
+      <div class="hd2-row" data-sec="symptom">
+        ${label('symptom', '증상')}
+        <div class="hd2-body">${text(p.symptom, '적힌 증상이 없습니다.')}</div>
+      </div>
+      <div class="hd2-row" data-sec="action">
+        ${label('action', '조치')}
+        <div class="hd2-body">
+          ${text(p.action, '적힌 조치가 없습니다.')}
+          ${p.result.map((v) => `<span class="hd-result">${h(v.label)} · <b>${h(v.value)}</b></span>`).join('')}
+        </div>
+      </div>
+      <div class="hd2-row" data-sec="media">
+        ${label('media', `사진·영상<span class="tnum">${entry.links.length}</span>`)}
+        <div class="hd2-body">
+          ${entry.links.length ? `
+            <div class="media-grid hd-media">
+              ${entry.links.map((l, i) => `
+                <button class="media-tile" data-act="view" data-idx="${i}" type="button"
+                        style="padding:0;cursor:zoom-in" aria-label="${h(l.label)} 크게 보기">
+                  ${l.id
+                    ? `<img src="${h(thumbUrl(l.id, 400))}" alt="${h(l.label)}" loading="lazy"
+                            data-drive="${h(l.id)}"
+                            onerror="this.classList.add('is-broken')" />`
+                    : ''}
+                  <span class="media-tile__none">열어 보기</span>
+                  <span class="media-tile__name">${h(l.label)}</span>
+                </button>`).join('')}
+            </div>` : '<p class="hd-text hd-text--empty">첨부가 없습니다.</p>'}
+        </div>
+      </div>
 
       ${p.rest.length ? `
         <details class="hd-more">
@@ -733,11 +770,11 @@ function entryDetailHtml(entry) {
 
       <section class="hd-status">
         <h3 class="hd-sec__title">상태 <span class="hd-status__note">누르면 시트에 바로 기록</span></h3>
-        <div class="status-pick" role="group" aria-label="상태">
-          ${STATUS_ORDER.map(trackOf).map((t) => `
-            <button class="status-pick__btn${t.value === entry.status ? ' is-on' : ''}" data-act="set-status"
-                    data-value="${h(t.value)}" data-track="${t.cls}" type="button"
-                    aria-pressed="${t.value === entry.status}">${h(t.value)}</button>`).join('')}
+        <div class="status-seg" role="group" aria-label="상태">
+          ${STATUS_ORDER.map(trackOf).map((s) => `
+            <button class="status-seg__btn${s.value === entry.status ? ' is-on' : ''}" data-act="set-status"
+                    data-value="${h(s.value)}" data-track="${s.cls}" type="button"
+                    aria-pressed="${s.value === entry.status}">${stIcon(s.cls)}${h(s.short)}</button>`).join('')}
         </div>
       </section>
 
@@ -1014,19 +1051,20 @@ export async function reportListView(view, params = null) {
     return out;
   }
 
-  /** 상태 칩 — 전체 + 상태 넷. 안 끝난 것(진행 중 · 교체 예정)을 앞에 둔다. */
+  /** 상태 타일 — 전체 + 상태 넷. 상태마다 색이 다르고, 고르면 그 색으로 채운다. */
   function tilesHtml() {
     const c = counts();
     const order = STATUS_ORDER;
-    const chipBtn = (value, label, n) => `
-      <button class="hist-chip${filter === value ? ' is-on' : ''}" data-act="filter"
-              data-value="${h(value || '')}" ${value ? `data-track="${trackOf(value).cls}"` : ''}
+    const tile = (value, label, n, cls) => `
+      <button class="hist-tile${filter === value ? ' is-on' : ''}" data-act="filter"
+              data-value="${h(value || '')}" data-track="${cls}"
               type="button" aria-pressed="${filter === value}">
-        ${h(label)} <span class="tnum">${n}</span>
+        <span class="hist-tile__label">${stIcon(cls)}${h(label)}</span>
+        <b class="hist-tile__n tnum">${n}</b>
       </button>`;
-    return `<div class="hist-chips" role="group" aria-label="상태로 거르기">
-      ${chipBtn(null, '전체', (data.entries || []).length)}
-      ${order.map((v) => chipBtn(v, v, c[v])).join('')}
+    return `<div class="hist-chips hist-tiles" role="group" aria-label="상태로 거르기">
+      ${tile(null, '전체', (data.entries || []).length, 'all')}
+      ${order.map((v) => tile(v, trackOf(v).short, c[v], trackOf(v).cls)).join('')}
     </div>`;
   }
 
@@ -1041,14 +1079,17 @@ export async function reportListView(view, params = null) {
       ${list.map((e) => {
         const on = e.key === selectedKey;
         const detail = [e.code, e.summary].filter(Boolean).join(' · ');
+        const t = trackOf(e.status);
+        const age = ageText(e);
         return `
           <button class="hist-row${on ? ' is-on' : ''}" data-act="open" data-key="${h(e.key)}"
-                  type="button" aria-pressed="${on}">
-            <span class="hist-row__main">
-              <span class="hist-row__store">${h(e.store || '(식당명 없음)')}</span>
-              <span class="hist-row__sub">${h(shortDate(e.date))}${detail ? ` · ${h(detail)}` : ''}</span>
+                  data-track="${t.cls}" type="button" aria-pressed="${on}">
+            <span class="hist-row__top">
+              <span class="hist-row__date tnum">${h(shortDate(e.date))}</span>
+              <span class="hist-row__status">${stIcon(t.cls)}${h(t.short)}${age ? ` · ${age}` : ''}</span>
             </span>
-            <span class="hist-row__status" data-track="${trackOf(e.status).cls}">${h(trackOf(e.status).short)}</span>
+            <span class="hist-row__store">${h(e.store || '(식당명 없음)')}</span>
+            ${detail ? `<span class="hist-row__sub">${h(detail)}</span>` : ''}
           </button>`;
       }).join('')}
     </div>`;

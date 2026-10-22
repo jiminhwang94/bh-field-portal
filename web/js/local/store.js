@@ -307,6 +307,25 @@ export async function deleteGuideModel(name) {
   return { moved };
 }
 
+/**
+ * 가이드 여러 건의 로봇을 한 번에 정한다 (로봇 미지정 정리용).
+ * 대기열에는 한 건으로 들어간다 — 열 건을 옮겨도 시트에는 한 번만 올린다.
+ * model 이 빈 문자열이면 '로봇 미지정' 으로 되돌린다.
+ */
+export async function assignGuideModel(ids, model) {
+  model = String(model || '').trim();
+  const changes = [];
+  const stamp = now();
+  for (const id of ids || []) {
+    const g = await idb.get('guides', id);
+    if (!g || (g.robotModel || '') === model) continue;
+    await idb.put('guides', { ...g, robotModel: model, updatedAt: stamp });
+    changes.push({ kind: 'guide', id, before: g });
+  }
+  if (changes.length) await queueGuideSheetPushIfOn(changes);
+  return { moved: changes.length };
+}
+
 /** [올릴 내용] 에서 취소했을 때 로봇 목록을 바꾸기 전으로 되돌린다. */
 export async function undoGuideModelChanges(changes) {
   let models = await listGuideModels();

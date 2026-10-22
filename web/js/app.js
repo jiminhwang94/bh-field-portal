@@ -2,7 +2,8 @@
 import { api } from './api.js';
 import { $, h, closeModal, errorView, loading, toast } from './ui.js';
 import {
-  guideListView, guideDetailView, guideEditView, guideHubView, guideModelView, modelHref,
+  guideAssignView, guideListView, guideDetailView, guideEditView, guideHubView, guideModelView,
+  modelHref, robotColor,
   row as guideRow,
 } from './views/guides.js';
 import { inventoryView } from './views/inventory.js';
@@ -22,6 +23,7 @@ const routes = [
   [/^\/?$/, mainView],
   [/^\/search$/, searchView],
   [/^\/guides$/, () => guideHubView(view)],        // 가이드 탭 — 로봇 고르기
+  [/^\/guides\/assign$/, () => guideAssignView(view)],  // 로봇 한 번에 지정
   // 로봇 하나 — 종류(오류 코드 · 하드웨어 · SW) 셋과 그 목록
   [/^\/guides\/m\/([^/]+)(?:\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD))?$/,
     (m) => guideModelView(view, decodeURIComponent(m[1]), m[2] || null)],
@@ -118,93 +120,116 @@ async function render() {
   view.innerHTML = `<div class="empty">존재하지 않는 화면입니다.<br /><a class="link" href="#/">메인으로 돌아가기</a></div>`;
 }
 
-// ------------------------------------------------------------- 홈
+// ------------------------------------------------------------- 홈 (D2 대시보드 타일형)
 //
-// 현장에서 하는 일의 차례대로 세 칸만 둔다.
-//   1. 새 리포트 쓰기 — 가장 크게. 올리지 않은 리포트가 있으면 같은 자리에 알린다.
-//   2. 리포트 이력 — 검색 칸 + 이번 달 최근 기록. 누르면 이력에서 바로 그 건이 열린다.
-//   3. 가이드 — 로봇(Gen.1 · Gen.2 · Zephyr …) 버튼. 오류 코드 검색도 여기서.
+// 빈칸이 생기지 않는 격자. 현장에서 하는 일의 차례대로:
+//   ┌ 새 리포트 쓰기 (두 칸) ─────────┬ 보충 필요 ┐
+//   ├ 리포트 이력 (두 칸)            ├ 가이드    ┤  ← 로봇 칸이 세로로 늘어나 끝까지 채운다
+//   └ 상태별 건수 · 검색 · 최근 기록 카드 ┴ 검색     ┘
 async function mainView() {
   loading(view);
   const guides = (await api.listGuides()).items;          // 전부 기기에 있다 (오프라인 OK)
   const models = await api.listGuideModels();
   const drafts = (await api.listReports()).items.filter((r) => r.status !== 'UPLOADED');
   const month = await monthEntries();
+  const stock = await lowStock();
 
-  const modelKeys = [...models];
+  const robots = [...models];
   for (const g of guides) {
     const k = (g.robotModel || '').trim();
-    if (k && !modelKeys.includes(k)) modelKeys.push(k);
+    if (k && !robots.includes(k)) robots.push(k);
   }
   const unassigned = guides.filter((g) => !(g.robotModel || '').trim()).length;
+  const catCount = (list, t) => list.filter((g) => g.categoryType === t).length;
 
-  const recent = month ? month.entries.slice(0, 6) : [];
-  const open = month ? month.entries.filter((e) => e.status !== '조치 완료').length : 0;
+  const entries = month ? month.entries : [];
+  const tally = ['조치 진행 중', '교체 예정', '모니터링', '조치 완료'].map((s) => ({
+    s, n: entries.filter((e) => e.status === s).length,
+  }));
 
   view.innerHTML = `
-    <div class="home">
-      <a class="home-new" href="#/report/new">
-        <span class="home-new__icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6z"/><path d="M12 11v6M9 14h6"/></svg>
+    <div class="home2">
+      <a class="h2-new" href="#/report/new">
+        <span class="h2-new__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6z"/><path d="M12 11v6M9 14h6"/></svg>
         </span>
-        <span class="home-new__text">
-          <span class="home-new__title">새 리포트 쓰기</span>
-          <span class="home-new__sub">${drafts.length
+        <span class="h2-new__text">
+          <span class="h2-new__title">새 리포트 쓰기</span>
+          <span class="h2-new__sub">${drafts.length
             ? `올리지 않은 리포트 <b class="tnum">${drafts.length}</b>건이 있습니다`
-            : '사진 찍고 바로 구글 시트로'}</span>
+            : '리포트 번호를 고르면 매장명이 채워집니다'}</span>
         </span>
-        <span class="home-new__go" aria-hidden="true">›</span>
+        <span class="h2-new__go" aria-hidden="true">›</span>
       </a>
 
-      <section class="home-panel home-hist" aria-labelledby="homeHistTitle">
-        <div class="home-panel__head">
+      <a class="h2-stock${stock.low ? '' : ' is-ok'}" href="#/inventory">
+        <span class="h2-stock__label">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6h11v10H2zM13 9h5l3 3.5V16h-8z"/></svg>
+          ${stock.low ? '보충 필요' : '재고 충분'}
+        </span>
+        <span class="h2-stock__foot">
+          <b class="h2-stock__n tnum">${stock.low}</b>
+          <span>${stock.low ? `차량 ${stock.vehicles}대 · 재고 ›` : '재고 ›'}</span>
+        </span>
+      </a>
+
+      <section class="h2-card h2-hist" aria-labelledby="homeHistTitle">
+        <div class="h2-card__head">
           <h2 id="homeHistTitle">리포트 이력</h2>
-          ${month ? `<span class="home-panel__meta">${h(month.name)} · <span class="tnum">${month.entries.length}</span>건 · 진행 중 <span class="tnum">${open}</span></span>` : ''}
+          ${month ? tally.map((t) => `
+            <span class="h2-tally" data-track="${TRACK_CLS[t.s]}"><span class="h2-tally__dot"></span>${h(SHORT_STATUS[t.s])} <b class="tnum">${t.n}</b></span>`).join('') : ''}
           <span class="spacer"></span>
-          <a class="btn btn-secondary" href="#/reports">전체 이력</a>
+          <a class="h2-more" href="#/reports">전체 ›</a>
         </div>
         <form class="home-search" id="histSearch" role="search">
           <input class="input" id="histSearchQ" type="search" autocomplete="off" enterkeyhint="search"
-                 aria-label="이력 검색" placeholder="식당명 · 날짜로 이력 찾기 (미트로, 10-18)" />
-          <button class="btn btn-primary" type="submit">찾기</button>
+                 aria-label="이력 검색" placeholder="식당명 · 날짜로 이력 찾기" />
+          <button class="btn btn-dark" type="submit">찾기</button>
         </form>
-        <div class="home-hist__rows">
-          ${recent.length ? recent.map((e) => `
-            <a class="hrow" href="#/reports?open=${encodeURIComponent(e.key)}">
-              <span class="hrow__date tnum">${h((e.date || '').slice(5) || '-')}</span>
-              <span class="hrow__main">
-                <span class="hrow__store">${h(e.store || '(식당명 없음)')}</span>
-                ${e.summary ? `<span class="hrow__sub">${h(e.summary)}</span>` : ''}
+        <div class="h2-hist__grid">
+          ${entries.length ? entries.slice(0, 6).map((e) => `
+            <a class="h2-rcard" data-track="${TRACK_CLS[e.status] || 'doing'}" href="#/reports?open=${encodeURIComponent(e.key)}">
+              <span class="h2-rcard__top">
+                <span class="h2-rcard__date tnum">${h((e.date || '').slice(5) || '-')}</span>
+                <span class="h2-rcard__status">${statusIcon(TRACK_CLS[e.status] || 'doing')}${h(SHORT_STATUS[e.status] || e.status)}</span>
               </span>
-              <span class="hrow__status" data-track="${TRACK_CLS[e.status] || 'doing'}">${h(e.status)}</span>
+              <span class="h2-rcard__store">${h(e.store || '(식당명 없음)')}</span>
+              ${e.summary ? `<span class="h2-rcard__sub">${h(e.summary)}</span>` : ''}
             </a>`).join('')
             : `<div class="empty">아직 받아 둔 이력이 없습니다.<br /><a class="link" href="#/reports">리포트 이력</a>을 한 번 열면 여기에 보입니다.</div>`}
         </div>
       </section>
 
-      <section class="home-panel home-guides" aria-labelledby="homeGuideTitle">
-        <div class="home-panel__head">
+      <section class="h2-card h2-guides" aria-labelledby="homeGuideTitle">
+        <div class="h2-card__head">
           <h2 id="homeGuideTitle">가이드</h2>
-          <span class="home-panel__meta">로봇을 고르세요</span>
           <span class="spacer"></span>
-          <a class="btn btn-secondary" href="#/guides">전체</a>
+          <a class="h2-more" href="#/guides">전체 ›</a>
         </div>
-        <div class="model-list">
-          ${modelKeys.map((m) => `
-            <a class="model-btn" href="${modelHref(m)}">
-              <span class="model-btn__name">${h(m)}</span>
-              <span class="model-btn__meta tnum">${guides.filter((g) => (g.robotModel || '').trim() === m).length}건</span>
-            </a>`).join('')}
-          ${unassigned ? `
-            <a class="model-btn model-btn--none" href="${modelHref(null)}">
-              <span class="model-btn__name">로봇 미지정</span>
-              <span class="model-btn__meta tnum">${unassigned}건</span>
-            </a>` : ''}
-        </div>
-        <form class="home-search" id="guideSearch" role="search">
+        ${robots.map((m) => {
+          const list = guides.filter((g) => (g.robotModel || '').trim() === m);
+          return `
+            <a class="h2-robot" href="${modelHref(m)}" style="--robot:${robotColor(m, models)}">
+              <span class="h2-robot__badge">${h(robotShort(m))}</span>
+              <span class="h2-robot__text">
+                <span class="h2-robot__name">${h(m)}</span>
+                <span class="h2-robot__meta">오류 ${catCount(list, 'ERROR_CODE')} · 하드웨어 ${catCount(list, 'HARDWARE_SOP')} · SW ${catCount(list, 'SOFTWARE_CMD')}</span>
+              </span>
+              <span class="h2-robot__go" aria-hidden="true">›</span>
+            </a>`;
+        }).join('')}
+        ${unassigned ? `
+          <a class="h2-robot h2-robot--none" href="#/guides/assign">
+            <span class="h2-robot__badge">?</span>
+            <span class="h2-robot__text">
+              <span class="h2-robot__name">로봇 미지정</span>
+              <span class="h2-robot__meta"><span class="tnum">${unassigned}</span>건 · 한 번에 지정하기</span>
+            </span>
+            <span class="h2-robot__go" aria-hidden="true">›</span>
+          </a>` : ''}
+        <form id="guideSearch" role="search">
           <input class="input" id="guideSearchQ" type="search" autocomplete="off" enterkeyhint="search"
-                 aria-label="가이드 검색" placeholder="오류 코드 · 증상 검색" />
-          <button class="btn btn-secondary" type="submit">검색</button>
+                 aria-label="가이드 검색" placeholder="오류 코드 검색 (E-101)" />
         </form>
       </section>
     </div>`;
@@ -224,6 +249,32 @@ async function mainView() {
 
 /** 이력 화면의 상태 이름 → 색 이름표 (같은 뜻에 같은 색). */
 const TRACK_CLS = { '조치 진행 중': 'doing', '교체 예정': 'swap', '모니터링': 'watch', '조치 완료': 'done' };
+const SHORT_STATUS = { '조치 진행 중': '진행 중', '교체 예정': '교체 예정', '모니터링': '모니터링', '조치 완료': '완료' };
+/** 상태마다 모양이 다른 아이콘 — 색을 못 가려도 모양으로 읽힌다. */
+const STATUS_ICON = {
+  doing: 'M21 12a9 9 0 1 1-3-6.7M21 3v6h-6',
+  swap: 'M7 7h11l-3-3M17 17H6l3 3',
+  watch: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6',
+  done: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M8 12.5l2.5 2.5L16 9.5',
+};
+const statusIcon = (cls) => `<svg class="st-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${STATUS_ICON[cls]}"/></svg>`;
+/** 로봇 글자 배지 — Gen.1 → G1, Zephyr → Z */
+const robotShort = (name) => {
+  const m = String(name).match(/^([A-Za-z])[A-Za-z]*[.\s-]*(\d+)/);
+  return m ? `${m[1].toUpperCase()}${m[2]}` : String(name).trim().slice(0, 1).toUpperCase();
+};
+
+/** 보충이 필요한 품목 수와 그 차량 수 — 모든 차량. */
+async function lowStock() {
+  try {
+    const store = await import('./local/store.js');
+    const low = (await store.listInventory()).filter((i) => i.minQuantity > 0 && i.quantity < i.minQuantity);
+    return { low: low.length, vehicles: new Set(low.map((i) => i.vehicleName)).size };
+  } catch {
+    return { low: 0, vehicles: 0 };
+  }
+}
 
 /**
  * 이번 달 이력 — 기기에 받아 둔 사본만 본다. 홈을 열 때마다 시트를 부르면 느리고,

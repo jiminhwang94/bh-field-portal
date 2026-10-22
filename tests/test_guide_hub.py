@@ -45,12 +45,17 @@ print()
 print("== 로봇 고르기 (가이드 탭)")
 check("주소가 있다", "[/^\\/guides$/, () => guideHubView(view)]" in app)
 check("로봇 화면 주소 (종류는 생략 가능)", "guideModelView(view, decodeURIComponent(m[1]), m[2] || null)" in app)
-check("로봇 카드 · 로봇 추가 · 관리(이름 바꾸기 · 삭제)",
-      "model-card__main" in guides and "data-act=\"add-model\"" in guides
+check("로봇 띠 · 로봇 추가 · 관리(이름 바꾸기 · 삭제)",
+      "rband__main" in guides and "data-act=\"add-model\"" in guides
       and "data-act=\"model-menu\"" in guides and "api.renameGuideModel(" in guides
       and "api.deleteGuideModel(" in guides)
 check("로봇이 없는 예전 가이드도 잃지 않는다 ('로봇 미지정')",
-      "const NONE_LABEL = '로봇 미지정';" in guides and "if (all.some((g) => modelKey(g) === NONE)) keys.push(NONE);" in guides)
+      "const NONE_LABEL = '로봇 미지정';" in guides and "const unassigned = all.filter((g) => modelKey(g) === NONE).length;" in guides
+      and 'class="rband rband--none"' in guides)
+check("예전 가이드에 로봇을 한 번에 지정한다",
+      "[/^\/guides\/assign$/, () => guideAssignView(view)]" in app
+      and "export async function guideAssignView(view)" in guides and "api.assignGuideModel(" in guides
+      and "export async function assignGuideModel(ids, model)" in store)
 check("기본 로봇 셋", "export const DEFAULT_GUIDE_MODELS = ['Gen.1', 'Gen.2', 'Zephyr'];" in store)
 check("로봇을 지워도 가이드는 지우지 않는다", "robotModel: ''" in store and "export async function deleteGuideModel(" in store)
 
@@ -75,7 +80,7 @@ check("단계는 줄 전체가 버튼이다 (장갑)", 'data-act="toggle-step" t
 
 print()
 print("== 홈 — 우선순위 차례")
-i_new, i_hist, i_guide = app.find('class="home-new"'), app.find('home-hist"'), app.find('home-guides"')
+i_new, i_hist, i_guide = app.find('class="h2-new"'), app.find('h2-hist"'), app.find('h2-guides"')
 check("새 리포트 → 이력(검색) → 가이드(로봇) 차례", 0 < i_new < i_hist < i_guide, str((i_new, i_hist, i_guide)))
 check("이력 검색은 이력 화면으로 넘긴다", "`#/reports?q=${encodeURIComponent(q)}`" in app)
 check("최근 기록을 누르면 그 건이 열린다", "#/reports?open=${encodeURIComponent(e.key)}" in app)

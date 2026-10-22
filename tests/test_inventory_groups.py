@@ -80,7 +80,9 @@ print()
 print("== 모양")
 check("묶음 머리줄 · 손잡이 · 놓을 자리 스타일", ".grp-row td {" in css and ".inv-table .drag-handle" in css
       and ".inv-table tr.is-drop-before td" in css)
-check("손잡이 칸이 첫 칸이 되어도 이름 칸이 가로 배치", ".inv-table td.name-cell { display: flex;" in css)
+# 칸 자체를 flex 로 바꾸면 표에서 빠져나와 테두리가 어긋난다 (운행일지 사건) — 가로 배치는 칸 안 버튼이 맡는다.
+check("이름 칸은 표 칸 그대로, 가로 배치는 칸 안 버튼이", ".inv-table td.name-cell { vertical-align: middle; }" in css
+      and ".table--touch td:first-child { display: flex" not in css and 'class="inv-pick"' in view)
 
 print()
 if fails:
