@@ -317,7 +317,7 @@ export async function statsView(view, params) {
   }
 
   // 바깥 틀은 한 번 — 다시 그릴 때는 안만 바꾼다 (누르기 받는 곳이 그대로 남는다)
-  view.innerHTML = '<div id="pageRoot" class="page-stack sx"></div>';
+  view.innerHTML = '<div id="pageRoot" class="page-stack"></div>';
   const root = /** @type {HTMLElement} */ (view.querySelector('#pageRoot'));
   function paint() {
     root.innerHTML = `${headHtml()}${detail ? detailHtml() : summaryHtml()}`;
