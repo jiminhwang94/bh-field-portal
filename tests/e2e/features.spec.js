@@ -44,9 +44,9 @@ test('통계 — 상태별 · 로봇 모델별 · 많이 쓴 부품 · 기간 �
   await seedMore(sheet);
   await warm(page);
   await openApp(page, '#/stats');
-  await expect(page.locator('.page-head__meta')).toContainText('4');
-  await expect(page.locator('.stats-grid')).toContainText('Gen.1(D1)');
-  await expect(page.locator('.stats-grid')).toContainText('그리퍼 실리콘 패드');
+  await expect(page.locator('.sx-big__n')).toContainText('4');
+  await expect(page.locator('.sx-grid')).toContainText('Gen.1(D1)');
+  await expect(page.locator('.sx-grid')).toContainText('그리퍼 실리콘 패드');
   await page.locator('.seg__btn', { hasText: '이번 달' }).click();
   await expect(page).toHaveURL(/#\/stats\?m=1$/);
 });
