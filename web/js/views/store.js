@@ -3,7 +3,7 @@
 // 주소: #/store?name=옥동식 서초점
 // 최근 12달을 기기 사본으로 모은다 (없는 달만 시트에서 받는다).
 import { $, h, loading, when } from '../ui.js';
-import { loadEntries, storeKey, valueOf, openDays, tally } from '../insights.js';
+import { loadEntries, storeKey, valueOf, openDays, tally, isCodeShaped } from '../insights.js';
 import { trackOf } from './report-common.js';
 
 const MONTHS = 12;
@@ -17,7 +17,9 @@ export async function storeHistoryView(view, name) {
   const open = mine.filter((e) => e.status !== '조치 완료');
   const robots = tally(mine.map((e) => valueOf(e, '시리얼')).filter(Boolean));
   const models = tally(mine.map((e) => valueOf(e, '모델')).filter(Boolean));
-  const codes = tally(mine.map((e) => e.code).filter(Boolean));
+  const codes = tally(mine.map((e) => e.code).filter(isCodeShaped));
+  const works = tally(mine.map((e) => (valueOf(e, '작업') || (e.code && !isCodeShaped(e.code) ? e.code : ''))
+    .split('›').pop().trim()).filter(Boolean));
   const last = mine[0];
 
   view.innerHTML = `
@@ -38,6 +40,8 @@ export async function storeHistoryView(view, name) {
           <div class="store-sum__tile store-sum__tile--wide"><span>로봇</span>
             <b class="store-sum__list">${robots.length ? robots.map(([s, n]) => `${h(s)}<small> ${n}회</small>`).join(' · ') : '—'}</b>
             ${models.length ? `<small>${models.map(([m]) => h(m)).join(' · ')}</small>` : ''}</div>
+          ${works.length ? `<div class="store-sum__tile store-sum__tile--wide"><span>자주 한 작업</span>
+            <b class="store-sum__list">${works.slice(0, 5).map(([w, n]) => `${h(w)}<small> ${n}회</small>`).join(' · ')}</b></div>` : ''}
           ${codes.length ? `<div class="store-sum__tile store-sum__tile--wide"><span>자주 난 오류</span>
             <b class="store-sum__list">${codes.slice(0, 5).map(([c, n]) => `${h(c)}<small> ${n}회</small>`).join(' · ')}</b></div>` : ''}
         </div>

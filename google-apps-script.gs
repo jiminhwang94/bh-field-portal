@@ -65,6 +65,11 @@ function handleRequest(e) {
       return handleErrors(ss, body);
     }
 
+    // 작업 목록 — 리포트의 '작업' 을 고르는 팀 공용 목록 (구분 › 대분류 › 세부 작업)
+    if (body.work) {
+      return handleWork(ss, body);
+    }
+
     // 큰 첨부를 조각으로 — 끊겨도 이어 올린다 (리포트의 media 배열과 다른 '글자' 값)
     if (body.media === 'chunk' || body.media === 'finish') {
       return handleMediaUpload(ss, body);
@@ -290,7 +295,7 @@ function openMonthSheet(ss, name) {
 // 흐트러졻다. 그래서 요청을 처리한 뒤 매번 여기서 한 번 맞춘다. 제자리에 있는
 // 탭은 건드리지 않으므로 평소에는 아무 일도 하지 않는다.
 // ═══════════════════════════════════════════════════════════════════
-var TAB_ORDER_TAIL = ['운행일지 항목', '리포트 항목', '앱 설치 링크', '앱 버전',
+var TAB_ORDER_TAIL = ['운행일지 항목', '리포트 항목', '작업 목록', '앱 설치 링크', '앱 버전',
                       '기기', '변경기록', '오류기록', '휴지통'];
 
 function arrangeTabs(ss) {
@@ -3019,3 +3024,160 @@ function cleanupChunks(ss) {
     }
   } catch (err) { /* 정리 실패는 다음 날 다시 */ }
 }
+
+/* ============================================================ 작업 목록 (v3.31)
+ *
+ * 리포트의 '작업' 칸은 사람마다 다르게 적혔다 ("로더 교체" · "팔 교체"). 그래서 팀이 함께
+ * 쓰는 목록에서 고른다.  구분(로봇 이슈 · 로봇 외 이슈) › 대분류 › 세부 작업.
+ *
+ *  - 탭 '작업 목록': 구분 | 대분류 | 세부 작업 | 별칭 | 가이드 ID | 상태 | ID
+ *    대분류만 있는 줄(세부 작업 빈칸)은 '아직 항목이 없는 대분류' 를 지킨다.
+ *  - 별칭: 합친 이름 · 다른 표현 (쉼표로). 검색과 통계가 같은 것으로 센다.
+ *  - 상태: '새 항목' = 현장에서 새로 적은 것 (정리 대상)
+ *
+ * 올리기는 통째로 덮어쓰지 않고 **바뀐 것(ops)만** 적용한다 — 둘이 동시에 고쳐도 서로를 지우지 않는다.
+ *   { work: 'pull' }  → { exists, cats: [{kind, name}], items: [{id, kind, cat, name, aliases, guides, isNew}] }
+ *   { work: 'push', ops: [...] }
+ *     {op:'cat-add', kind, name} · {op:'cat-rename', kind, from, to} · {op:'cat-delete', kind, name}
+ *     {op:'item-upsert', item} · {op:'item-delete', id}
+ */
+var WORK_SHEET = '작업 목록';
+var WORK_HEADER = ['구분', '대분류', '세부 작업', '별칭 (쉼표로)', '가이드 ID', '상태', 'ID(고치지 마세요)'];
+var WORK_WIDTHS = [110, 150, 220, 260, 200, 90, 160];
+var WORK_KINDS = ['로봇 이슈', '로봇 외 이슈'];
+
+function splitList(text) {
+  var out = [];
+  String(text || '').split(/[,\n]/).forEach(function (x) {
+    var t = String(x).trim();
+    if (t && out.indexOf(t) < 0) out.push(t);
+  });
+  return out;
+}
+
+function readWork(ss) {
+  var sheet = ss.getSheetByName(WORK_SHEET);
+  if (!sheet) return { exists: false, cats: [], items: [] };
+  var last = sheet.getLastRow();
+  var cats = [];
+  var items = [];
+  if (last < 3) return { exists: true, cats: cats, items: items };
+  var rows = sheet.getRange(3, 1, last - 2, WORK_HEADER.length).getDisplayValues();
+  var hasCat = function (kind, name) {
+    for (var c = 0; c < cats.length; c++) if (cats[c].kind === kind && cats[c].name === name) return true;
+    return false;
+  };
+  for (var r = 0; r < rows.length; r++) {
+    var kind = String(rows[r][0] || '').trim();
+    var cat = String(rows[r][1] || '').trim();
+    var name = String(rows[r][2] || '').trim();
+    if (!kind || !cat) continue;
+    if (WORK_KINDS.indexOf(kind) < 0) kind = WORK_KINDS[0];
+    if (!hasCat(kind, cat)) cats.push({ kind: kind, name: cat });
+    if (!name) continue;
+    items.push({
+      id: String(rows[r][6] || '').trim() || ('w-' + r + '-' + name),
+      kind: kind, cat: cat, name: name,
+      aliases: splitList(rows[r][3]),
+      guides: splitList(rows[r][4]),
+      isNew: String(rows[r][5] || '').indexOf('새') >= 0
+    });
+  }
+  return { exists: true, cats: cats, items: items };
+}
+
+function writeWork(ss, list) {
+  var sheet = opsSheet(ss, WORK_SHEET, WORK_HEADER, WORK_WIDTHS);
+  var lines = [];
+  for (var k = 0; k < WORK_KINDS.length; k++) {
+    var kind = WORK_KINDS[k];
+    for (var c = 0; c < list.cats.length; c++) {
+      var cat = list.cats[c];
+      if (cat.kind !== kind) continue;
+      var mine = list.items.filter(function (it) { return it.kind === kind && it.cat === cat.name; });
+      if (!mine.length) lines.push([kind, cat.name, '', '', '', '', '']);
+      for (var i = 0; i < mine.length; i++) {
+        var it = mine[i];
+        lines.push([kind, cat.name, it.name, (it.aliases || []).join(', '), (it.guides || []).join(', '),
+                    it.isNew ? '새 항목' : '', it.id]);
+      }
+    }
+  }
+  var last = sheet.getLastRow();
+  if (last >= 3) sheet.getRange(3, 1, last - 2, WORK_HEADER.length).clearContent();
+  if (lines.length) sheet.getRange(3, 1, lines.length, WORK_HEADER.length).setValues(lines);
+}
+
+function applyWorkOps(list, ops) {
+  var findCat = function (kind, name) {
+    for (var c = 0; c < list.cats.length; c++) if (list.cats[c].kind === kind && list.cats[c].name === name) return c;
+    return -1;
+  };
+  var findItem = function (id) {
+    for (var i = 0; i < list.items.length; i++) if (list.items[i].id === id) return i;
+    return -1;
+  };
+  var done = [];
+  for (var o = 0; o < ops.length; o++) {
+    var op = ops[o] || {};
+    var kind = WORK_KINDS.indexOf(op.kind) >= 0 ? op.kind : WORK_KINDS[0];
+    if (op.op === 'cat-add') {
+      var name = String(op.name || '').trim();
+      if (name && findCat(kind, name) < 0) { list.cats.push({ kind: kind, name: name }); done.push('대분류 추가 ' + name); }
+    } else if (op.op === 'cat-rename') {
+      var from = String(op.from || '').trim();
+      var to = String(op.to || '').trim();
+      var at = findCat(kind, from);
+      if (at >= 0 && to && findCat(kind, to) < 0) {
+        list.cats[at].name = to;
+        list.items.forEach(function (it) { if (it.kind === kind && it.cat === from) it.cat = to; });
+        done.push('대분류 ' + from + ' → ' + to);
+      }
+    } else if (op.op === 'cat-delete') {
+      var gone = findCat(kind, String(op.name || '').trim());
+      var used = list.items.some(function (it) { return it.kind === kind && it.cat === op.name; });
+      if (gone >= 0 && !used) { list.cats.splice(gone, 1); done.push('대분류 삭제 ' + op.name); }
+    } else if (op.op === 'item-upsert') {
+      var item = op.item || {};
+      var id = String(item.id || '').trim();
+      var nm = String(item.name || '').trim();
+      var ct = String(item.cat || '').trim();
+      if (!id || !nm || !ct) continue;
+      var ik = WORK_KINDS.indexOf(item.kind) >= 0 ? item.kind : WORK_KINDS[0];
+      if (findCat(ik, ct) < 0) list.cats.push({ kind: ik, name: ct });
+      var row = { id: id, kind: ik, cat: ct, name: nm, aliases: splitList((item.aliases || []).join(',')),
+                  guides: splitList((item.guides || []).join(',')), isNew: Boolean(item.isNew) };
+      var was = findItem(id);
+      if (was >= 0) list.items[was] = row; else list.items.push(row);
+      done.push((was >= 0 ? '고침 ' : '추가 ') + ik + ' › ' + ct + ' › ' + nm);
+    } else if (op.op === 'item-delete') {
+      var del = findItem(String(op.id || ''));
+      if (del >= 0) { done.push('삭제 ' + list.items[del].name); list.items.splice(del, 1); }
+    }
+  }
+  return done;
+}
+
+function handleWork(ss, body) {
+  if (body.work === 'pull') {
+    var got = readWork(ss);
+    got.ok = true;
+    return json(got);
+  }
+  if (body.work !== 'push') return json({ ok: false, error: '알 수 없는 요청입니다.' });
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var list = readWork(ss);
+    var done = applyWorkOps(list, body.ops || []);
+    writeWork(ss, list);
+    SpreadsheetApp.flush();
+    if (done.length) logChange(ss, body, '작업 목록', done.length + '건', done.join(' / '));
+    var out = readWork(ss);
+    out.ok = true;
+    return json(out);
+  } finally {
+    lock.releaseLock();
+  }
+}
+

@@ -1223,6 +1223,46 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
   check('미리 올린 첨부 주소도 시트에서 눌러 열리는 링크가 된다', tab.links.size > 0 && tab.getLastRow() > before);
 }
 
+{ // 작업 목록 (v3.31)
+  console.log('── 작업 목록 — 구분 › 대분류 › 세부 작업 · 바뀐 것만 올리기');
+  let w = call({ work: 'pull' });
+  check('탭이 없으면 없다고 말한다 (앱이 기본 대분류를 올린다)', w.ok && w.exists === false);
+  w = call({ work: 'push', device: '김현장', ops: [
+    { op: 'cat-add', kind: '로봇 이슈', name: '하드웨어 교체' },
+    { op: 'cat-add', kind: '로봇 이슈', name: '유지 보수' },
+    { op: 'cat-add', kind: '로봇 외 이슈', name: '네트워크 · 와이파이' },
+    { op: 'item-upsert', item: { id: 'w1', kind: '로봇 이슈', cat: '하드웨어 교체', name: '로더 교체', aliases: [], guides: [] } },
+    { op: 'item-upsert', item: { id: 'w2', kind: '로봇 이슈', cat: '하드웨어 교체', name: '팔 교체', aliases: [], guides: [], isNew: true } },
+  ] });
+  check('대분류 · 항목을 올리면 탭에 적힌다', w.ok && w.cats.length === 3 && w.items.length === 2,
+        JSON.stringify({ cats: w.cats.length, items: w.items.length }));
+  check('항목이 없는 대분류도 남는다 (유지 보수 · 네트워크)', w.cats.some((c) => c.name === '유지 보수')
+        && w.cats.some((c) => c.kind === '로봇 외 이슈'));
+  check('현장에서 새로 적은 것은 새 항목 표시', w.items.find((i) => i.id === 'w2').isNew === true);
+  // 다른 기기가 동시에 하나 더 올린다 — 앞의 것을 지우지 않는다
+  call({ work: 'push', ops: [{ op: 'item-upsert', item: { id: 'w3', kind: '로봇 외 이슈', cat: '네트워크 · 와이파이', name: '와이파이 재연결' } }] });
+  // 합치기: 팔 교체 → 로더 교체 (별칭으로 남긴다)
+  w = call({ work: 'push', ops: [
+    { op: 'item-upsert', item: { id: 'w1', kind: '로봇 이슈', cat: '하드웨어 교체', name: '로더 교체', aliases: ['팔 교체'], guides: ['g-aaa'] } },
+    { op: 'item-delete', id: 'w2' },
+  ] });
+  const loader = w.items.find((i) => i.id === 'w1');
+  check('★ 합치기 — 팔 교체는 로더 교체의 별칭이 되고 항목은 하나', w.items.length === 2 && loader.aliases[0] === '팔 교체'
+        && !w.items.some((i) => i.name === '팔 교체'), JSON.stringify(w.items));
+  check('다른 기기가 올린 항목이 남아 있다 (통째로 덮지 않는다)', w.items.some((i) => i.name === '와이파이 재연결'));
+  check('가이드를 이어 둘 수 있다', loader.guides[0] === 'g-aaa');
+  w = call({ work: 'push', ops: [{ op: 'cat-rename', kind: '로봇 이슈', from: '하드웨어 교체', to: '부품 교체' }] });
+  check('대분류 이름을 바꾸면 그 아래 항목도 따라간다', w.items.find((i) => i.id === 'w1').cat === '부품 교체'
+        && !w.cats.some((c) => c.name === '하드웨어 교체'));
+  w = call({ work: 'push', ops: [{ op: 'cat-delete', kind: '로봇 이슈', name: '부품 교체' }] });
+  check('항목이 남은 대분류는 지우지 않는다', w.cats.some((c) => c.name === '부품 교체'));
+  const tab = ss.getSheetByName('작업 목록');
+  check('탭 머리줄 · 사람이 읽는 줄 (구분 | 대분류 | 세부 작업 | 별칭 …)',
+        tab.getRange(2, 1).getValue() === '구분' && tab.getRange(3, 1).getValue() === '로봇 이슈');
+  check('작업 목록 변경이 변경기록에 남는다', ss.getSheetByName('변경기록').getRange(3, 1, ss.getSheetByName('변경기록').getLastRow() - 2, 6)
+        .getValues().some((r) => r[3] === '작업 목록'));
+}
+
 console.log('='.repeat(62));
 if (failures.length) {
   console.log(`❌ 실패 ${failures.length}건: ${failures.join(', ')}`);

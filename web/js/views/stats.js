@@ -3,7 +3,8 @@
 // 품질팀 · 개발팀에 넘길 근거. 기기에 받아 둔 이력으로 계산한다 (없는 달만 시트에서 받는다).
 // 주소: #/stats?m=3   (m = 최근 몇 달: 1 · 3 · 6 · 12)
 import { $, h, loading } from '../ui.js';
-import { loadEntries, valueOf, parseParts, openDays, tally } from '../insights.js';
+import { loadEntries, valueOf, parseParts, openDays, tally, findWork, isCodeShaped } from '../insights.js';
+import { api } from '../api.js';
 import { TRACK, trackOf } from './report-common.js';
 
 const PERIODS = [1, 3, 6, 12];
@@ -33,7 +34,19 @@ export async function statsView(view, params) {
   const open = entries.filter((e) => e.status !== '조치 완료');
   const avgOpen = open.length ? Math.round(open.reduce((s, e) => s + openDays(e), 0) / open.length) : 0;
   const models = tally(entries.map((e) => valueOf(e, '모델') || '(모델 없음)'));
-  const codes = tally(entries.map((e) => e.code).filter(Boolean));
+  // 작업 — 별칭 · 합친 이름도 같은 항목으로 센다. 예전 '오류 코드' 칸의 분류 글자도 작업으로 본다
+  const work = await api.workList().catch(() => ({ cats: [], items: [] }));
+  const workText = (e) => valueOf(e, '작업') || (e.code && !isCodeShaped(e.code) ? e.code : '');
+  const works = tally(entries.map((e) => {
+    const t = workText(e);
+    const it = findWork(t, work);
+    return it ? it.name : t.split('›').pop().trim();
+  }).filter(Boolean));
+  const kinds = tally(entries.map((e) => {
+    const it = findWork(workText(e), work);
+    return it ? it.kind : (workText(e).includes('로봇 외') ? '로봇 외 이슈' : '');
+  }).filter(Boolean));
+  const codes = tally(entries.map((e) => e.code).filter(isCodeShaped));
   const stores = tally(entries.map((e) => e.store).filter(Boolean));
   const parts = new Map();
   for (const e of entries) for (const p of parseParts(valueOf(e, '사용 부품'))) parts.set(p.name, (parts.get(p.name) || 0) + p.n);
@@ -73,6 +86,9 @@ export async function statsView(view, params) {
           </div>
         </section>
         <section class="panel"><h2 class="panel__title">로봇 모델별</h2>${bars(models)}</section>
+        <section class="panel"><h2 class="panel__title">자주 한 작업 ${kinds.length
+            ? `<span class="muted">${kinds.map(([k, n]) => `${h(k)} ${n}`).join(' · ')}</span>` : ''}</h2>
+          ${bars(works)}</section>
         <section class="panel"><h2 class="panel__title">자주 난 오류 코드</h2>
           ${bars(codes, { href: (c) => `#/search?q=${encodeURIComponent(c)}` })}</section>
         <section class="panel"><h2 class="panel__title">많이 쓴 부품</h2>${bars(partRows)}</section>

@@ -96,3 +96,72 @@ export function tally(items) {
   for (const k of items) if (k) m.set(k, (m.get(k) || 0) + 1);
   return [...m].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'ko'));
 }
+
+// ─────────────────────────────────────────────── 작업 목록 (v3.31)
+
+/** 오류 코드처럼 생겼나 — E-101 · W204 · ERR12. '유지 보수' 같은 분류 글자는 아니다 */
+export const isCodeShaped = (v) => /^[A-Za-z]{1,4}[-\s]?\d{1,5}[A-Za-z]?$/.test(String(v || '').trim());
+
+const CHO = 'ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ';
+/** 초성만 — '로더 교체' → 'ㄹㄷ ㄱㅊ' (초성으로도 찾게) */
+export function choseong(text) {
+  return [...String(text || '')].map((ch) => {
+    const c = ch.charCodeAt(0);
+    return c >= 0xac00 && c <= 0xd7a3 ? CHO[Math.floor((c - 0xac00) / 588)] : ch;
+  }).join('');
+}
+const squash = (t) => String(t || '').toLowerCase().replace(/\s+/g, '');
+const onlyCho = (t) => /^[ㄱ-ㅎ]+$/.test(squash(t));
+
+/** 리포트 칸에 들어가는 글자 — '로봇 이슈 › 하드웨어 교체 › 로더 교체' */
+export const workPath = (it) => `${it.kind} › ${it.cat} › ${it.name}`;
+
+/** 리포트 칸의 글자로 목록의 항목을 찾는다 — 경로 · 이름 · 별칭 어느 것이든 (띄어쓰기 무시) */
+export function findWork(text, list) {
+  const raw = String(text || '').trim();
+  if (!raw || !list) return null;
+  const last = squash(raw.split('›').pop());
+  return (list.items || []).find((it) => squash(it.name) === last || (it.aliases || []).some((a) => squash(a) === last))
+    || null;
+}
+
+/** 검색어에 맞나 — 이름 · 별칭 · 대분류, 초성만 쳐도 */
+export function matchWork(q, it) {
+  const want = squash(q);
+  if (!want) return true;
+  const hay = [it.name, ...(it.aliases || []), it.cat];
+  if (onlyCho(want)) return hay.some((h) => squash(choseong(h)).includes(want));
+  return hay.some((h) => squash(h).includes(want));
+}
+
+/** 리포트의 로봇 모델 'Gen.1(D1)' 과 가이드의 로봇 'Gen.1' 이 같은 줄기인가 */
+export const sameRobot = (reportModel, guideModel) => {
+  const a = squash(reportModel).replace(/[^a-z0-9가-힣]/g, '');
+  const b = squash(guideModel).replace(/[^a-z0-9가-힣]/g, '');
+  return Boolean(a && b) && (a.startsWith(b) || b.startsWith(a));
+};
+
+/**
+ * 기기에 받아 둔 최근 이력에서 작업마다 몇 번 쓰였나 (시트에 묻지 않는다 — 빠르다).
+ * 예전 리포트의 '오류 코드' 칸에 분류 글자가 적힌 것도 센다.
+ * @returns {Promise<{ all: Map<string, number>, byModel: Map<string, Map<string, number>> }>}
+ */
+export async function workUsage(list, months = 3) {
+  const store = await import('./local/store.js');
+  const all = new Map();
+  const byModel = new Map();
+  for (const m of recentMonths(months)) {
+    const cached = await store.getMeta(`sheetReports:${m}`, null);
+    for (const e of (cached && cached.entries) || []) {
+      const text = valueOf(e, '작업') || (isCodeShaped(e.code) ? '' : e.code);
+      const it = findWork(text, list);
+      if (!it) continue;
+      all.set(it.id, (all.get(it.id) || 0) + 1);
+      const model = valueOf(e, '모델');
+      if (!byModel.has(model)) byModel.set(model, new Map());
+      const mm = byModel.get(model);
+      mm.set(it.id, (mm.get(it.id) || 0) + 1);
+    }
+  }
+  return { all, byModel };
+}

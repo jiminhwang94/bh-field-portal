@@ -14,6 +14,7 @@ import { reportFormView } from './views/report.js';
 import { reportListView, reportDetailView } from './views/history.js';
 import { storeHistoryView } from './views/store.js';
 import { statsView } from './views/stats.js';
+import { workView } from './views/work.js';
 import { settingsView } from './views/settings.js';
 import { initSyncButton } from './syncnow.js';
 import { initInstallBanner } from './install.js';
@@ -31,6 +32,7 @@ const routes = [
   [/^\/search$/, searchView],
   [/^\/store$/, (m, q) => storeHistoryView(view, q.get('name'))],   // 매장별 이력
   [/^\/stats$/, (m, q) => statsView(view, q)],                      // 통계
+  [/^\/work$/, () => workView(view)],                               // 설정 → 작업 목록
   [/^\/guides$/, () => guideHubView(view)],        // 가이드 탭 — 로봇 고르기
   [/^\/guides\/assign$/, () => guideAssignView(view)],  // 로봇 한 번에 지정
   // 로봇 하나 — 종류(오류 코드 · 하드웨어 · SW) 셋과 그 목록
@@ -66,7 +68,7 @@ function paintTabs(path) {
     : path.startsWith('/driving') ? 'driving'
     : path.startsWith('/report/new') ? 'new'
     : path.startsWith('/reports') ? 'reports'
-    : path.startsWith('/settings') || path.startsWith('/fields') ? 'settings'
+    : path.startsWith('/settings') || path.startsWith('/fields') || path.startsWith('/work') ? 'settings'
     : '';
   document.querySelectorAll('.tab').forEach((/** @type {HTMLElement} */ el) => {
     if (el.dataset.tab === active) el.setAttribute('aria-current', 'page');
