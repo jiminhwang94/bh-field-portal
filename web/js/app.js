@@ -1,6 +1,6 @@
 // 해시 라우터 + 메인 화면
 import { api } from './api.js';
-import { $, h, closeModal, errorView, loading, toast } from './ui.js';
+import { $, h, closeModal, errorView, loading, openSheet, toast } from './ui.js';
 import {
   guideAssignView, guideListView, guideHubView, guideModelView,
   modelHref, robotColor,
@@ -17,6 +17,8 @@ import { statsView } from './views/stats.js';
 import { workView } from './views/work.js';
 import { settingsView } from './views/settings.js';
 import { initSyncButton } from './syncnow.js';
+import { PATCH_NOTES } from './patchnotes.js';
+import { APP_VERSION } from './version.js';
 import { initInstallBanner } from './install.js';
 import { initNetStatus, ensureFirstData, catchUpFromSheet } from './net.js';
 import { initUpdateBanner, initVersionGate } from './update.js';
@@ -420,6 +422,7 @@ registerServiceWorker();       // 오프라인에서 앱이 열리도록
 initUpdateBanner();            // 새 버전 안내 띠 (지난번 받아 둔 정보로 먼저 그린다)
 initNetStatus();               //  오프라인 표시 + 대기 작업 자동 처리
 initSyncButton();
+initPatchButton();             // 새로고침 옆 [패치 내용]
 initInstallBanner();
 
 
@@ -431,4 +434,39 @@ async function registerServiceWorker() {
   try {
     await navigator.serviceWorker.register('./sw.js', { scope: './' });
   } catch { /* 등록 실패해도 데이터는 기기에 있으므로 앱은 동작한다 */ }
+}
+
+// ------------------------------------------------------------- 패치 내용
+//
+// 새로고침 옆 [패치 내용] — 버전마다 바뀐 점을 날짜와 함께. 안 본 새 버전이 있으면 버튼에 점.
+function patchDate(text) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(text || ''));
+  return m ? `${Number(m[2])}월 ${Number(m[3])}일` : String(text || '');
+}
+
+function initPatchButton() {
+  const PATCH_SEEN_KEY = 'bh_patch_seen';   // 함수 안에 둔다 — 위에서 먼저 불리므로(맨 아래 const 는 아직 없다)
+  const btn = document.getElementById('btn-patch');
+  if (!btn) return;
+  const paintDot = () => {
+    let seen = '';
+    try { seen = localStorage.getItem(PATCH_SEEN_KEY) || ''; } catch { /* 없으면 새것으로 본다 */ }
+    btn.classList.toggle('has-new', seen !== APP_VERSION);
+  };
+  paintDot();
+  btn.addEventListener('click', () => {
+    openSheet('패치 내용', `
+      <div class="patch-notes">
+        ${PATCH_NOTES.map((n) => `
+          <section class="patch-note${n.version === APP_VERSION ? ' is-current' : ''}">
+            <h3 class="patch-note__head">
+              <b>${h(patchDate(n.date))}</b> <span class="muted tnum">v${h(n.version)}</span>
+              ${n.version === APP_VERSION ? '<span class="patch-note__now">지금 쓰는 버전</span>' : ''}
+            </h3>
+            <ul class="patch-note__list">${n.items.map((t) => `<li>${h(t)}</li>`).join('')}</ul>
+          </section>`).join('')}
+      </div>`);
+    try { localStorage.setItem(PATCH_SEEN_KEY, APP_VERSION); } catch { /* 이번만 */ }
+    paintDot();
+  });
 }

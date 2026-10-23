@@ -1,4 +1,4 @@
-// 설정 → 작업 목록 — 구분 › 대분류 › 세부 작업을 정리하는 화면. 주소 #/work
+// 설정 → 이슈 유형 정리 — 구분 › 대분류 › 세부 항목을 정리하는 화면. 주소 #/work
 //
 // 현장에서는 고르기만 한다(없으면 '새 항목' 으로 적는다). 여기서는 정리한다:
 //  - 합치기 후보 — 비슷한 이름끼리 (팔 교체 ↔ 로더 교체). 합치면 앞의 것은 별칭으로 남아
@@ -8,7 +8,7 @@
 //  - 지난 리포트에서 가져오기 — '작업' · 옛 '오류 코드' 칸에 적힌 분류 글자를 '미분류' 로
 import { api } from '../api.js';
 import { $, closeModal, confirmDialog, h, loading, openSheet, promptDialog, toast } from '../ui.js';
-import { findWork, isCodeShaped, loadEntries, matchWork, valueOf, workPath, workUsage } from '../insights.js';
+import { findWork, issueOf, loadEntries, matchWork, workPath, workUsage } from '../insights.js';
 
 const KINDS = ['로봇 이슈', '로봇 외 이슈'];
 const squash = (t) => String(t || '').toLowerCase().replace(/\s+/g, '');
@@ -65,13 +65,13 @@ export async function workView(view) {
   view.innerHTML = `
     <div id="pageRoot" class="page-stack">
       <div class="page-head">
-        <h1 class="page-head__title">작업 목록</h1>
+        <h1 class="page-head__title">이슈 유형 목록</h1>
         <span class="page-head__meta" id="wkMeta"></span>
         <span class="page-head__spacer"></span>
         <button class="btn btn-secondary" data-act="import" type="button">지난 리포트에서 가져오기</button>
       </div>
       <div class="hist-filter">
-        <input class="input" id="wkFind" type="search" placeholder="찾기 — 이름 · 별칭 · 초성" aria-label="작업 찾기" />
+        <input class="input" id="wkFind" type="search" placeholder="찾기 — 이름 · 별칭 · 초성" aria-label="이슈 유형 찾기" />
         <button class="btn btn-secondary" data-act="only-new" type="button" aria-pressed="false">새 항목만</button>
       </div>
       <div id="wkBody"></div>
@@ -79,7 +79,7 @@ export async function workView(view) {
 
   function paint() {
     const news = list.items.filter((i) => i.isNew).length;
-    $('#wkMeta').textContent = `세부 작업 ${list.items.length}개${news ? ` · 새 항목 ${news}개` : ''}`;
+    $('#wkMeta').textContent = `세부 항목 ${list.items.length}개${news ? ` · 새 항목 ${news}개` : ''}`;
     const cands = mergeCandidates(list, usage);
     const show = (it) => (!onlyNew || it.isNew) && matchWork(query, it);
     $('#wkBody').innerHTML = `
@@ -160,7 +160,7 @@ export async function workView(view) {
       };
       if (m === 'rename') {
         closeModal();
-        const name = await promptDialog('이름 바꾸기', { label: '세부 작업', value: it.name });
+        const name = await promptDialog('이름 바꾸기', { label: '세부 항목', value: it.name });
         if (name && name.trim() && name.trim() !== it.name) {
           // 옛 이름은 별칭으로 남긴다 — 예전 리포트가 계속 이 항목으로 셈된다
           await apply([{ op: 'item-upsert', item: { ...it, name: name.trim(), aliases: [...it.aliases, it.name] } }],
@@ -186,7 +186,7 @@ export async function workView(view) {
       if (m === 'guides') {
         const errs = guides;
         body.innerHTML = `
-          <p class="muted">리포트에서 이 작업을 고르면, 그 로봇의 가이드로 바로 갑니다.</p>
+          <p class="muted">리포트에서 이 이슈 유형을 고르면, 그 로봇의 가이드로 바로 갑니다.</p>
           <div class="wk-pick">
             ${errs.map((g) => `<label class="ps-check"><input type="checkbox" value="${h(g.id)}" ${it.guides.includes(g.id) ? 'checked' : ''} />
               ${h(g.robotModel || '로봇 미지정')} · ${h(g.codeOrTitle)}</label>`).join('') || '<p class="muted">가이드가 없습니다.</p>'}
@@ -254,7 +254,7 @@ export async function workView(view) {
       }
     }
     if (act === 'item-add') {
-      const name = await promptDialog(`${cat} — 항목 추가`, { label: '세부 작업', placeholder: '예) 로더 교체' });
+      const name = await promptDialog(`${cat} — 항목 추가`, { label: '세부 항목', placeholder: '예) 로더 교체' });
       if (name && name.trim()) {
         await api.addWorkItem(kind, cat, name.trim()).then(async () => {
           // 여기서 만든 것은 정리된 것 — 새 항목 표시를 끈다
@@ -269,10 +269,10 @@ export async function workView(view) {
         const { entries } = await loadEntries(12);
         const names = new Set();
         for (const e of entries) {
-          const text = valueOf(e, '작업') || (isCodeShaped(e.code) ? '' : e.code);
+          const text = issueOf(e);
           if (text && !findWork(text, list)) names.add(text.split('›').pop().trim());
         }
-        if (!names.size) { toast('새로 가져올 것이 없습니다. (지난 리포트의 작업이 모두 목록에 있습니다)', 'ok'); return; }
+        if (!names.size) { toast('새로 가져올 것이 없습니다. (지난 리포트의 이슈 유형이 모두 목록에 있습니다)', 'ok'); return; }
         /** @type {any[]} */
         const ops = [{ op: 'cat-add', kind: KINDS[0], name: '미분류' }];
         const { newId } = await import('../local/store.js');

@@ -65,7 +65,7 @@ function handleRequest(e) {
       return handleErrors(ss, body);
     }
 
-    // 작업 목록 — 리포트의 '작업' 을 고르는 팀 공용 목록 (구분 › 대분류 › 세부 작업)
+    // 이슈 유형 목록 — 리포트의 '이슈 유형' 을 고르는 팀 공용 목록 (구분 › 대분류 › 세부 항목)
     if (body.work) {
       return handleWork(ss, body);
     }
@@ -295,7 +295,7 @@ function openMonthSheet(ss, name) {
 // 흐트러졻다. 그래서 요청을 처리한 뒤 매번 여기서 한 번 맞춘다. 제자리에 있는
 // 탭은 건드리지 않으므로 평소에는 아무 일도 하지 않는다.
 // ═══════════════════════════════════════════════════════════════════
-var TAB_ORDER_TAIL = ['운행일지 항목', '리포트 항목', '작업 목록', '앱 설치 링크', '앱 버전',
+var TAB_ORDER_TAIL = ['운행일지 항목', '리포트 항목', '이슈 유형 목록', '앱 설치 링크', '앱 버전',
                       '기기', '변경기록', '오류기록', '휴지통'];
 
 function arrangeTabs(ss) {
@@ -3041,8 +3041,9 @@ function cleanupChunks(ss) {
  *     {op:'cat-add', kind, name} · {op:'cat-rename', kind, from, to} · {op:'cat-delete', kind, name}
  *     {op:'item-upsert', item} · {op:'item-delete', id}
  */
-var WORK_SHEET = '작업 목록';
-var WORK_HEADER = ['구분', '대분류', '세부 작업', '별칭 (쉼표로)', '가이드 ID', '상태', 'ID(고치지 마세요)'];
+var WORK_SHEET = '이슈 유형 목록';
+var WORK_SHEET_OLD = '작업 목록';     // v3.31 이름 — 있으면 이름만 바꿔 쓴다
+var WORK_HEADER = ['구분', '대분류', '세부 항목', '별칭 (쉼표로)', '가이드 ID', '상태', 'ID(고치지 마세요)'];
 var WORK_WIDTHS = [110, 150, 220, 260, 200, 90, 160];
 var WORK_KINDS = ['로봇 이슈', '로봇 외 이슈'];
 
@@ -3055,8 +3056,17 @@ function splitList(text) {
   return out;
 }
 
-function readWork(ss) {
+function workSheet(ss) {
   var sheet = ss.getSheetByName(WORK_SHEET);
+  if (!sheet) {
+    var old = ss.getSheetByName(WORK_SHEET_OLD);
+    if (old) { old.setName(WORK_SHEET); sheet = old; }
+  }
+  return sheet;
+}
+
+function readWork(ss) {
+  var sheet = workSheet(ss);
   if (!sheet) return { exists: false, cats: [], items: [] };
   var last = sheet.getLastRow();
   var cats = [];
@@ -3087,7 +3097,9 @@ function readWork(ss) {
 }
 
 function writeWork(ss, list) {
+  workSheet(ss);
   var sheet = opsSheet(ss, WORK_SHEET, WORK_HEADER, WORK_WIDTHS);
+  sheet.getRange(2, 1, 1, WORK_HEADER.length).setValues([WORK_HEADER]);
   var lines = [];
   for (var k = 0; k < WORK_KINDS.length; k++) {
     var kind = WORK_KINDS[k];
@@ -3172,7 +3184,7 @@ function handleWork(ss, body) {
     var done = applyWorkOps(list, body.ops || []);
     writeWork(ss, list);
     SpreadsheetApp.flush();
-    if (done.length) logChange(ss, body, '작업 목록', done.length + '건', done.join(' / '));
+    if (done.length) logChange(ss, body, '이슈 유형 목록', done.length + '건', done.join(' / '));
     var out = readWork(ss);
     out.ok = true;
     return json(out);

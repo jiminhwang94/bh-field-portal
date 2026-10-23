@@ -297,6 +297,7 @@ export async function inventoryView(view) {
           ${current ? `
             ${sheetMode ? `
               <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
+            <button class="btn btn-secondary" data-act="cat-order" type="button">분류 순서</button>
             <button class="btn btn-primary" data-act="add-item" type="button">＋ 품목 추가</button>` : ''}
         </div>
 
@@ -355,6 +356,63 @@ export async function inventoryView(view) {
     view.ownerDocument.querySelectorAll(`[data-qty="${item.id}"]`).forEach((cell) => {
       cell.textContent = item.quantity;
       cell.classList.toggle('is-low', isLow(item));
+    });
+  }
+
+  // ------------------------------------------------------------ 분류 순서 (v3.32)
+  //
+  // 묶음 머리줄의 손잡이(≡)로 끌어도 되지만, 장갑을 끼면 끌기가 어렵다. 그래서 창에서
+  // 큰 ↑ ↓ 로 옮기고 [저장] 을 한 번 누른다. 순서는 모든 차량 공용 · 시트 줄 순서로 올라간다.
+  // '분류 없음' 은 늘 맨 뒤다 (저장소 규칙).
+  function openCatOrder() {
+    let order = groupsOf(items).map((g) => g.key).filter((k) => k);
+    const hasNone = items.some((i) => !catOf(i));
+    if (order.length < 2) { toast('분류가 2개 이상일 때 순서를 바꿀 수 있습니다.'); return; }
+    openSheet('분류 순서', '<div id="catOrder" class="cat-order"></div>');
+    const body = $('#catOrder');
+    const paint = () => {
+      body.innerHTML = `
+        <p class="muted">위에서부터 이 차례로 보입니다. 모든 차량에 같이 적용됩니다.</p>
+        <ol class="cat-order__list">
+          ${order.map((k, i) => `
+            <li class="cat-order__row">
+              <span class="cat-order__name">${h(k)} <small class="muted tnum">${items.filter((x) => catOf(x) === k).length}종</small></span>
+              <button class="cat-order__btn" data-move="${i}" data-dir="-1" type="button" ${i === 0 ? 'disabled' : ''}
+                      aria-label="${h(k)} 위로">↑</button>
+              <button class="cat-order__btn" data-move="${i}" data-dir="1" type="button" ${i === order.length - 1 ? 'disabled' : ''}
+                      aria-label="${h(k)} 아래로">↓</button>
+            </li>`).join('')}
+          ${hasNone ? `<li class="cat-order__row is-fixed"><span class="cat-order__name">${h(NONE_LABEL)} <small class="muted">늘 맨 뒤</small></span></li>` : ''}
+        </ol>
+        <button class="btn btn-primary btn--block" data-save="1" type="button">저장</button>`;
+    };
+    paint();
+    body.addEventListener('click', async (ev) => {
+      const b = ev.target.closest('button');
+      if (!b) return;
+      if (b.dataset.move !== undefined) {
+        const i = Number(b.dataset.move);
+        const j = i + Number(b.dataset.dir);
+        if (j < 0 || j >= order.length) return;
+        [order[i], order[j]] = [order[j], order[i]];
+        paint();
+        return;
+      }
+      if (b.dataset.save) {
+        // 분류 차례대로 그 분류의 품목을 지금 순서 그대로 이어 붙인다
+        const parts = [];
+        for (const k of [...order, '']) {
+          for (const i of items) if (catKey(catOf(i)) === k && !parts.includes(i.partName)) parts.push(i.partName);
+        }
+        const before = items.map((i) => i.partName).join('|');
+        closeModal();
+        if (parts.join('|') === before) return;
+        try {
+          await api.reorderInventory(parts);
+          await reload();
+          toast('분류 순서를 바꿨습니다.', 'ok');
+        } catch (err) { toast(err.message, 'err'); }
+      }
     });
   }
 
@@ -463,6 +521,7 @@ export async function inventoryView(view) {
       await reload();
       return;
     }
+    if (act === 'cat-order') { openCatOrder(); return; }
     if (act === 'chip') {
       const value = btn.dataset.all ? null : btn.dataset.chip;
       chip = chip === value ? null : value;      // 켜진 칩을 다시 누르면 전체로

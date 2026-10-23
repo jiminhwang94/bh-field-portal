@@ -13,7 +13,7 @@ import {
 
 import { ICON, SEED_KEY, trackOf, warnPrivateVideo } from './report-common.js';
 import { showSheetEntry } from './history.js';
-import { guidesForCode, parseParts, partsText, findWork, sameRobot } from '../insights.js';
+import { guidesForCode, parseParts, partsText, findWork, sameRobot, isIssueLabel } from '../insights.js';
 
 // **작성 중 내용을 되살리지 않는다.**
 //
@@ -107,8 +107,8 @@ export async function reportFormView(view) {
   // 오류 코드를 적으면 그 가이드를 바로 보여 준다 · 사용 부품은 차량 재고에서 고른다
   const codeField = fields.find((f) => f.fieldLabel.replace(/\s/g, '').includes('오류코드'));
   const partsField = fields.find((f) => f.fieldLabel.includes('부품'));
-  // 작업 — 작업 목록에서 고른다 (v3.31). 칸 이름이 정확히 '작업' 인 것
-  const workField = fields.find((f) => f.fieldLabel.replace(/\s/g, '') === '작업');
+  // 이슈 유형 — 이슈 유형 목록에서 고른다 (v3.31~). 칸 이름 '이슈 유형' (예전 '작업')
+  const workField = fields.find((f) => isIssueLabel(f.fieldLabel));
   const modelField = fields.find((f) => f.fieldLabel.replace(/\s/g, '').includes('로봇모델'));
   const allGuides = codeField || workField ? (await api.listGuides()).items : [];
   const inventory = partsField ? (await api.listInventory()).items : [];
@@ -338,7 +338,7 @@ export async function reportFormView(view) {
     }
     const workBox = fieldBox(workField);
     if (workBox && !workBox.querySelector('.field-helper')) {
-      workBox.classList.add('field--work');        // 글자칸 대신 고른 결과 + [작업 고르기]
+      workBox.classList.add('field--work');        // 글자칸 대신 고른 결과 + [이슈 유형 고르기]
       workBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="workHelper"></div>');
       paintWorkHelper();
     }
@@ -349,7 +349,7 @@ export async function reportFormView(view) {
       paintPartsHelper();
     }
   }
-  /** 작업 칸 — 고른 경로 한 줄(✕) · [작업 고르기] · 이어 둔 가이드 */
+  /** 이슈 유형 칸 — 고른 경로 한 줄(✕) · [이슈 유형 고르기] · 이어 둔 가이드 */
   async function paintWorkHelper() {
     const box = $('#workHelper');
     if (!box || !workField) return;
@@ -361,8 +361,8 @@ export async function reportFormView(view) {
     box.innerHTML = `
       <div class="work-field">
         ${value ? `<span class="work-pill"><span>${h(value)}</span>
-          <button class="part-pill__x" data-act="work-clear" type="button" aria-label="작업 지우기">✕</button></span>` : ''}
-        <button class="parts-add" data-act="open-work" type="button">${value ? '바꾸기' : '＋ 작업 고르기'}</button>
+          <button class="part-pill__x" data-act="work-clear" type="button" aria-label="이슈 유형 지우기">✕</button></span>` : ''}
+        <button class="parts-add" data-act="open-work" type="button">${value ? '바꾸기' : '＋ 이슈 유형 고르기'}</button>
       </div>
       ${(mine.length ? mine : linked).map((g) => `
         <button class="guide-hint" data-act="peek-guide" data-id="${h(g.id)}" type="button">
@@ -837,7 +837,6 @@ async function peekGuide(id) {
   const g = await api.getGuide(id).catch(() => null);
   if (!g) { toast('가이드를 찾지 못했습니다.', 'err'); return; }
   openSheet(g.codeOrTitle, `
-    ${g.summary ? `<p class="hd-text">${h(g.summary)}</p>` : ''}
     ${g.requiredTools ? `<p class="muted">준비 · ${h(g.requiredTools)}</p>` : ''}
     <ol class="peek-steps">${(g.steps || []).map((st) => `<li>${h(st.instruction)}</li>`).join('')}</ol>
     ${(g.commands || []).length ? `<div class="peek-cmds">${g.commands.map((c) => `<code>${h(c.cmd)}</code>`).join('')}</div>` : ''}

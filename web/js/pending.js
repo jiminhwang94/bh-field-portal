@@ -90,7 +90,7 @@ async function describe(op) {
              undoNote: '운행 기록을 바꾸기 전으로 되돌립니다. 새로 적은 것은 지웁니다.' };
   }
   if (op.type === 'worklist-push') {
-    return { title: '작업 목록', what: `${(op.ops || []).length}건 (추가 · 고침 · 합치기)`,
+    return { title: '이슈 유형 목록', what: `${(op.ops || []).length}건 (추가 · 고침 · 합치기)`,
              goto: '#/work', undoLabel: '올리기 취소',
              undoNote: '이 변경을 올리지 않습니다. 목록은 다음 [새로고침] 때 시트 것으로 돌아갑니다.' };
   }

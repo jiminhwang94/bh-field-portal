@@ -3,7 +3,7 @@
 // 품질팀 · 개발팀에 넘길 근거. 기기에 받아 둔 이력으로 계산한다 (없는 달만 시트에서 받는다).
 // 주소: #/stats?m=3   (m = 최근 몇 달: 1 · 3 · 6 · 12)
 import { $, h, loading } from '../ui.js';
-import { loadEntries, valueOf, parseParts, openDays, tally, findWork, isCodeShaped } from '../insights.js';
+import { loadEntries, valueOf, parseParts, openDays, tally, findWork, isCodeShaped, issueOf } from '../insights.js';
 import { api } from '../api.js';
 import { TRACK, trackOf } from './report-common.js';
 
@@ -36,7 +36,7 @@ export async function statsView(view, params) {
   const models = tally(entries.map((e) => valueOf(e, '모델') || '(모델 없음)'));
   // 작업 — 별칭 · 합친 이름도 같은 항목으로 센다. 예전 '오류 코드' 칸의 분류 글자도 작업으로 본다
   const work = await api.workList().catch(() => ({ cats: [], items: [] }));
-  const workText = (e) => valueOf(e, '작업') || (e.code && !isCodeShaped(e.code) ? e.code : '');
+  const workText = (e) => issueOf(e);
   const works = tally(entries.map((e) => {
     const t = workText(e);
     const it = findWork(t, work);
@@ -86,7 +86,7 @@ export async function statsView(view, params) {
           </div>
         </section>
         <section class="panel"><h2 class="panel__title">로봇 모델별</h2>${bars(models)}</section>
-        <section class="panel"><h2 class="panel__title">자주 한 작업 ${kinds.length
+        <section class="panel"><h2 class="panel__title">자주 난 이슈 유형 ${kinds.length
             ? `<span class="muted">${kinds.map(([k, n]) => `${h(k)} ${n}`).join(' · ')}</span>` : ''}</h2>
           ${bars(works)}</section>
         <section class="panel"><h2 class="panel__title">자주 난 오류 코드</h2>
