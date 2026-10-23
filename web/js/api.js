@@ -189,6 +189,13 @@ export const api = {
     return r;
   },
 
+  // 작업 목록 — 구분 › 대분류 › 세부 작업 (팀 공용, 시트 '작업 목록' 탭)
+  workList: () => store.getWorkList(),
+  ensureDefaultWork: async () => { const l = await store.ensureDefaultWork(); flushSoon(); return l; },
+  async addWorkItem(kind, cat, name) { const it = await store.addWorkItem(kind, cat, name); flushSoon(); return it; },
+  async workOps(ops) { const l = await store.workOps(ops); flushSoon(); return l; },
+  async mergeWorkItems(sourceId, targetId) { const l = await store.mergeWorkItems(sourceId, targetId); flushSoon(); return l; },
+
   /** 확인할 것 — 홈 알림 · 설정 맨 위 칸이 쓴다 (기기 안에서만 센다, 빠르다). */
   async attention() {
     const ob = await store.outbox();

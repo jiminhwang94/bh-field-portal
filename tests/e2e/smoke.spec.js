@@ -1,6 +1,7 @@
 const { test, expect, openApp } = require('./fixtures.js');
 
-const SCREENS = ['#/', '#/report/new', '#/reports', '#/guides', '#/driving', '#/inventory', '#/settings', '#/fields'];
+const SCREENS = ['#/', '#/report/new', '#/reports', '#/guides', '#/driving', '#/inventory', '#/settings', '#/fields',
+  '#/stats', '#/work'];
 
 test('모든 화면이 오류 없이 열린다 · 테스트 모드 띠가 보인다', async ({ page }) => {
   await openApp(page);

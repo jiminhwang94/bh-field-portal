@@ -121,6 +121,7 @@ async function doFlushOutbox() {
   const guidePushOps = rows.filter((r) => r.type === 'guidesheet-push');
   const fieldPushOps = rows.filter((r) => r.type === 'fieldsheet-push');
   const drivePushOps = rows.filter((r) => r.type === 'drivesheet-push');
+  const workOps = rows.filter((r) => r.type === 'worklist-push');
   const driveOptionOps = rows.filter((r) => r.type === 'drivesheet-options');
   const statusOps = rows.filter((r) => r.type === 'report-status');
   let sent = 0;
@@ -153,6 +154,19 @@ async function doFlushOutbox() {
         await store.dequeue(op.id);
         sent += 1;
       }
+    });
+  }
+
+  // 작업 목록 (팀 공통) — 바뀐 것(ops)만 차례대로 한 번에. 시트가 돌려준 목록이 최종본이다.
+  if (workOps.length && onSheet) {
+    await step('작업 목록', async () => {
+      const worksheet = await import('./worksheet.js');
+      const result = await worksheet.pushWorkOps(workOps.flatMap((o) => o.ops || []));
+      for (const op of workOps) {
+        await store.dequeue(op.id);
+        sent += 1;
+      }
+      if (result && Array.isArray(result.cats)) await store.setWorkFromSheet(result);
     });
   }
 

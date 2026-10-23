@@ -8,3 +8,4 @@ export * from './store-inventory.js';
 export * from './store-fields.js';
 export * from './store-driving.js';
 export * from './store-reports.js';
+export * from './store-work.js';

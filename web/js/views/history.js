@@ -12,11 +12,17 @@ import {
 } from '../reportsheet.js';
 
 import { ICON, seedFromEntry, TRACK, trackOf, warnPrivateVideo } from './report-common.js';
-import { guidesForCode } from '../insights.js';
+import { guidesForCode, findWork, isCodeShaped, sameRobot, valueOf } from '../insights.js';
 
 /** 상세에서 오류 코드 → 가이드를 잇는 데 쓴다 (기기 안 가이드, 화면을 열 때 한 번 받는다) */
 let knownGuides = [];
 const loadGuides = () => api.listGuides().then((r) => { knownGuides = r.items || []; }).catch(() => {});
+/** 작업 목록 — 리포트의 작업 → 이어 둔 가이드 (v3.31) */
+let knownWork = { cats: [], items: [] };
+const loadWork = () => api.workList().then((l) => { knownWork = l; }).catch(() => {});
+
+/** 이 리포트의 작업 — '작업' 칸, 없으면 예전 '오류 코드' 칸에 적힌 분류 글자 */
+const workOf = (entry) => valueOf(entry, '작업') || (entry.code && !isCodeShaped(entry.code) ? entry.code : '');
 
 // ------------------------------------------------------------ 이력 목록
 const STATUS = {
@@ -95,6 +101,7 @@ function entryParts(entry) {
   const result = [];
   const rest = [];
   for (const v of entry.values || []) {
+    if (String(v.label || '').replace(/\s/g, '') === '작업') continue;   // 증상 줄 위에 따로 (작업 한 줄)
     if (has(v.label, '로봇', '시리얼') || has(v.label, '오류 코드')) robot.push(v);
     else if (has(v.label, '증상')) symptom.push(v);
     else if (has(v.label, '처리 결과', '결과')) result.push(v);
@@ -145,7 +152,7 @@ function entryDetailHtml(entry) {
       </div>
       <div class="hd2-row" data-sec="symptom">
         ${label('symptom', '증상')}
-        <div class="hd2-body">${text(p.symptom, '적힌 증상이 없습니다.')}${guideLinksHtml(entry)}</div>
+        <div class="hd2-body">${workOf(entry) ? `<span class="hd-work"><b>작업</b> ${h(workOf(entry))}</span>` : ''}${text(p.symptom, '적힌 증상이 없습니다.')}${guideLinksHtml(entry)}</div>
       </div>
       <div class="hd2-row" data-sec="action">
         ${label('action', '조치')}
@@ -410,7 +417,7 @@ const wideHist = () => window.matchMedia('(min-width: 1000px)').matches;
 
 export async function reportListView(view, params = null) {
   loading(view);
-  await loadGuides();
+  await Promise.all([loadGuides(), loadWork()]);
 
   const settings = await api.getSettings();
   if (!settings.sheetsReady) {
@@ -837,13 +844,31 @@ export async function reportDetailView(view, reportId) {
 }
 
 /** 리포트의 오류 코드에 맞는 가이드로 가는 길 — 없으면 '만들기' */
+/**
+ * 이 리포트에서 가이드로 가는 길 (v3.31).
+ *  - 작업 → 작업 목록에 이어 둔 가이드 (그 리포트의 로봇 모델 것 먼저)
+ *  - 오류 코드가 **코드 모양**(E-101)이면 → 그 코드의 가이드. 없을 때만 '만들기'
+ *  - '유지 보수' 같은 분류 글자에는 '만들기' 를 띄우지 않는다 (그런 코드의 가이드는 없다)
+ */
 function guideLinksHtml(entry) {
-  if (!entry.code) return '';
-  const hits = guidesForCode(entry.code, knownGuides);
-  if (!hits.length) {
-    return `<a class="hd-guide hd-guide--none" href="#/guides/new/ERROR_CODE">
-      ${h(entry.code)} 가이드가 아직 없습니다 · 만들기 ›</a>`;
+  const model = valueOf(entry, '모델');
+  const found = [];
+  const item = findWork(workOf(entry), knownWork);
+  if (item) {
+    const linked = knownGuides.filter((g) => item.guides.includes(g.id));
+    const mine = linked.filter((g) => !g.robotModel || !model || sameRobot(model, g.robotModel));
+    found.push(...(mine.length ? mine : linked));
   }
-  return hits.map((g) => `<a class="hd-guide" href="#/guides/${h(g.id)}">
-      <b>가이드</b> ${h(g.codeOrTitle)}${g.robotModel ? ` <small>${h(g.robotModel)}</small>` : ''} <span aria-hidden="true">›</span></a>`).join('');
+  let make = '';
+  if (isCodeShaped(entry.code)) {
+    const hits = guidesForCode(entry.code, knownGuides);
+    found.push(...hits);
+    if (!hits.length) {
+      make = `<a class="hd-guide hd-guide--none" href="#/guides/new/ERROR_CODE">
+        ${h(entry.code)} 가이드가 아직 없습니다 · 만들기 ›</a>`;
+    }
+  }
+  const seen = new Set();
+  return found.filter((g) => !seen.has(g.id) && seen.add(g.id)).map((g) => `<a class="hd-guide" href="#/guides/${h(g.id)}">
+      <b>가이드</b> ${h(g.codeOrTitle)}${g.robotModel ? ` <small>${h(g.robotModel)}</small>` : ''} <span aria-hidden="true">›</span></a>`).join('') + make;
 }

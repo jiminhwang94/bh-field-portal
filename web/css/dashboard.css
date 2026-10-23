@@ -477,3 +477,70 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 4px var(--test-amber); }
 .ps-cats { display: flex; flex-direction: column; gap: 6px; }
 .ps-check { display: flex; align-items: center; gap: 10px; min-height: 48px; font-weight: 650; }
 .ps-check input { width: 24px; height: 24px; }
+
+/* ── 작업 (v3.31) — 칸 · [작업 고르기] 창 · 작업 목록 정리 ─────────────────── */
+.field--work > .input { display: none; }           /* 글자칸 대신 고른 결과 · 값은 그대로 */
+.work-field {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 56px; padding: 6px 8px;
+  border: 1.5px solid var(--color-border-strong); border-radius: 12px; background: var(--color-bg);
+}
+.work-pill {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 4px 0 14px; border-radius: 12px;
+  background: var(--st-doing-tint); color: var(--st-doing); font-weight: 650; min-width: 0;
+}
+.work-pill > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hd-work { display: inline-flex; gap: 6px; margin-bottom: 6px; padding: 4px 10px; border-radius: 8px;
+  background: var(--color-surface-2); font-size: 15px; }
+.hd-work b { color: var(--color-muted); font-weight: 700; }
+.modal__box:has(.wk) { width: min(820px, 100%); }   /* 두 칸이라 조금 넓게 */
+.wk { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 14px; min-height: 360px; }
+.wk-side { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow-y: auto; }
+.wk-kind { margin: 8px 0 2px; font-size: 13px; font-weight: 800; color: var(--color-muted); }
+.wk-kind:first-child { margin-top: 0; }
+.wk-cat {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 48px; padding: 0 12px;
+  border: 0; border-radius: 10px; background: transparent; color: var(--color-text); font: inherit; font-weight: 650;
+  text-align: left; cursor: pointer;
+}
+.wk-cat small { color: var(--color-muted); font-weight: 600; }
+.wk-cat.is-on { background: var(--color-text); color: var(--color-bg); }
+.wk-cat.is-on small { color: var(--color-bg); }
+.wk-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.wk-list { display: flex; flex-direction: column; max-height: 44vh; overflow-y: auto; }
+.wk-item {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 10px; min-height: 56px;
+  padding: 8px 10px; border: 0; border-top: 1px solid var(--color-hairline); background: transparent;
+  color: var(--color-text); font: inherit; text-align: left; cursor: pointer;
+}
+.wk-item:first-child { border-top: 0; }
+.wk-item:hover, .wk-item.is-on { background: var(--st-doing-tint); }
+.wk-item__name { font-size: 17px; font-weight: 700; }
+.wk-item__sub { grid-column: 1; font-size: 13px; color: var(--color-muted); }
+.wk-item__n { grid-column: 2; grid-row: 1 / span 2; color: var(--color-muted); font-size: 14px; }
+.wk-new-badge { font-style: normal; font-size: 13px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+  background: var(--st-swap-tint); color: var(--st-swap); margin-left: 4px; }
+.wk-empty { padding: 12px 4px; }
+.wk-new { display: flex; gap: 8px; }
+.wk-new .input { flex: 1; min-width: 0; }
+.wk-tree .wk-catrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 12px; padding: 8px 4px;
+  border-bottom: 1px solid var(--color-hairline); }
+.wk-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; width: 100%; min-height: 52px; padding: 8px 4px 8px 18px;
+  border: 0; border-bottom: 1px solid var(--color-hairline); background: transparent; color: var(--color-text);
+  font: inherit; text-align: left; cursor: pointer;
+}
+.wk-row:hover { background: var(--color-surface); }
+.wk-row__name { font-weight: 700; }
+.wk-row__sub { grid-column: 1; font-size: 13px; color: var(--color-muted); }
+.wk-row__n { grid-column: 2; grid-row: 1 / span 2; align-self: center; color: var(--color-muted); font-size: 14px; }
+.wk-cand { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0;
+  border-top: 1px solid var(--color-hairline); flex-wrap: wrap; }
+.wk-menu { display: flex; flex-direction: column; gap: 10px; }
+.wk-menu__btns { display: grid; gap: 8px; }
+.wk-pick { display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; }
+@media (max-width: 720px) {
+  .wk { grid-template-columns: minmax(0, 1fr); }
+  .wk-side { flex-direction: row; flex-wrap: wrap; max-height: none; }
+  .wk-kind { width: 100%; }
+  .wk-cat { min-height: 44px; border: 1.5px solid var(--color-border-strong); border-radius: 999px; }
+}

@@ -40,6 +40,11 @@ export async function ensureFirstData() {
   // 같은 항목으로 시작한다 — 예전에는 서버에서 받아와야 해서, APK 를 새로
   // 깔면 항목이 하나도 없었다.
   const added = await store.ensureDefaultFields();
+  // 시트를 안 쓰는 기기는 여기서 바로 '작업' 항목 · 기본 대분류를 갖춘다
+  if (!(await store.sheetInventoryOn())) {
+    await store.ensureWorkField().catch(() => {});
+    await store.ensureDefaultWork().catch(() => {});
+  }
   if (added) toast(`리포트 항목 ${added}개를 준비했습니다.`, 'ok');
   // 기본 순서를 한 번 맞춘다 (그 뒤로는 기기에서 옮긴 순서를 지킨다).
   // 갑자기 칸 자리가 바뀌면 놀라므로, 실제로 바뀐 경우에만 알려 준다.
@@ -62,16 +67,19 @@ export async function catchUpFromSheet() {
   if (!sync.isOnline()) return;
   try {
     if (!(await store.sheetInventoryOn())) return;
-    const [invsheet, guidesheet, fieldsheet] = await Promise.all([
-      import('./invsheet.js'), import('./guidesheet.js'), import('./fieldsheet.js'),
+    const [invsheet, guidesheet, fieldsheet, worksheet] = await Promise.all([
+      import('./invsheet.js'), import('./guidesheet.js'), import('./fieldsheet.js'), import('./worksheet.js'),
     ]);
-    const [fields, inventory, guides] = await Promise.all([
+    const [fields, inventory, guides, work] = await Promise.all([
       fieldsheet.pullFields().catch(() => null),
       invsheet.pullInventory().catch(() => null),
       guidesheet.pullGuides().catch(() => null),
+      worksheet.pullWork().catch(() => null),
     ]);
+    // '작업' 항목 (v3.31) — 시트 항목을 받은 뒤에 없으면 만든다 (팀 공통으로 올라간다)
+    const madeWorkField = fields ? await store.ensureWorkField().catch(() => false) : false;
     if (changedSomething(fields) || changedSomething(inventory)
-        || changedSomething(guides)) {
+        || changedSomething(guides) || changedSomething(work) || madeWorkField) {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     }
     // 새 버전이 있는지도 함께 (띠만 바뀌고 화면은 건드리지 않는다)
