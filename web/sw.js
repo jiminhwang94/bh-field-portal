@@ -6,22 +6,24 @@
 //
 // 데이터(가이드·재고·리포트)는 IndexedDB 에 있으므로 여기서 다루지 않는다.
 
-const CACHE = 'bh-shell-v3.29.0';
+const CACHE = 'bh-shell-v3.30.0';
 
 // 앱을 여는 데 필요한 파일 전부.
 // ⚠️ 화면 파일(js/css)을 추가하면 **이 목록에도 반드시 추가**해야 오프라인에서 열린다.
 //    (tests/test_offline_shell.py 가 빠진 파일이 있는지 검사한다)
 const SHELL = [
-  './', './index.html', './css/app.css', './manifest.webmanifest',
+  './', './index.html', './css/tokens.css', './css/base.css', './css/touch.css', './css/focus.css', './css/dashboard.css', './manifest.webmanifest',
   './js/app.js', './js/api.js', './js/sync.js', './js/sheets.js',
   './js/invsheet.js', './js/guidesheet.js', './js/reportsheet.js',
   './js/net.js', './js/install.js', './js/syncnow.js', './js/pending.js', './js/fieldsheet.js',
   './js/drivemedia.js', './js/update.js', './js/drivesheet.js', './js/connect.js', './js/changes.js',
-  './js/share.js', './js/ui.js',
-  './js/local/idb.js', './js/local/store.js',
-  './js/views/guides.js', './js/views/inventory.js', './js/views/fields.js',
+  './js/share.js', './js/ui.js', './js/mode.js', './js/errlog.js', './js/version.js', './js/mediaupload.js', './js/insights.js',
+  './js/local/idb.js', './js/local/store.js', './js/local/store-core.js', './js/local/store-guides.js',
+  './js/local/store-inventory.js', './js/local/store-fields.js', './js/local/store-driving.js',
+  './js/local/store-reports.js',
+  './js/views/guides.js', './js/views/guide-page.js', './js/views/inventory.js', './js/views/fields.js',
   './js/views/driving.js',
-  './js/views/report.js', './js/views/settings.js',
+  './js/views/report.js', './js/views/report-common.js', './js/views/history.js', './js/views/store.js', './js/views/stats.js', './js/views/settings.js',
   './icons/icon-192.png', './icons/apple-touch-icon.png',
   './fonts/PretendardVariable.woff2',   // 현장은 오프라인이라 서체도 담아 둔다
 ];

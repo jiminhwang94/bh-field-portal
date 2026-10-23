@@ -268,21 +268,32 @@ export async function setStatus(sheetName, row, status) {
   if (!isKnownStatus(status)) throw new Error('알 수 없는 상태입니다.');
 
   const before = await cachedStatus(sheetName, row);
+  const expect = await rowIdentity(sheetName, row);
   await patchCache(sheetName, row, status);
 
   try {
-    await callAppsScript({ reports: 'status', sheetName, row, status }, 30000);
+    await callAppsScript({ reports: 'status', sheetName, row, status, expect }, 30000);
     return { queued: false, status };
   } catch (err) {
     if (err && err.offline) {
       // 오프라인이면 기기 값을 그대로 두고, 연결될 때 시트에 올린다.
-      await store.enqueue({ type: 'report-status', sheetName, row, status, before });
+      await store.enqueue({ type: 'report-status', sheetName, row, status, before, expect });
       return { queued: true, status };
     }
     // 시트에 못 쓴 값을 기기에 남겨 두면 다음에 열었을 때 거짓을 보여 준다.
     if (before !== null) await patchCache(sheetName, row, before);
     throw err;
   }
+}
+
+/**
+ * 그 줄이 어느 리포트인가 — 작성일시 · 매장명. 시트가 이것으로 줄을 다시 확인한다.
+ * 줄 번호만 보내면, 그 사이 다른 기기가 위쪽 줄을 지웠을 때 **엉뚱한 줄**이 바뀐다.
+ */
+async function rowIdentity(sheetName, row) {
+  const cached = await store.getMeta(CACHE_PREFIX + sheetName, null);
+  const found = cached && (cached.entries || []).find((e) => e.row === row);
+  return found && found.createdAt ? { createdAt: found.createdAt, store: found.store || '' } : undefined;
 }
 
 /** 기기 사본에 들어 있는 현재 상태 (없으면 null) */
@@ -317,8 +328,9 @@ async function patchCache(sheetName, row, status) {
  * 다음에 화면을 열 때 새로 받아오게 한다.
  */
 export async function removeEntry(sheetName, row) {
+  const expect = await rowIdentity(sheetName, row);
   const result = await callAppsScript(
-    { reports: 'delete', sheetName, row }, 30000);
+    { reports: 'delete', sheetName, row, expect }, 30000);
   await store.setMeta(CACHE_PREFIX + sheetName, null);
   return result;
 }
@@ -327,7 +339,7 @@ export async function removeEntry(sheetName, row) {
 export async function pushStatusOps(ops) {
   for (const op of ops) {
     await callAppsScript({
-      reports: 'status', sheetName: op.sheetName, row: op.row, status: op.status,
+      reports: 'status', sheetName: op.sheetName, row: op.row, status: op.status, expect: op.expect,
     }, 30000);
   }
   return { sent: ops.length };

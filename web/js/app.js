@@ -2,26 +2,35 @@
 import { api } from './api.js';
 import { $, h, closeModal, errorView, loading, toast } from './ui.js';
 import {
-  guideAssignView, guideListView, guideDetailView, guideEditView, guideHubView, guideModelView,
+  guideAssignView, guideListView, guideHubView, guideModelView,
   modelHref, robotColor,
   row as guideRow,
 } from './views/guides.js';
+import { guideDetailView, guideEditView } from './views/guide-page.js';
 import { inventoryView } from './views/inventory.js';
 import { drivingView } from './views/driving.js';
 import { fieldsView } from './views/fields.js';
-import { reportFormView, reportListView, reportDetailView } from './views/report.js';
+import { reportFormView } from './views/report.js';
+import { reportListView, reportDetailView } from './views/history.js';
+import { storeHistoryView } from './views/store.js';
+import { statsView } from './views/stats.js';
 import { settingsView } from './views/settings.js';
 import { initSyncButton } from './syncnow.js';
 import { initInstallBanner } from './install.js';
 import { initNetStatus, ensureFirstData, catchUpFromSheet } from './net.js';
-import { initUpdateBanner } from './update.js';
+import { initUpdateBanner, initVersionGate } from './update.js';
+import { initErrorLog } from './errlog.js';
+import { paintTestBanner } from './mode.js';
 
 const view = $('#view');
 const HEX = '[0-9a-f]{6,}';
 
+/** @type {Array<[RegExp, (match: RegExpExecArray, query: URLSearchParams) => any]>} */
 const routes = [
   [/^\/?$/, mainView],
   [/^\/search$/, searchView],
+  [/^\/store$/, (m, q) => storeHistoryView(view, q.get('name'))],   // 매장별 이력
+  [/^\/stats$/, (m, q) => statsView(view, q)],                      // 통계
   [/^\/guides$/, () => guideHubView(view)],        // 가이드 탭 — 로봇 고르기
   [/^\/guides\/assign$/, () => guideAssignView(view)],  // 로봇 한 번에 지정
   // 로봇 하나 — 종류(오류 코드 · 하드웨어 · SW) 셋과 그 목록
@@ -59,7 +68,7 @@ function paintTabs(path) {
     : path.startsWith('/reports') ? 'reports'
     : path.startsWith('/settings') || path.startsWith('/fields') ? 'settings'
     : '';
-  document.querySelectorAll('.tab').forEach((el) => {
+  document.querySelectorAll('.tab').forEach((/** @type {HTMLElement} */ el) => {
     if (el.dataset.tab === active) el.setAttribute('aria-current', 'page');
     else el.removeAttribute('aria-current');
   });
@@ -89,7 +98,7 @@ function paintTopAction(path) {
  */
 function syncTopActionLabel() {
   const action = $('#btn-topaction');
-  const submit = document.querySelector('#reportForm button[type=submit]');
+  const submit = /** @type {HTMLButtonElement} */ (document.querySelector('#reportForm button[type=submit]'));
   if (action && submit) {
     action.textContent = submit.textContent.trim();
     action.disabled = submit.disabled;
@@ -133,6 +142,21 @@ async function mainView() {
   const drafts = (await api.listReports()).items.filter((r) => r.status !== 'UPLOADED');
   const month = await monthEntries();
   const stock = await lowStock();
+  const attn = await api.attention();
+  const overdue = (month ? month.entries : []).filter((e) => e.status !== '조치 완료' && openDays(e) >= OVERDUE_DAYS);
+  const alerts = [];
+  if (attn.pending && (attn.failed || attn.oldestMin >= 30)) {
+    alerts.push({ tone: 'bad', href: '#/settings', text: `올리지 못한 것 ${attn.pending}건`,
+                  sub: attn.failed ? '올리기가 실패했습니다 — 눌러서 확인' : `가장 오래된 것 ${agoText(attn.oldestMin)}` });
+  }
+  if (attn.conflicts) {
+    alerts.push({ tone: 'warn', href: '#/settings', text: `남이 먼저 고친 가이드 ${attn.conflicts}건`,
+                  sub: '내 것 · 남의 것 중 고르세요' });
+  }
+  if (overdue.length) {
+    alerts.push({ tone: 'warn', href: '#/reports?old=1', text: `${OVERDUE_DAYS}일 넘게 끝나지 않은 리포트 ${overdue.length}건`,
+                  sub: overdue.slice(0, 3).map((e) => e.store).filter(Boolean).join(' · ') });
+  }
 
   const robots = [...models];
   for (const g of guides) {
@@ -148,7 +172,14 @@ async function mainView() {
   }));
 
   view.innerHTML = `
-    <div class="home2">
+    <div class="home2${alerts.length ? ' home2--alert' : ''}">
+      ${alerts.length ? `
+        <div class="h2-alerts" role="status">
+          ${alerts.map((a) => `
+            <a class="h2-alert" data-tone="${a.tone}" href="${a.href}">
+              <b>${h(a.text)}</b>${a.sub ? `<span>${h(a.sub)}</span>` : ''}<span class="h2-alert__go" aria-hidden="true">›</span>
+            </a>`).join('')}
+        </div>` : ''}
       <a class="h2-new" href="#/report/new">
         <span class="h2-new__icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h8l4 4v16H6z"/><path d="M12 11v6M9 14h6"/></svg>
@@ -179,6 +210,7 @@ async function mainView() {
           ${month ? tally.map((t) => `
             <span class="h2-tally" data-track="${TRACK_CLS[t.s]}"><span class="h2-tally__dot"></span>${h(SHORT_STATUS[t.s])} <b class="tnum">${t.n}</b></span>`).join('') : ''}
           <span class="spacer"></span>
+          <a class="h2-more" href="#/stats">통계 ›</a>
           <a class="h2-more" href="#/reports">전체 ›</a>
         </div>
         <form class="home-search" id="histSearch" role="search">
@@ -246,6 +278,16 @@ async function mainView() {
     location.hash = `#/search?q=${encodeURIComponent(q)}`;
   });
 }
+
+/** 끝나지 않은 채 이만큼 지나면 홈 · 이력에서 눈에 띄게 알린다. */
+const OVERDUE_DAYS = 7;
+/** 작성한 날부터 며칠째인가 (작성일 = 1일째) */
+function openDays(entry) {
+  const at = new Date(String(entry.createdAt || entry.date || '').replace(' ', 'T'));
+  if (Number.isNaN(at.getTime())) return 0;
+  return Math.floor((Date.now() - at.getTime()) / 86400000) + 1;
+}
+const agoText = (min) => (min < 60 ? `${min}분 전` : min < 1440 ? `${Math.floor(min / 60)}시간 전` : `${Math.floor(min / 1440)}일 전`);
 
 /** 이력 화면의 상태 이름 → 색 이름표 (같은 뜻에 같은 색). */
 const TRACK_CLS = { '조치 진행 중': 'doing', '교체 예정': 'swap', '모니터링': 'watch', '조치 완료': 'done' };
@@ -345,7 +387,7 @@ $('#backBtn').addEventListener('click', () => {
 // 상단바의 [구글 시트로 업로드] — 폼 아래 버튼을 대신 눌러 준다.
 // 저장 규칙(필수 칸·첨부 한도)은 폼 쪽 한 곳에만 있어야 어긋나지 않는다.
 $('#btn-topaction').addEventListener('click', () => {
-  const submit = document.querySelector('#reportForm button[type=submit]');
+  const submit = /** @type {HTMLButtonElement} */ (document.querySelector('#reportForm button[type=submit]'));
   if (!submit) return;
   if (submit.disabled) { toast('저장 중입니다. 잠시만 기다려 주세요.'); return; }
   submit.click();
@@ -369,6 +411,9 @@ window.addEventListener('bh-inventory-changed', paintNavBadge);
   // 화면은 건드리지 않는다 — 받는 시점은 사람이 정한다.
   import('./changes.js').then((c) => c.initChangeWatch()).catch(() => {});
 })();
+initErrorLog();                // 화면 오류를 모았다가 시트 '오류기록' 으로
+paintTestBanner();             // 테스트 모드면 맨 위 노란 띠
+initVersionGate();             // 시트가 요구하는 최소 버전보다 낮으면 화면을 덮는다
 registerServiceWorker();       // 오프라인에서 앱이 열리도록
 initUpdateBanner();            // 새 버전 안내 띠 (지난번 받아 둔 정보로 먼저 그린다)
 initNetStatus();               //  오프라인 표시 + 대기 작업 자동 처리

@@ -65,6 +65,7 @@ export async function objectUrl(id, size = 'thumb') {
  * `<img>` 하나를 살린다. 드라이브 주소로 그리다 실패했을 때 부른다.
  * 성공하면 true.
  */
+/** @param {'thumb'|'full'} [size] */
 export async function reviveImage(el, id, size = 'thumb') {
   const url = await objectUrl(id, size);
   if (!url) return false;

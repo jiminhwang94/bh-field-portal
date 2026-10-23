@@ -129,7 +129,15 @@ async function doFlushOutbox() {
   // 예전에는 가이드 탭 갱신 한 번이 실패하면 밀린 리포트가 전부 막혔다.
   const failed = [];
   const step = async (label, fn) => {
-    try { await fn(); } catch (err) { failed.push(`${label}: ${err.message}`); }
+    try {
+      await fn();
+    } catch (err) {
+      failed.push(`${label}: ${err.message}`);
+      // 오프라인은 오류가 아니다. 그 밖의 실패는 시트 '오류기록' 탭으로 간다.
+      if (!(err && err.offline)) {
+        import('./errlog.js').then((e) => e.recordError(`올리기 실패 — ${label}`, err.message)).catch(() => {});
+      }
+    }
   };
 
   const onSheet = await store.sheetInventoryOn();
@@ -218,9 +226,10 @@ async function doFlushOutbox() {
           // 구조 변경(차량·품목)이 있으면 탭 전체를 다시 쓴다 (수량도 함께 실린다).
           result = await invsheet.pushInventory(changesOf(sheetPushOps));
         } else {
+          // before · opId — 시트가 '바뀐 만큼' 만 더해 다른 기기 변경과 합친다.
           result = await invsheet.pushQuantityOps(quantityOps.map((r) => ({
             type: r.type, vehicleName: r.vehicleName, partName: r.partName,
-            quantity: r.quantity, updatedAt: r.updatedAt,
+            quantity: r.quantity, updatedAt: r.updatedAt, before: r.before, opId: r.opId,
           })));
         }
         for (const op of [...sheetPushOps, ...quantityOps]) {
@@ -252,6 +261,10 @@ async function doFlushOutbox() {
   // 실패가 있으면 기억해 둔다 — 상단 칩은 **이때만** 눈에 띄게 보인다.
   // 올리기는 자동이라 정상일 때는 숫자를 보일 이유가 없다.
   await store.setMeta('flushFailed', failed.length ? failed[0] : '');
+  // 모아 둔 오류를 시트로 (실패해도 다음에 다시)
+  if (onSheet) {
+    try { await (await import('./errlog.js')).flushErrors(); } catch { /* 다음 기회에 */ }
+  }
   return { sent, failed };
 }
 

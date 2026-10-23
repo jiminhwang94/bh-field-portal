@@ -11,7 +11,11 @@
   <meta name="apple-mobile-web-app-title" content="현장 포털" />
   <title>비욘드허니컴 현장 포털</title>
   <link rel="manifest" href="/manifest.webmanifest" />
-  <link rel="stylesheet" href="/css/app.css" />
+  <link rel="stylesheet" href="/css/tokens.css" />
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/touch.css" />
+  <link rel="stylesheet" href="/css/focus.css" />
+  <link rel="stylesheet" href="/css/dashboard.css" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
 </head>
@@ -20,7 +24,7 @@
 
   <!-- 왼쪽 메뉴 (C-1 집중형) : 하는 일의 차례대로 — 쓰고 · 찾아보고 · 참고하고 · 챙긴다.
        class="tab" · data-tab · href 는 app.js paintTabs() 가 쓰므로 유지한다.
-       좁은 화면에서는 아래쪽 탭바가 된다 (app.css). -->
+       좁은 화면에서는 아래쪽 탭바가 된다 (css/focus.css). -->
   <nav class="tabbar" aria-label="주요 화면">
     <a class="tabbar__brand" href="#/" aria-label="현장 포털 홈">
       <span class="tabbar__logo" aria-hidden="true">BH</span>
@@ -91,6 +95,8 @@
 <div id="modalRoot"></div>
 
 <script>
+  // 고대비(야외) 보기 — 첫 그림부터 적용한다 (설정 → 보기)
+  try { if (localStorage.getItem('bh_contrast') === 'high') document.documentElement.setAttribute('data-contrast', 'high'); } catch (e) {}
   // 설치 프롬프트 이벤트는 모듈 로드보다 먼저 올 수 있어 미리 보관한다.
   window.addEventListener('beforeinstallprompt', function (event) {
     event.preventDefault();

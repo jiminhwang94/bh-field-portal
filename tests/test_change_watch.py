@@ -29,13 +29,16 @@ changes = read("web", "js", "changes.js")
 sync = read("web", "js", "sync.js")
 syncnow = read("web", "js", "syncnow.js")
 app = read("web", "js", "app.js")
-css = read("web", "css", "app.css")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from webcss import all_css  # noqa: E402  (스타일 5개 파일을 차례대로)
+css = all_css()
 sw = read("web", "sw.js")
 gs = read("google-apps-script.gs")
 
 print("== 남이 올린 새 내용 — 점만 켠다")
-check("시트에 바뀐 시각 한 줄만 묻는다", "callAppsScript({ changed: true }, 15000)" in changes
-      and "function handleChanged(ss)" in gs and "getLastUpdated().toISOString()" in gs)
+# v3.30: 올리지 못한 건수(pending)를 함께 보내고, 최소 버전(minVersion)을 함께 받는다 — 자료는 여전히 안 딸려 온다
+check("시트에 바뀐 시각 한 줄만 묻는다", "callAppsScript({ changed: true, pending }, 15000)" in changes
+      and "function handleChanged(ss, body)" in gs and "getLastUpdated().toISOString()" in gs)
 check("5분마다 · 앱으로 돌아올 때 · 인터넷이 돌아올 때", "const GAP_MS = 5 * 60 * 1000;" in changes
       and "visibilitychange" in changes and "sync.onNetChange(" in changes)
 check("아는 시각과 다르면 [새로고침] 에 점", "hasNew = stamp !== known;" in changes

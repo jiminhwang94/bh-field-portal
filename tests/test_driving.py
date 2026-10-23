@@ -11,6 +11,9 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from webcss import all_store as _all_store  # noqa: E402  (store.js + store-*.js)
+
 fails = []
 
 
@@ -26,7 +29,7 @@ def check(name, ok, detail=""):
 
 gs = read("google-apps-script.gs")
 view = read("web", "js", "views", "driving.js")
-store = read("web", "js", "local", "store.js")
+store = _all_store()
 sheet = read("web", "js", "drivesheet.js")
 api = read("web", "js", "api.js")
 app = read("web", "js", "app.js")

@@ -1,7 +1,10 @@
 // IndexedDB 최소 래퍼 — 외부 라이브러리 없이 Promise 로 감싼다.
 // 이 앱의 모든 데이터(가이드·차량·재고·항목·리포트·운행일지·사진)는 기기 안 이 DB 에 있다.
 
-const DB_NAME = 'bh-field-portal';
+import { testMode } from '../mode.js';
+
+// 테스트 모드는 저장소를 따로 쓴다 — 연습 자료가 진짜 자료와 섞이지 않는다.
+const DB_NAME = testMode() ? 'bh-field-portal-test' : 'bh-field-portal';
 // 저장소를 새로 추가하면 **이 숫자를 올려야** 이미 앱을 쓰던 기기에서도
 // 만들어진다 (onupgradeneeded 는 번호가 올라갈 때만 불린다).
 //   2 — 차량 운행 일지(driving)

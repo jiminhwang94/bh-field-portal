@@ -24,13 +24,15 @@ def check(name, ok, detail=""):
         fails.append(name)
 
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from webcss import all_css, all_store as _all_store  # noqa: E402  (스타일 5개 · 저장소 여러 파일을 차례대로)
 view = read("web", "js", "views", "inventory.js")
-store = read("web", "js", "local", "store.js")
+store = _all_store()
 api = read("web", "js", "api.js")
 invsheet = read("web", "js", "invsheet.js")
 pending = read("web", "js", "pending.js")
 gs = read("google-apps-script.gs")
-css = read("web", "css", "app.css")
+css = all_css()
 
 print("== 분류로 묶는다")
 check("품목에 분류 칸이 있다 (모든 차량 공용)",

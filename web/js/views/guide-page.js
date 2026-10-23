@@ -1,0 +1,594 @@
+// 가이드 상세(한눈에 · 단계 체크) · 작성/수정. 목록 쪽은 views/guides.js
+import { api } from '../api.js';
+import {
+  $, $$, h, CATEGORY, closeModal, confirmDialog, copyText, hydrateMedia, loading,
+  openSheet, promptDialog, toast, when,
+} from '../ui.js';
+
+import {
+  CAT_SHORT, DONE_KEY, NONE_LABEL, guideMediaEnabled, isVideoFile, modelHref, modelKey, modelLabel, row, splitTitle, stepMediaHtml, uploadGuidePhoto,
+} from './guides.js';
+
+// ---------------------------------------------------------------- 상세 — 한눈에
+//
+// 단계 전체 · 진행률 · 준비 공구 · 명령어를 한 화면에 둔다. 단계는 줄 전체가
+// 버튼이라(장갑) 누르면 완료 체크되고, 위 막대가 바로 따라 찬다.
+export async function guideDetailView(view, guideId) {
+  loading(view);
+  const guide = await api.getGuide(guideId);
+  if (!guide) throw new Error('가이드를 찾을 수 없습니다.');
+  const tools = (guide.requiredTools || '').split(',').map((t) => t.trim()).filter(Boolean);
+  const key = modelKey(guide);
+  const { code, title } = splitTitle(guide);
+  let done = new Set();
+  try {
+    done = new Set(JSON.parse(localStorage.getItem(DONE_KEY(guideId)) || '[]'));
+  } catch { /* 무시 */ }
+  const total = guide.steps.length;
+
+  view.innerHTML = `
+    <div id="pageRoot" class="gd">
+      <header class="gd-head">
+        <nav class="gd-crumb" aria-label="위치">
+          <a href="#/guides">가이드</a><span aria-hidden="true">›</span>
+          <a href="${modelHref(key)}">${h(modelLabel(key))}</a><span aria-hidden="true">›</span>
+          <a href="${modelHref(key, guide.categoryType)}">${h(CAT_SHORT[guide.categoryType] || '')}</a>
+        </nav>
+        <div class="gd-title">
+          ${code ? `<span class="gd-code tnum">${h(code)}</span>` : ''}
+          <h1 class="page-head__title">${h(title)}</h1>
+        </div>
+        ${guide.summary ? `<p class="gd-summary">${h(guide.summary)}</p>` : ''}
+        <div class="gd-actions">
+          <a class="btn btn-secondary" href="#/guides/edit/${guide.id}">수정</a>
+          <button class="btn btn--danger" data-act="delete" type="button">삭제</button>
+          <span class="spacer"></span>
+          <a class="btn btn-primary" href="#/report/new">이 작업으로 리포트 쓰기</a>
+        </div>
+      </header>
+
+      <div class="gd-body">
+        <section class="gd-main" aria-label="단계">
+          ${total ? `
+            <div class="gd-progress">
+              <span class="gd-progress__text"><b class="tnum" id="gdDone">${done.size}</b> / <span class="tnum">${total}</span> 단계 완료</span>
+              <span class="gd-progress__bar"><i id="gdBar" style="width:${Math.round(done.size / total * 100)}%"></i></span>
+              <button class="btn btn-secondary btn--sm" data-act="reset-check" type="button">처음부터</button>
+            </div>
+            <div class="steps gd-steps">${guide.steps.map((s, i) => stepHtml(s, i, done)).join('')}</div>`
+          : '<div class="empty">등록된 단계가 없습니다. [수정]에서 단계를 추가하세요.</div>'}
+        </section>
+
+        <aside class="gd-side">
+          <section class="gd-box">
+            <h2 class="gd-box__title">준비 공구 · 부품</h2>
+            ${tools.length ? `<div class="tag-list">${tools.map((t) => `<span class="chip">${h(t)}</span>`).join('')}</div>`
+              : '<p class="hint">적힌 공구가 없습니다.</p>'}
+          </section>
+          ${guide.commands.length ? `
+            <section class="gd-box">
+              <h2 class="gd-box__title">명령어 — 누르면 복사</h2>
+              ${guide.commands.map((c, i) => `
+                <div class="cmd">
+                  ${c.label ? `<div class="cmd__label">${h(c.label)}</div>` : ''}
+                  <div class="cmd__row">
+                    <pre class="cmd__code" id="cmd-${i}">${h(c.cmd)}</pre>
+                    <button class="btn btn--primary" data-act="copy" data-target="cmd-${i}" type="button">복사</button>
+                  </div>
+                  ${c.desc ? `<p class="cmd__desc">${h(c.desc)}</p>` : ''}
+                </div>`).join('')}
+              ${guide.commands.length > 1 ? '<button class="btn btn-secondary btn--sm" data-act="copy-all" type="button">전체 복사</button>' : ''}
+            </section>` : ''}
+          <section class="gd-box" id="gdReports" hidden></section>
+          <p class="gd-meta">${h(when(guide.updatedAt))} 수정</p>
+        </aside>
+      </div>
+    </div>`;
+
+  // 단계 사진은 기기 안에 있다 — 그린 뒤에 채워 넣는다.
+  hydrateMedia(view);
+  paintGuideReports(guide).catch(() => {});      // 이 오류로 쓴 리포트 (기기 사본에서)
+
+  const paintProgress = () => {
+    const n = $('#gdDone');
+    const bar = $('#gdBar');
+    if (n) n.textContent = done.size;
+    if (bar) bar.style.width = `${total ? Math.round(done.size / total * 100) : 0}%`;
+  };
+
+  $('#pageRoot').addEventListener('click', async (ev) => {
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+
+    if (act === 'copy' || act === 'copy-all') {
+      const text = act === 'copy'
+        ? $('#' + btn.dataset.target).textContent
+        : guide.commands.map((c) => c.cmd).join('\n');
+      const ok = await copyText(text);
+      toast(ok ? '클립보드에 복사했습니다.' : '복사에 실패했습니다. 길게 눌러 직접 복사하세요.',
+        ok ? 'ok' : 'err');
+    }
+    if (act === 'toggle-step') {
+      // 사진을 눌렀으면 단계 완료 체크가 아니라 사진을 크게 본다.
+      // 영상(재생기·video)은 눌러도 크게 하지 않는다 — 그 누름은 재생 버튼이다.
+      if (ev.target.classList.contains('step__img')) {
+        if (ev.target.tagName === 'IMG') ev.target.classList.toggle('is-zoomed');
+        return;
+      }
+      const el = btn.closest('.step');
+      const idx = el.dataset.idx;
+      if (done.has(idx)) { done.delete(idx); } else { done.add(idx); }
+      el.classList.toggle('is-done', done.has(idx));
+      el.setAttribute('aria-pressed', String(done.has(idx)));
+      localStorage.setItem(DONE_KEY(guideId), JSON.stringify([...done]));
+      paintProgress();
+    }
+    if (act === 'reset-check') {
+      done.clear();
+      localStorage.removeItem(DONE_KEY(guideId));
+      $$('.step').forEach((el) => {
+        el.classList.remove('is-done');
+        el.setAttribute('aria-pressed', 'false');
+      });
+      paintProgress();
+      toast('체크를 초기화했습니다.');
+    }
+    if (act === 'delete') {
+      const ok = await confirmDialog('가이드 삭제',
+        `"${guide.codeOrTitle}" 가이드와 모든 단계를 삭제합니다. 되돌릴 수 없습니다.`,
+        '삭제', true);
+      if (!ok) return;
+      await api.deleteGuide(guide.id);
+      toast('삭제했습니다.', 'ok');
+      location.hash = modelHref(key, guide.categoryType);
+    }
+  });
+}
+
+function stepHtml(step, idx, done) {
+  const isDone = done.has(String(idx));
+  // 줄 전체가 버튼이다 — 장갑 낀 손으로 작은 체크 칸만 겨냥하기 어렵다.
+  return `
+    <button class="step ${isDone ? 'is-done' : ''}" data-idx="${idx}"
+            data-act="toggle-step" type="button" aria-pressed="${isDone}">
+      <span class="step__no">${step.stepOrder || idx + 1}</span>
+      <span class="step__body">
+        <span class="step__text">${h(step.instruction).replace(/\n/g, '<br />')}</span>
+        ${step.expectedMetric ? `
+          <span class="step__meta tag-list">
+            ${step.expectedMetric.split(',').map((t) => t.trim()).filter(Boolean)
+              .map((t) => `<span class="tag tag-accent">${h(t)}</span>`).join('')}
+          </span>` : ''}
+        ${stepMediaHtml(step.imageUrl, 'step__img', `단계 ${idx + 1} 참고 자료`)}
+      </span>
+      <span class="step__check" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4.5 12.5 9.5 17.5 19.5 7" />
+        </svg>
+      </span>
+    </button>`;
+}
+
+// ---------------------------------------------------------------- 편집
+export async function guideEditView(view, guideId, categoryType, presetModel = null) {
+  const models = await api.listGuideModels();
+  let state;
+  if (guideId) {
+    loading(view);
+    const guide = await api.getGuide(guideId);
+    state = {
+      id: guide.id,
+      categoryType: guide.categoryType,
+      robotModel: guide.robotModel || '',
+      codeOrTitle: guide.codeOrTitle,
+      summary: guide.summary,
+      requiredTools: guide.requiredTools,
+      commands: guide.commands.length ? guide.commands : [],
+      steps: guide.steps.map((s) => ({
+        instruction: s.instruction,
+        expectedMetric: s.expectedMetric || '',
+        imageUrl: s.imageUrl || '',
+      })),
+    };
+  } else {
+    state = {
+      id: null,
+      categoryType: categoryType || 'ERROR_CODE',
+      robotModel: presetModel || '',
+      codeOrTitle: '',
+      summary: '',
+      requiredTools: '',
+      commands: [],
+      steps: [{ instruction: '', expectedMetric: '', imageUrl: '' }],
+    };
+  }
+
+  /** 쉼표로 적은 공구 목록을 배열로. 빈 항목·중복은 버린다. */
+  function splitTools(text) {
+    const out = [];
+    for (const raw of String(text || '').split(',')) {
+      const t = raw.trim();
+      if (t && !out.includes(t)) out.push(t);
+    }
+    return out;
+  }
+
+  /**
+   * 단계마다 고를 수 있는 공구 칩.
+   *
+   * 고르는 값은 위 [준비 공구 · 부품] 에 적은 것에서만 나온다. 예전에는 이 자리가
+   * '기준 수치' 자유 입력이었는데, 현장에서 그 단계에 무엇을 들고 가야 하는지가
+   * 더 자주 필요했다. 저장은 예전 칸(expectedMetric)에 쉼표로 이어 담는다 —
+   * 시트 열을 새로 만들지 않아도 되고, 예전 기록도 그대로 읽힌다.
+   */
+  function toolChips(step, idx) {
+    const options = splitTools(state.requiredTools);
+    if (!options.length) {
+      return '<span class="hint">위 [준비 공구 · 부품] 에 먼저 적으면 여기서 고를 수 있습니다.</span>';
+    }
+    const chosen = splitTools(step.expectedMetric);
+    return options.map((tool) => `
+      <button type="button" class="filter-toggle${chosen.includes(tool) ? ' is-on' : ''}"
+              data-act="toggle-tool" data-idx="${idx}" data-tool="${h(tool)}"
+              aria-pressed="${chosen.includes(tool)}">${h(tool)}</button>`).join('');
+  }
+
+  /** 준비 공구에서 빠진 것은 단계 선택에서도 뺀다. */
+  function pruneStepTools() {
+    const options = splitTools(state.requiredTools);
+    for (const step of state.steps) {
+      const kept = splitTools(step.expectedMetric).filter((t) => options.includes(t));
+      step.expectedMetric = kept.join(', ');
+    }
+  }
+
+  /** 단계마다의 칩 영역만 다시 그린다. 숨은 칸도 함께 맞춘다. */
+  function paintToolChips() {
+    state.steps.forEach((step, i) => {
+      const box = document.querySelector(`[data-tool-pick="${i}"]`);
+      if (box) box.innerHTML = toolChips(step, i);
+      const row = document.querySelector(`[data-step-row][data-idx="${i}"]`);
+      const hidden = /** @type {HTMLInputElement | null} */ (row && row.querySelector('[name=stepMetric]'));
+      if (hidden) hidden.value = step.expectedMetric || '';
+    });
+  }
+
+  function collect() {
+    const form = $('#guideForm');
+    if (!form) return;
+    state.categoryType = $('#gCategory').value;
+    state.robotModel = $('#gModel').value;
+    state.codeOrTitle = $('#gTitle').value;
+    // 요약 칸은 없앴다. 예전 가이드가 갖고 있던 요약은 그대로 두고 저장한다
+    // (시트의 '요약' 열도 그대로다 — 지우면 옛 기록이 사라진다).
+    state.requiredTools = $('#gTools').value;
+    state.commands = $$('[data-cmd-row]').map((rowEl) => ({
+      label: $('[name=cmdLabel]', rowEl).value,
+      cmd: $('[name=cmdText]', rowEl).value,
+      desc: $('[name=cmdDesc]', rowEl).value,
+    }));
+    state.steps = $$('[data-step-row]').map((rowEl) => ({
+      instruction: $('[name=stepText]', rowEl).value,
+      expectedMetric: $('[name=stepMetric]', rowEl).value,
+      imageUrl: $('[name=stepImage]', rowEl).value,
+    }));
+  }
+
+  function render() {
+    view.innerHTML = `
+      <div class="page-head">
+        <h1 class="page-head__title">${guideId ? '가이드 수정' : '새 가이드 작성'}</h1>
+      </div>
+      <form id="guideForm" autocomplete="off">
+        <div class="panel">
+          <div class="field">
+            <label>로봇</label>
+            <input type="hidden" id="gModel" value="${h(state.robotModel)}" />
+            <div class="type-pick" data-pick="model">
+              ${[...models, ...(state.robotModel && !models.includes(state.robotModel) ? [state.robotModel] : []), '']
+                .map((m) => `
+                <button class="btn btn-secondary${state.robotModel === m ? ' is-on' : ''}"
+                        data-act="pick-model" data-model="${h(m)}" type="button"
+                        aria-pressed="${state.robotModel === m}">${h(m || NONE_LABEL)}</button>`).join('')}
+            </div>
+          </div>
+          <div class="field">
+            <label>종류<span class="req">*</span></label>
+            <!-- 홈의 [＋ 가이드 작성] 으로 바로 들어오면 여기서 고른다.
+                 작은 선택칸 대신 손가락 크기의 버튼 셋 — 첫 칸에서 헤매지 않게. -->
+            <input type="hidden" id="gCategory" value="${h(state.categoryType)}" />
+            <div class="type-pick" data-pick="type">
+              ${Object.entries(CATEGORY).map(([type, meta]) => `
+                <button class="btn btn-secondary${state.categoryType === type ? ' is-on' : ''}"
+                        data-act="pick-type" data-type="${type}" type="button"
+                        aria-pressed="${state.categoryType === type}">${h(meta.label)}</button>`).join('')}
+            </div>
+          </div>
+          <div class="field">
+            <label>오류 코드 / 제목<span class="req">*</span></label>
+            <input class="input" id="gTitle" value="${h(state.codeOrTitle)}"
+                   placeholder="예) E-101 로더 모터 과전류" />
+          </div>
+          <div class="field">
+            <label>준비 공구 · 부품</label>
+            <input class="input" id="gTools" value="${h(state.requiredTools)}"
+                   placeholder="쉼표로 구분 · 예) 멀티미터, 육각 렌치 3mm" />
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="row row--between" style="margin-bottom:12px">
+            <h2 class="panel__title" style="margin:0">명령어 (${state.commands.length})</h2>
+            <button class="btn btn--ghost btn--sm" data-act="add-cmd" type="button">＋ 명령어 추가</button>
+          </div>
+          <div class="stack">
+            ${state.commands.map((c, i) => `
+              <div class="sub-card" data-cmd-row data-idx="${i}">
+                <div class="row row--between" style="margin-bottom:8px">
+                  <strong>#${i + 1}</strong>
+                  <button class="btn btn--danger btn--sm" data-act="del-cmd" data-idx="${i}" type="button">삭제</button>
+                </div>
+                <div class="field"><label>설명 라벨</label>
+                  <input class="input" name="cmdLabel" value="${h(c.label || '')}" placeholder="예) 현재 버전 확인" /></div>
+                <div class="field"><label>명령어</label>
+                  <input class="input mono" name="cmdText" value="${h(c.cmd || '')}" placeholder="bhctl version" /></div>
+                <div class="field" style="margin-bottom:0"><label>주의사항</label>
+                  <input class="input" name="cmdDesc" value="${h(c.desc || '')}" placeholder="예) 진행 중 전원 차단 금지" /></div>
+              </div>`).join('') || '<div class="empty">등록된 명령어가 없습니다.</div>'}
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="row row--between" style="margin-bottom:12px">
+            <h2 class="panel__title" style="margin:0">단계 (${state.steps.length})</h2>
+            <button class="btn btn--ghost btn--sm" data-act="add-step" type="button">＋ 단계 추가</button>
+          </div>
+          <div class="stack">
+            ${state.steps.map((s, i) => `
+              <div class="sub-card" data-step-row data-idx="${i}">
+                <div class="row row--between" style="margin-bottom:8px">
+                  <strong>STEP ${i + 1}</strong>
+                  <div class="row" style="gap:6px">
+                    <button class="btn btn--ghost btn--sm" data-act="up" data-idx="${i}" type="button" ${i === 0 ? 'disabled' : ''} aria-label="위로">↑</button>
+                    <button class="btn btn--ghost btn--sm" data-act="down" data-idx="${i}" type="button" ${i === state.steps.length - 1 ? 'disabled' : ''} aria-label="아래로">↓</button>
+                    <button class="btn btn--danger btn--sm" data-act="del-step" data-idx="${i}" type="button">삭제</button>
+                  </div>
+                </div>
+                <div class="field"><label>작업 내용<span class="req">*</span></label>
+                  <textarea class="textarea" name="stepText" placeholder="예) 모터 커넥터 CN3 양단 전압을 측정한다.">${h(s.instruction)}</textarea></div>
+                <div class="field">
+                  <label>필요 공구 · 부품</label>
+                  <input type="hidden" name="stepMetric" value="${h(s.expectedMetric)}" />
+                  <div class="tag-list" data-tool-pick="${i}">${toolChips(s, i)}</div>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label>참고 사진 · 영상</label>
+                  <input type="hidden" name="stepImage" value="${h(s.imageUrl)}" />
+                  ${stepMediaHtml(s.imageUrl, 'step__img step__img--edit', '참고 자료')}
+                  <div class="row" style="margin-top:8px">
+                    <button class="btn btn--ghost btn--sm" data-act="step-capture" data-idx="${i}" type="button">사진 촬영</button>
+                    <button class="btn btn--ghost btn--sm" data-act="step-record" data-idx="${i}" type="button">영상 촬영</button>
+                    <button class="btn btn--ghost btn--sm" data-act="step-pick" data-idx="${i}" type="button">앨범 · 파일</button>
+                    ${s.imageUrl ? `<button class="btn btn--danger btn--sm" data-act="clear-image" data-idx="${i}" type="button">첨부 제거</button>` : ''}
+                  </div>
+                  <span class="hint">영상 최대 20초</span>
+                </div>
+              </div>`).join('')}
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn--ghost" data-act="cancel" type="button">취소</button>
+          <button class="btn btn--primary" type="submit">저장</button>
+        </div>
+      </form>
+      <input type="file" id="stepCapture" accept="image/*" capture="environment" style="display:none" />
+      <input type="file" id="stepRecord" accept="video/*" capture="environment" style="display:none" />
+      <input type="file" id="stepPick" accept="image/*,video/*" style="display:none" />`;
+
+    // 리스너는 매 렌더마다 새로 생성되는 form 에만 연결해 중복 등록을 막는다.
+    const form = $('#guideForm');
+    form.addEventListener('submit', save);
+    form.addEventListener('click', onClick);
+
+    // [준비 공구 · 부품] 을 고치면 단계의 고를 거리도 따라 바뀌어야 한다.
+    // 글자를 칠 때마다 화면 전체를 다시 그리면 커서가 튀므로 칩만 다시 그린다.
+    $('#gTools').addEventListener('input', () => {
+      state.requiredTools = $('#gTools').value;
+      pruneStepTools();
+      paintToolChips();
+    });
+
+    hydrateMedia(view);
+  }
+
+  async function onClick(ev) {
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+    const idx = Number(btn.dataset.idx);
+
+    if (act === 'toggle-tool') {
+      collect();
+      const step = state.steps[idx];
+      const tool = btn.dataset.tool;
+      const chosen = splitTools(step.expectedMetric);
+      step.expectedMetric = (chosen.includes(tool)
+        ? chosen.filter((t) => t !== tool)
+        : [...chosen, tool]).join(', ');
+      paintToolChips();
+      return;
+    }
+
+    if (act === 'add-cmd') { collect(); state.commands.push({ label: '', cmd: '', desc: '' }); render(); }
+    if (act === 'del-cmd') { collect(); state.commands.splice(idx, 1); render(); }
+    if (act === 'add-step') { collect(); state.steps.push({ instruction: '', expectedMetric: '', imageUrl: '' }); render(); }
+    if (act === 'del-step') {
+      collect();
+      state.steps.splice(idx, 1);
+      if (!state.steps.length) state.steps.push({ instruction: '', expectedMetric: '', imageUrl: '' });
+      render();
+    }
+    if (act === 'up' && idx > 0) {
+      collect();
+      [state.steps[idx - 1], state.steps[idx]] = [state.steps[idx], state.steps[idx - 1]];
+      render();
+    }
+    if (act === 'down' && idx < state.steps.length - 1) {
+      collect();
+      [state.steps[idx + 1], state.steps[idx]] = [state.steps[idx], state.steps[idx + 1]];
+      render();
+    }
+    if (act === 'pick-model') {
+      $('#gModel').value = btn.dataset.model;
+      $$('[data-pick="model"] .btn').forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-pressed', String(on));
+      });
+      return;
+    }
+    if (act === 'pick-type') {
+      $('#gCategory').value = btn.dataset.type;
+      $$('[data-pick="type"] .btn').forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-pressed', String(on));
+      });
+      return;
+    }
+    if (act === 'clear-image') { collect(); state.steps[idx].imageUrl = ''; render(); }
+    // 리포트와 같은 세 가지 — 찍기(사진) · 찍기(영상) · 앨범에서 고르기.
+    // 촬영은 capture 가 붙은 칸을 써야 카메라가 바로 열린다.
+    if (act === 'step-capture' || act === 'step-record' || act === 'step-pick') {
+      const input = $({ 'step-capture': '#stepCapture', 'step-record': '#stepRecord',
+                        'step-pick': '#stepPick' }[act]);
+      const label = btn.textContent;
+      input.value = '';
+      input.onchange = async () => {
+        const file = input.files[0];
+        if (!file) return;
+        const kind = isVideoFile(file) ? '영상' : '사진';
+        btn.disabled = true;
+        btn.textContent = '올리는 중…';
+        try {
+          // 1) 기기에 먼저 담는다 — 오프라인에서도 바로 보인다.
+          const media = await api.uploadMedia(file);
+          collect();
+          state.steps[idx].imageUrl = media.url;
+          render();
+
+          // 2) 시트가 연결돼 있으면 드라이브에도 올린다. 그래야 **다른 사람도**
+          //    이걸 볼 수 있다 (기기 안 파일은 그 기기에만 있다).
+          //    제목이 없으면 폴더 이름을 정할 수 없으니 저장할 때 올린다.
+          const title = (state.codeOrTitle || '').trim();
+          if (title && await guideMediaEnabled()) {
+            try {
+              const url = await uploadGuidePhoto(file, state.categoryType, title);
+              collect();
+              state.steps[idx].imageUrl = url;
+              render();
+              toast(`${kind}을 드라이브에 올렸습니다. 팀 전체가 볼 수 있습니다.`, 'ok');
+            } catch (err) {
+              toast(`${kind}은 이 기기에만 저장했습니다 — ${err.message}`, 'err');
+            }
+          } else {
+            toast(title
+              ? `${kind}을 첨부했습니다. (구글 시트 연결 시 팀에 공유됩니다)`
+              : `${kind}을 첨부했습니다. 제목을 넣고 저장하면 팀에 공유됩니다.`, 'ok');
+          }
+        } catch (err) {
+          toast(err.message, 'err');
+          btn.disabled = false;
+          btn.textContent = label;
+        }
+      };
+      input.click();
+    }
+    if (act === 'cancel') {
+      const ok = await confirmDialog('편집 취소', '저장하지 않은 내용은 사라집니다.', '나가기', true);
+      if (ok) history.length > 1 ? history.back() : (location.hash = '#/');
+    }
+  }
+
+  /**
+   * 저장 직전에 기기 안에만 있는 단계 사진을 드라이브로 올린다.
+   *
+   * 사진을 붙일 때는 제목이 아직 없을 수 있고(새 가이드), 폴더 이름이 제목이라
+   * 그때는 올릴 수가 없다. 제목이 확정되는 저장 시점에 한 번 더 챙긴다.
+   */
+  async function uploadPendingPhotos() {
+    const title = (state.codeOrTitle || '').trim();
+    if (!title || !(await guideMediaEnabled())) return;
+    for (const step of state.steps) {
+      const url = String(step.imageUrl || '');
+      if (!url.startsWith('/media/')) continue;
+      try {
+        const blob = await (await import('../local/store.js'))
+          .getMediaBlob(url.split('/').pop());
+        if (!blob) continue;
+        step.imageUrl = await uploadGuidePhoto(blob, state.categoryType, title);
+      } catch { /* 못 올려도 기기에는 남는다 — 다음 저장에서 다시 시도한다 */ }
+    }
+  }
+
+  async function save(ev) {
+    ev.preventDefault();
+    collect();
+    await uploadPendingPhotos();
+    if (!state.codeOrTitle.trim()) { toast('오류 코드 / 제목은 필수입니다.', 'err'); return; }
+    const submitBtn = $('#guideForm button[type=submit]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = '저장 중…';
+    try {
+      const payload = {
+        categoryType: state.categoryType,
+        robotModel: state.robotModel,
+        codeOrTitle: state.codeOrTitle,
+        summary: state.summary,
+        requiredTools: state.requiredTools,
+        commands: state.commands,
+        steps: state.steps,
+      };
+      const saved = guideId
+        ? await api.updateGuide(guideId, payload)
+        : await api.createGuide(payload);
+      toast('저장했습니다.', 'ok');
+      location.hash = `#/guides/${saved.id}`;
+    } catch (err) {
+      toast(err.message, 'err');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '저장';
+    }
+  }
+
+  render();
+}
+
+/**
+ * 이 오류 코드로 쓴 리포트 — 기기에 받아 둔 최근 3달 이력에서 찾는다.
+ * 상세 화면 아래 칸(#gdReports)에 채운다. 없으면 칸을 숨긴다.
+ */
+export async function paintGuideReports(guide) {
+  const box = document.getElementById('gdReports');
+  if (!box || guide.categoryType !== 'ERROR_CODE') { if (box) box.hidden = true; return; }
+  const { loadEntries, normCode, guideCode, openDays } = await import('../insights.js');
+  const code = normCode(guideCode(guide));
+  const { entries } = await loadEntries(3);
+  const mine = entries.filter((e) => normCode(e.code) === code);
+  if (!mine.length) { box.hidden = true; return; }
+  const { trackOf } = await import('./report-common.js');
+  box.hidden = false;
+  box.innerHTML = `
+    <h2 class="panel__title">이 오류로 쓴 리포트 <span class="tnum">${mine.length}</span>건 <span class="muted">최근 3달</span></h2>
+    <div class="gd-reports">
+      ${mine.slice(0, 8).map((e) => `
+        <a class="gd-report" data-track="${trackOf(e.status).cls}" href="#/reports?open=${encodeURIComponent(e.key)}">
+          <span class="gd-report__top"><b class="tnum">${h((e.date || '').slice(5))}</b>
+            <span>${h(trackOf(e.status).short)}${e.status !== '조치 완료' ? ` · ${openDays(e)}일째` : ''}</span></span>
+          <span class="gd-report__store">${h(e.store || '(매장 없음)')}</span>
+        </a>`).join('')}
+    </div>`;
+}
