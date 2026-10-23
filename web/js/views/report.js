@@ -13,7 +13,7 @@ import {
 
 import { ICON, SEED_KEY, trackOf, warnPrivateVideo } from './report-common.js';
 import { showSheetEntry } from './history.js';
-import { guidesForCode, parseParts, partsText, findWork, sameRobot, isIssueLabel } from '../insights.js';
+import { guidesForCode, parseParts, partsText, findWorks, splitIssues, sameRobot, isIssueLabel } from '../insights.js';
 
 // **작성 중 내용을 되살리지 않는다.**
 //
@@ -349,30 +349,34 @@ export async function reportFormView(view) {
       paintPartsHelper();
     }
   }
-  /** 이슈 유형 칸 — 고른 경로 한 줄(✕) · [이슈 유형 고르기] · 이어 둔 가이드 */
+  /** 이슈 유형 칸 — 고른 것마다 한 줄(✕) · [이슈 유형 고르기] · 이어 둔 가이드. 여러 개 고를 수 있다 (v3.34) */
   async function paintWorkHelper() {
     const box = $('#workHelper');
     if (!box || !workField) return;
     const value = values[workField.id].value;
-    const item = findWork(value, await api.workList());
+    const texts = splitIssues(value);
+    const items = findWorks(value, await api.workList());
     const model = modelField ? values[modelField.id].value : '';
-    const linked = item ? allGuides.filter((g) => item.guides.includes(g.id)) : [];
+    const linked = allGuides.filter((g) => items.some((it) => it.guides.includes(g.id)));
     const mine = linked.filter((g) => !g.robotModel || !model || sameRobot(model, g.robotModel));
     box.innerHTML = `
       <div class="work-field">
-        ${value ? `<span class="work-pill"><span>${h(value)}</span>
-          <button class="part-pill__x" data-act="work-clear" type="button" aria-label="이슈 유형 지우기">✕</button></span>` : ''}
-        <button class="parts-add" data-act="open-work" type="button">${value ? '바꾸기' : '＋ 이슈 유형 고르기'}</button>
+        ${texts.map((t, i) => `<span class="work-pill" title="${h(t)}"><span>${h(t)}</span>
+          <button class="part-pill__x" data-act="work-clear" data-i="${i}" type="button"
+                  aria-label="${h(t.split('›').pop().trim())} 빼기">✕</button></span>`).join('')}
+        <button class="parts-add" data-act="open-work" type="button">${texts.length ? '고치기 · 더 고르기' : '＋ 이슈 유형 고르기'}</button>
       </div>
       ${(mine.length ? mine : linked).map((g) => `
         <button class="guide-hint" data-act="peek-guide" data-id="${h(g.id)}" type="button">
           <b>가이드</b> ${h(g.codeOrTitle)}${g.robotModel ? ` · ${h(g.robotModel)}` : ''} <span aria-hidden="true">보기 ›</span>
         </button>`).join('')}`;
   }
-  function setWork(path) {
-    values[workField.id].value = path;
+  /** 칸에는 한 줄에 하나씩 — 시트 칸에서도 줄을 바꿔 보인다 */
+  function setWork(paths) {
+    const text = paths.join(String.fromCharCode(10));     // 줄바꿈 — 글자로 쓰면 편집 도구가 진짜 줄바꿈으로 바꾼다
+    values[workField.id].value = text;
     const input = /** @type {HTMLInputElement} */ (document.querySelector(`#reportForm [data-input="${workField.id}"]`));
-    if (input) input.value = path;
+    if (input) input.value = text;
     paintWorkHelper();
   }
 
@@ -699,10 +703,18 @@ export async function reportFormView(view) {
     if (act === 'open-work') {
       const { openWorkPicker } = await import('../workpicker.js');
       openWorkPicker({ value: values[workField.id].value, robotModel: modelField ? values[modelField.id].value : '',
-                       onPick: (path) => setWork(path) });
+                       onPick: async (paths) => {
+                         // 목록에 없는 옛 글자(손으로 적은 것)는 지우지 않고 둔다 — ✕ 로만 뺀다
+                         const list = await api.workList();
+                         const keep = splitIssues(values[workField.id].value).filter((t) => !findWorks(t, list).length);
+                         setWork([...keep, ...paths]);
+                       } });
       return;
     }
-    if (act === 'work-clear') { setWork(''); return; }
+    if (act === 'work-clear') {
+      setWork(splitIssues(values[workField.id].value).filter((_, i) => i !== Number(btn.dataset.i)));
+      return;
+    }
     if (act === 'part-remove') {
       setParts(chosenParts().filter((x) => x.name !== btn.dataset.part));
       return;

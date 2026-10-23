@@ -27,6 +27,8 @@ test('[이슈 유형 고르기] 창 — 대분류를 고르고 목록에 없는 
   await box.locator('[data-act="wk-cat"][data-cat="하드웨어 교체"]').click();
   await box.locator('#wkNew').fill('로더 교체');
   await box.locator('[data-act="wk-add"]').click();
+  await expect(box.locator('#wkChosen')).toContainText('로더 교체');               // 넣으면 바로 골라진다 (창은 열린 채)
+  await box.locator('[data-act="wk-done"]').click();
   await expect(page.locator('#workHelper .work-pill')).toContainText('로봇 이슈 › 하드웨어 교체 › 로더 교체');
   await expect(field(page, '이슈 유형')).toHaveValue('로봇 이슈 › 하드웨어 교체 › 로더 교체');
 
@@ -64,7 +66,56 @@ test('검색 — 별칭(팔)과 초성(ㄹㄷ)으로도 같은 항목을 찾는�
   await box.locator('#wkQ').fill('ㄹㄷ');
   await expect(box.locator('.wk-item', { hasText: '로더 교체' })).toBeVisible();
   await box.locator('.wk-item', { hasText: '로더 교체' }).click();
+  await box.locator('[data-act="wk-done"]').click();
   await expect(page.locator('#workHelper .guide-hint')).toContainText('E-101 로더 모터 과전류');
+});
+
+test('이슈 유형 여러 개 — 누를 때마다 고르고/빼고 · [선택] · 칸에는 한 줄에 하나 · 이력 · 통계는 하나씩 센다', async ({ page, sheet }) => {
+  await seed(sheet);
+  await seedWork(sheet);
+  await openApp(page, '#/');
+  await page.waitForTimeout(1500);
+  await openApp(page, '#/report/new');
+  await page.locator('#workHelper [data-act="open-work"]').click();
+  const box = page.locator('#modalRoot .wk');
+  await box.locator('[data-act="wk-cat"][data-cat="하드웨어 교체"]').click();
+  await box.locator('.wk-item', { hasText: '로더 교체' }).click();
+  await box.locator('[data-act="wk-cat"][data-cat="네트워크 · 와이파이"]').click();
+  await box.locator('.wk-item', { hasText: '와이파이 재연결' }).click();
+  await expect(box.locator('#wkChosen .wk-chip')).toHaveCount(2);
+  await box.locator('.wk-item', { hasText: '와이파이 재연결' }).click();            // 한 번 더 누르면 빠진다
+  await expect(box.locator('#wkChosen .wk-chip')).toHaveCount(1);
+  await box.locator('.wk-item', { hasText: '와이파이 재연결' }).click();
+  await box.locator('[data-act="wk-done"]').click();
+  await expect(page.locator('#workHelper .work-pill')).toHaveCount(2);
+  await expect(field(page, '이슈 유형')).toHaveValue(/로더 교체/);
+  // 다시 열면 고른 두 개가 골라진 채로
+  await page.locator('#workHelper [data-act="open-work"]').click();
+  await expect(page.locator('#modalRoot #wkChosen .wk-chip')).toHaveCount(2);
+  await page.locator('#modalRoot [data-act="wk-done"]').click();
+  // ✕ 는 그 하나만 뺀다
+  await page.locator('#workHelper .work-pill', { hasText: '와이파이' }).locator('[data-act="work-clear"]').click();
+  await expect(page.locator('#workHelper .work-pill')).toHaveCount(1);
+  await page.locator('#workHelper [data-act="open-work"]').click();
+  await page.locator('#modalRoot [data-act="wk-cat"][data-cat="네트워크 · 와이파이"]').click();
+  await page.locator('#modalRoot .wk-item', { hasText: '와이파이 재연결' }).click();
+  await page.locator('#modalRoot [data-act="wk-done"]').click();
+
+  await field(page, '리포트 번호').selectOption('P260912-01');
+  await field(page, '로봇 시리얼').fill('SN-MULTI');
+  await field(page, '로봇 모델').selectOption('Gen.1(D1)');
+  await field(page, '증상 요약').fill('로더 소음 · 와이파이 끊김');
+  await field(page, '조치 내용').fill('로더 교체 · 공유기 재시작');
+  await field(page, '처리 결과').selectOption('완료');
+  await page.locator('#reportForm button[type=submit]').click();
+  await expect.poll(async () => {
+    const dump = await sheet.dump();
+    const name = Object.keys(dump).find((n) => /^\d{4}-\d{2}$/.test(n));
+    return name ? dump[name].flat().join('|') : '';
+  }, { timeout: 15000 }).toContain('로봇 이슈 › 하드웨어 교체 › 로더 교체' + String.fromCharCode(10) + '로봇 외 이슈 › 네트워크 · 와이파이 › 와이파이 재연결');
+  await openApp(page, '#/reports');
+  await page.locator('.hist-row', { hasText: '와이파이 끊김' }).first().click();
+  await expect(page.locator('#histPanel .hd-work')).toContainText('로더 교체 · 와이파이 재연결');
 });
 
 test('이슈 유형 정리 — 비슷한 이름은 합치기 후보 · 합치면 별칭으로 남는다', async ({ page, sheet }) => {

@@ -3,7 +3,7 @@
 // 주소: #/store?name=옥동식 서초점
 // 최근 12달을 기기 사본으로 모은다 (없는 달만 시트에서 받는다).
 import { $, h, loading, when } from '../ui.js';
-import { loadEntries, storeKey, valueOf, openDays, tally, isCodeShaped, issueOf } from '../insights.js';
+import { loadEntries, storeKey, valueOf, openDays, tally, isCodeShaped, issuesOf } from '../insights.js';
 import { trackOf } from './report-common.js';
 
 const MONTHS = 12;
@@ -18,7 +18,7 @@ export async function storeHistoryView(view, name) {
   const robots = tally(mine.map((e) => valueOf(e, '시리얼')).filter(Boolean));
   const models = tally(mine.map((e) => valueOf(e, '모델')).filter(Boolean));
   const codes = tally(mine.map((e) => e.code).filter(isCodeShaped));
-  const works = tally(mine.map((e) => issueOf(e).split('›').pop().trim()).filter(Boolean));
+  const works = tally(mine.flatMap((e) => issuesOf(e).map((t) => t.split('›').pop().trim())).filter(Boolean));
   const last = mine[0];
 
   view.innerHTML = `

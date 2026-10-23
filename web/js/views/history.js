@@ -12,7 +12,7 @@ import {
 } from '../reportsheet.js';
 
 import { ICON, seedFromEntry, TRACK, trackOf, warnPrivateVideo } from './report-common.js';
-import { guidesForCode, findWork, isCodeShaped, sameRobot, valueOf, issueOf, isIssueLabel } from '../insights.js';
+import { guidesForCode, findWorks, isCodeShaped, sameRobot, valueOf, issueOf, issuesOf, isIssueLabel } from '../insights.js';
 
 /** 상세에서 오류 코드 → 가이드를 잇는 데 쓴다 (기기 안 가이드, 화면을 열 때 한 번 받는다) */
 let knownGuides = [];
@@ -152,7 +152,8 @@ function entryDetailHtml(entry) {
       </div>
       <div class="hd2-row" data-sec="symptom">
         ${label('symptom', '증상')}
-        <div class="hd2-body">${workOf(entry) ? `<span class="hd-work"><b>이슈 유형</b> ${h(workOf(entry))}</span>` : ''}${text(p.symptom, '적힌 증상이 없습니다.')}${guideLinksHtml(entry)}</div>
+        <div class="hd2-body">${workOf(entry) ? `<span class="hd-work"><b>이슈 유형</b> ${issuesOf(entry)
+            .map((t) => `<span title="${h(t)}">${h(t.split('›').pop().trim())}</span>`).join(' · ')}</span>` : ''}${text(p.symptom, '적힌 증상이 없습니다.')}${guideLinksHtml(entry)}</div>
       </div>
       <div class="hd2-row" data-sec="action">
         ${label('action', '조치')}
@@ -853,8 +854,7 @@ export async function reportDetailView(view, reportId) {
 function guideLinksHtml(entry) {
   const model = valueOf(entry, '모델');
   const found = [];
-  const item = findWork(workOf(entry), knownWork);
-  if (item) {
+  for (const item of findWorks(workOf(entry), knownWork)) {           // 여러 이슈 유형 — 각각 이어 둔 가이드
     const linked = knownGuides.filter((g) => item.guides.includes(g.id));
     const mine = linked.filter((g) => !g.robotModel || !model || sameRobot(model, g.robotModel));
     found.push(...(mine.length ? mine : linked));
