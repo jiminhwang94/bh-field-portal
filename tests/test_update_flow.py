@@ -123,10 +123,12 @@ print()
 print("== 7. 새 가이드 작성 — 요약 제거 · 단계마다 공구 고르기")
 guides = (read("web", "js", "views", "guides.js") + "\n" + read("web", "js", "views", "guide-page.js"))
 gs_src = read("google-apps-script.gs")
-# 요약 칸은 없앴다. 다만 예전 가이드가 가진 요약과 시트의 '요약' 열은 건드리지 않는다.
+# 요약 칸은 없앴다. v3.32 부터 제목 아래 요약 줄도 보이지 않고, 가이드를 고치면 요약을 비운다.
+# 시트의 '요약' 열은 그대로 둔다 (예전 자료 · 검색).
 check("요약 입력칸이 없다", 'id="gSummary"' not in guides)
 check("요약을 collect 에서 덮어쓰지 않는다", "state.summary = $('#gSummary')" not in guides)
-check("예전 가이드의 요약은 그대로 저장된다", "summary: state.summary," in guides)
+check("가이드를 고치면 요약을 비운다 (v3.32)", "summary: state.summary," not in guides and "summary: ''," in guides)
+check("상세 · 목록에 요약 줄이 없다 (v3.32)", "gd-summary" not in guides and "h(g.summary)" not in guides)
 check("시트의 '요약' 열은 그대로 둔다", "'요약'" in gs_src)
 check("목록에서 '요약 없음' 을 더 이상 쓰지 않는다", "요약 없음" not in guides)
 # 단계의 '기준 수치' 자유 입력 → 준비 공구에서 고르기
@@ -254,6 +256,12 @@ _vs = [m.group(1) if m else None for m in (_v_js, _v_sw, _v_gr)]
 check("version.js · sw.js 캐시 · build.gradle 이 같은 버전", len(set(_vs)) == 1 and None not in _vs, " / ".join(map(str, _vs)))
 check("버전은 version.js 한 곳에 적고 api.js 는 다시 내보내기만", "export { APP_VERSION } from './version.js';" in read("web", "js", "api.js"))
 check("버전 올리기 도구가 있다", "def main(argv)" in read("tools", "release.py"))
+_notes = read("web", "js", "patchnotes.js")
+check("[패치 내용] 에 지금 버전이 맨 위에 있다", _vs[0] is not None
+      and _re.search(r"version: '([0-9.]+)'", _notes) is not None
+      and _re.search(r"version: '([0-9.]+)'", _notes).group(1) == _vs[0],
+      (_re.search(r"version: '([0-9.]+)'", _notes) or [None, '없음'])[1] + " / " + str(_vs[0]))
+check("[패치 내용] 버튼이 새로고침 옆에 있다", 'id="btn-patch"' in index and index.index('id="btn-patch"') < index.index('id="btn-update"'))
 
 print()
 if fails:

@@ -97,7 +97,17 @@ export function tally(items) {
   return [...m].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'ko'));
 }
 
-// ─────────────────────────────────────────────── 작업 목록 (v3.31)
+// ─────────────────────────────────────────────── 이슈 유형 (v3.31 '작업' → v3.32 '이슈 유형')
+
+/** 리포트 칸 이름. v3.31 에는 '작업' 이었다 — 그 줄도 같은 칸으로 읽는다 */
+export const ISSUE_LABEL = '이슈 유형';
+export const isIssueLabel = (label) => ['이슈유형', '작업'].includes(String(label || '').replace(/\s/g, ''));
+/** 리포트의 이슈 유형 — '이슈 유형' 칸, 예전 '작업' 칸, 그것도 없으면 옛 '오류 코드' 칸의 분류 글자 */
+export function issueOf(entry) {
+  const hit = ((entry && entry.values) || []).find((v) => isIssueLabel(v.label) && String(v.value || '').trim());
+  if (hit) return String(hit.value).trim();
+  return entry && entry.code && !isCodeShaped(entry.code) ? entry.code : '';
+}
 
 /** 오류 코드처럼 생겼나 — E-101 · W204 · ERR12. '유지 보수' 같은 분류 글자는 아니다 */
 export const isCodeShaped = (v) => /^[A-Za-z]{1,4}[-\s]?\d{1,5}[A-Za-z]?$/.test(String(v || '').trim());
@@ -153,7 +163,7 @@ export async function workUsage(list, months = 3) {
   for (const m of recentMonths(months)) {
     const cached = await store.getMeta(`sheetReports:${m}`, null);
     for (const e of (cached && cached.entries) || []) {
-      const text = valueOf(e, '작업') || (isCodeShaped(e.code) ? '' : e.code);
+      const text = issueOf(e);
       const it = findWork(text, list);
       if (!it) continue;
       all.set(it.id, (all.get(it.id) || 0) + 1);

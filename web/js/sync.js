@@ -157,9 +157,9 @@ async function doFlushOutbox() {
     });
   }
 
-  // 작업 목록 (팀 공통) — 바뀐 것(ops)만 차례대로 한 번에. 시트가 돌려준 목록이 최종본이다.
+  // 이슈 유형 목록 (팀 공통) — 바뀐 것(ops)만 차례대로 한 번에. 시트가 돌려준 목록이 최종본이다.
   if (workOps.length && onSheet) {
-    await step('작업 목록', async () => {
+    await step('이슈 유형 목록', async () => {
       const worksheet = await import('./worksheet.js');
       const result = await worksheet.pushWorkOps(workOps.flatMap((o) => o.ops || []));
       for (const op of workOps) {

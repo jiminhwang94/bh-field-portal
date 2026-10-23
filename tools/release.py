@@ -76,6 +76,10 @@ def main(argv):
         write(rel, text)
     print(f"버전 {old} → {new} (version.js · sw.js · build.gradle)")
 
+    notes = read(os.path.join("web", "js", "patchnotes.js"))
+    if f"version: '{new}'" not in notes:
+        print(f"⚠ web/js/patchnotes.js 에 v{new} 패치 내용이 없습니다 — 현장 사람이 볼 짧은 문장을 맨 위에 더해 주세요.")
+
     changelog = read("CHANGELOG.md")
     if f"## [{new}]" not in changelog:
         today = datetime.date.today().isoformat()

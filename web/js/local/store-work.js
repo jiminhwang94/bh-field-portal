@@ -1,4 +1,5 @@
-// 기기 저장소 — 작업 목록 (구분 › 대분류 › 세부 작업). 팀 공용 — 시트 '작업 목록' 탭.
+// 기기 저장소 — 이슈 유형 목록 (구분 › 대분류 › 세부 항목). 팀 공용 — 시트 '이슈 유형 목록' 탭.
+// (v3.31 에는 '작업 목록' 이었다. 코드 안 이름은 work 그대로)
 // (store.js 가 전부 다시 내보낸다 — 밖에서는 store.js 만 부른다)
 //
 // 리포트의 '작업' 은 이 목록에서 고른다. 사람마다 다르게 적던 것("로더 교체" · "팔 교체")을
@@ -11,7 +12,7 @@ import { enqueue, getMeta, newId, outbox, setMeta, sheetInventoryOn } from './st
 
 export const WORK_KINDS = ['로봇 이슈', '로봇 외 이슈'];
 
-/** 처음 쓰는 팀을 위한 대분류 — 설정 → 작업 목록에서 바꾼다 */
+/** 처음 쓰는 팀을 위한 대분류 — 설정 → 이슈 유형 정리에서 바꾼다 */
 export const DEFAULT_WORK_CATS = {
   '로봇 이슈': ['유지 보수', '오류', '하드웨어 교체', 'SW · 설정', '설치', '점검'],
   '로봇 외 이슈': ['네트워크 · 와이파이', '전원 · 콘센트', '매장 환경', '사용 안내 (교육)', '기타'],
@@ -107,7 +108,7 @@ export async function ensureDefaultWork() {
 /** 현장에서 새로 적은 세부 작업 — '새 항목' 표시로 목록에 들어간다 */
 export async function addWorkItem(kind, cat, name, { isNew = true } = {}) {
   const item = { id: newId(), kind, cat, name: String(name || '').trim(), aliases: [], guides: [], isNew };
-  if (!item.name) throw new Error('작업 이름을 적어 주세요.');
+  if (!item.name) throw new Error('이슈 유형 이름을 적어 주세요.');
   await workOps([{ op: 'item-upsert', item }]);
   return item;
 }

@@ -126,7 +126,6 @@
   font-size: 22px; font-weight: 850; color: var(--color-accent);
   padding: 4px 12px; border-radius: 10px; background: var(--color-accent-tint);
 }
-.gd-summary { margin: 0; font-size: 17px; color: var(--color-text-2); line-height: 1.6; }
 .gd-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
 .gd-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
 .gd-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }

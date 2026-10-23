@@ -12,17 +12,17 @@ import {
 } from '../reportsheet.js';
 
 import { ICON, seedFromEntry, TRACK, trackOf, warnPrivateVideo } from './report-common.js';
-import { guidesForCode, findWork, isCodeShaped, sameRobot, valueOf } from '../insights.js';
+import { guidesForCode, findWork, isCodeShaped, sameRobot, valueOf, issueOf, isIssueLabel } from '../insights.js';
 
 /** 상세에서 오류 코드 → 가이드를 잇는 데 쓴다 (기기 안 가이드, 화면을 열 때 한 번 받는다) */
 let knownGuides = [];
 const loadGuides = () => api.listGuides().then((r) => { knownGuides = r.items || []; }).catch(() => {});
-/** 작업 목록 — 리포트의 작업 → 이어 둔 가이드 (v3.31) */
+/** 이슈 유형 목록 — 리포트의 이슈 유형 → 이어 둔 가이드 */
 let knownWork = { cats: [], items: [] };
 const loadWork = () => api.workList().then((l) => { knownWork = l; }).catch(() => {});
 
-/** 이 리포트의 작업 — '작업' 칸, 없으면 예전 '오류 코드' 칸에 적힌 분류 글자 */
-const workOf = (entry) => valueOf(entry, '작업') || (entry.code && !isCodeShaped(entry.code) ? entry.code : '');
+/** 이 리포트의 이슈 유형 — '이슈 유형'(예전 '작업') 칸, 없으면 옛 '오류 코드' 칸의 분류 글자 */
+const workOf = (entry) => issueOf(entry);
 
 // ------------------------------------------------------------ 이력 목록
 const STATUS = {
@@ -101,7 +101,7 @@ function entryParts(entry) {
   const result = [];
   const rest = [];
   for (const v of entry.values || []) {
-    if (String(v.label || '').replace(/\s/g, '') === '작업') continue;   // 증상 줄 위에 따로 (작업 한 줄)
+    if (isIssueLabel(v.label)) continue;      // 증상 줄 위에 따로 (이슈 유형 한 줄)
     if (has(v.label, '로봇', '시리얼') || has(v.label, '오류 코드')) robot.push(v);
     else if (has(v.label, '증상')) symptom.push(v);
     else if (has(v.label, '처리 결과', '결과')) result.push(v);
@@ -152,7 +152,7 @@ function entryDetailHtml(entry) {
       </div>
       <div class="hd2-row" data-sec="symptom">
         ${label('symptom', '증상')}
-        <div class="hd2-body">${workOf(entry) ? `<span class="hd-work"><b>작업</b> ${h(workOf(entry))}</span>` : ''}${text(p.symptom, '적힌 증상이 없습니다.')}${guideLinksHtml(entry)}</div>
+        <div class="hd2-body">${workOf(entry) ? `<span class="hd-work"><b>이슈 유형</b> ${h(workOf(entry))}</span>` : ''}${text(p.symptom, '적힌 증상이 없습니다.')}${guideLinksHtml(entry)}</div>
       </div>
       <div class="hd2-row" data-sec="action">
         ${label('action', '조치')}

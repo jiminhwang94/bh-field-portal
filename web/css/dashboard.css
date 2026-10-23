@@ -544,3 +544,55 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 4px var(--test-amber); }
   .wk-kind { width: 100%; }
   .wk-cat { min-height: 44px; border: 1.5px solid var(--color-border-strong); border-radius: 999px; }
 }
+
+/* ── 패치 내용 (v3.32) — 새로고침 옆 버튼 · 창 ───────────────────────────── */
+.btn-patch { position: relative; min-height: 56px; padding: 0 18px; font-size: 16px; border-radius: 14px; }
+.btn-patch.has-new::after {
+  content: ''; position: absolute; top: 8px; right: 8px; width: 10px; height: 10px; border-radius: 999px;
+  background: var(--color-danger); box-shadow: 0 0 0 2px var(--color-bg);
+}
+.patch-notes { display: flex; flex-direction: column; gap: 14px; }
+.patch-note { padding: 14px 16px; border-radius: 14px; background: var(--color-surface); }
+.patch-note.is-current { background: var(--st-doing-tint); }
+.patch-note__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; font-size: 17px; }
+.patch-note__now { margin-left: auto; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 700;
+  background: var(--st-doing); color: var(--color-on-accent); }
+.patch-note__list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px;
+  font-size: 17px; line-height: 1.5; }
+@media (max-width: 720px) {
+  .btn-patch { min-height: 48px; padding: 0 12px; font-size: 15px; }
+  /* 폰 — [패치 내용]·[새로고침] 이 들어가도록 이름이 줄어든다 (…) */
+  .topbar { gap: 8px; }
+  .topbar__brand { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .btn-update { flex: none; padding: 0 14px; font-size: 16px; }
+}
+
+/* 차량 재고 — 분류 순서 창 (v3.32) */
+.cat-order { display: flex; flex-direction: column; gap: 12px; }
+.cat-order__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cat-order__row { display: flex; align-items: center; gap: 8px; min-height: 64px; border-top: 1px solid var(--color-hairline); }
+.cat-order__row:first-child { border-top: 0; }
+.cat-order__row.is-fixed { color: var(--color-muted); }
+.cat-order__name { flex: 1; min-width: 0; font-size: 18px; font-weight: 700; }
+.cat-order__btn {
+  width: 56px; height: 52px; border: 1.5px solid var(--color-border-strong); border-radius: 12px;
+  background: var(--color-bg); color: var(--color-text); font-size: 20px; cursor: pointer;
+}
+.cat-order__btn:disabled { color: var(--color-border-strong); cursor: default; }
+
+/* 이슈 유형 고르기 — 편집 (v3.32) */
+.wk-tools { display: flex; gap: 8px; }
+.wk-tools .input { flex: 1; min-width: 0; }
+.wk-catwrap, .wk-itemwrap { display: flex; align-items: center; gap: 4px; }
+.wk-catwrap .wk-cat, .wk-itemwrap .wk-item { flex: 1; min-width: 0; }
+.wk-ico {
+  flex: none; width: 44px; height: 44px; border: 0; border-radius: 10px; background: var(--color-surface);
+  color: var(--color-text); font-size: 17px; cursor: pointer;
+}
+.wk-ico:hover { background: var(--color-surface-2); }
+.wk-addcat { min-height: 44px; border: 1.5px dashed var(--color-border-strong); border-radius: 10px; background: transparent;
+  color: var(--color-accent); font: inherit; font-weight: 700; cursor: pointer; }
+.wk-inline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; width: 100%; padding: 4px 0; }
+.wk-inline .input { flex: 1; min-width: 120px; min-height: 48px; }
+.wk-inline--del span { flex: 1; font-weight: 700; color: var(--color-danger); }
+.wk-item--edit { display: block; cursor: default; }

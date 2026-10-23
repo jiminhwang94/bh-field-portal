@@ -1227,6 +1227,8 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
   console.log('── 작업 목록 — 구분 › 대분류 › 세부 작업 · 바뀐 것만 올리기');
   let w = call({ work: 'pull' });
   check('탭이 없으면 없다고 말한다 (앱이 기본 대분류를 올린다)', w.ok && w.exists === false);
+  // v3.31 이 만든 '작업 목록' 탭이 이미 있는 팀을 흉내 낸다 (머리줄만)
+  { const legacy = ss.insertSheet('작업 목록'); legacy.getRange(2, 1).setValue('구분'); }
   w = call({ work: 'push', device: '김현장', ops: [
     { op: 'cat-add', kind: '로봇 이슈', name: '하드웨어 교체' },
     { op: 'cat-add', kind: '로봇 이슈', name: '유지 보수' },
@@ -1256,11 +1258,12 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
         && !w.cats.some((c) => c.name === '하드웨어 교체'));
   w = call({ work: 'push', ops: [{ op: 'cat-delete', kind: '로봇 이슈', name: '부품 교체' }] });
   check('항목이 남은 대분류는 지우지 않는다', w.cats.some((c) => c.name === '부품 교체'));
-  const tab = ss.getSheetByName('작업 목록');
-  check('탭 머리줄 · 사람이 읽는 줄 (구분 | 대분류 | 세부 작업 | 별칭 …)',
+  const tab = ss.getSheetByName('이슈 유형 목록');
+  check('v3.31 의 "작업 목록" 탭은 "이슈 유형 목록" 으로 이름만 바뀐다 (내용 그대로)', !!tab && !ss.getSheetByName('작업 목록'));
+  check('탭 머리줄 · 사람이 읽는 줄 (구분 | 대분류 | 세부 항목 | 별칭 …)',
         tab.getRange(2, 1).getValue() === '구분' && tab.getRange(3, 1).getValue() === '로봇 이슈');
-  check('작업 목록 변경이 변경기록에 남는다', ss.getSheetByName('변경기록').getRange(3, 1, ss.getSheetByName('변경기록').getLastRow() - 2, 6)
-        .getValues().some((r) => r[3] === '작업 목록'));
+  check('이슈 유형 목록 변경이 변경기록에 남는다', ss.getSheetByName('변경기록').getRange(3, 1, ss.getSheetByName('변경기록').getLastRow() - 2, 6)
+        .getValues().some((r) => r[3] === '이슈 유형 목록'));
 }
 
 console.log('='.repeat(62));

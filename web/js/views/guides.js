@@ -509,7 +509,6 @@ export function row(guide, withModel = false) {
       ${code ? `<span class="row__code tnum">${h(code)}</span>` : ''}
       <span class="row__main">
         <span class="row__title">${h(title)}</span>
-        ${guide.summary ? `<span class="row__meta">${h(guide.summary)}</span>` : ''}
         <span class="row__meta">${h(bits.join(' · '))}</span>
       </span>
       <span class="item__chevron" aria-hidden="true">›</span>

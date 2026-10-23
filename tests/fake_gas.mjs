@@ -97,6 +97,7 @@ export function createFakeGas() {
     }
     _get(r, c) { const v = this.cells.get(this._key(r, c)); return v === undefined ? '' : v; }
     getName() { return this.name; }
+    setName(value) { this.name = String(value); return this; }
     getRange(row, col, rows = 1, cols = 1) {
       return new FakeRange(this, row, col, rows, cols);
     }

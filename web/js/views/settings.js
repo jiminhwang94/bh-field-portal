@@ -153,7 +153,7 @@ export async function settingsView(view) {
         <h2 class="panel__title">리포트 항목 설정</h2>
         <div class="row" style="gap:8px;flex-wrap:wrap">
           <a class="btn btn-secondary" href="#/fields">항목 설정 열기</a>
-          <a class="btn btn-secondary" href="#/work">작업 목록 정리</a>
+          <a class="btn btn-secondary" href="#/work">이슈 유형 정리</a>
         </div>
       </div>
 

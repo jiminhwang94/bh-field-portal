@@ -96,7 +96,7 @@ export async function reorderFields(orderedIds) {
  *
  *     리포트 번호 | 매장명
  *     로봇 시리얼 | 로봇 모델
- *     사용 부품   | 작업
+ *     사용 부품   | 이슈 유형
  *     오류 코드
  *     현장 사진            ← 한 줄
  *     증상 요약            ← 한 줄
@@ -110,7 +110,7 @@ export const DEFAULT_FIELDS = [
   { fieldLabel: '로봇 모델', fieldType: 'DROPDOWN',
     options: 'Gen.1(D1),Gen.1(D2),GEN.2(M12),GEN.2(D-SUB),Frame', isRequired: true },
   { fieldLabel: '사용 부품', fieldType: 'TEXT', options: null, isRequired: false },
-  { fieldLabel: '작업', fieldType: 'TEXT', options: null, isRequired: false },      // 작업 목록에서 고른다 (v3.31)
+  { fieldLabel: '이슈 유형', fieldType: 'TEXT', options: null, isRequired: false },  // 이슈 유형 목록에서 고른다
   { fieldLabel: '오류 코드', fieldType: 'TEXT', options: null, isRequired: false },
   { fieldLabel: '현장 사진', fieldType: 'MEDIA', options: null, isRequired: false },
   { fieldLabel: '증상 요약', fieldType: 'TEXTAREA', options: null, isRequired: true },
@@ -178,16 +178,26 @@ export async function applyDefaultFieldOrderOnce() {
 }
 
 /**
- * '작업' 항목이 없으면 만든다 (v3.31) — 리포트의 작업은 작업 목록에서 고른다.
+ * '이슈 유형' 항목을 갖춘다 — 리포트의 이슈 유형은 이슈 유형 목록에서 고른다.
  *
+ * v3.31 에는 이름이 '작업' 이었다. 그 칸이 있으면 **이름만 바꾼다** (새로 만들면 같은 칸이 둘이 된다).
+ * 둘 다 있으면(옛 앱이 '작업' 을 다시 만든 경우) '작업' 을 뺀다.
  * 항목은 팀 공통이라 시트 '리포트 항목' 탭에도 올라간다. 시트를 받은 **뒤에** 부른다 —
  * 받기 전에 만들면 시트에 아직 없는 항목으로 보여 받기가 지워 버린다.
  * 자리는 '오류 코드' 바로 앞 (순서는 기기마다 따로라 이 기기 순서만 맞춘다).
  */
 export async function ensureWorkField() {
   const rows = await idb.getAll('fields');
-  if (rows.some((f) => fieldLabelKey(f.fieldLabel) === '작업')) return false;
-  const made = await saveField({ fieldLabel: '작업', fieldType: 'TEXT', isRequired: false });
+  const issue = rows.find((f) => fieldLabelKey(f.fieldLabel) === '이슈유형');
+  const old = rows.find((f) => fieldLabelKey(f.fieldLabel) === '작업');
+  if (issue && old) { await deleteField(old.id); return true; }
+  if (issue) return false;
+  if (old) {
+    await saveField({ fieldLabel: '이슈 유형', fieldType: old.fieldType, options: old.options || '',
+                      isRequired: Boolean(old.isRequired) }, old.id);
+    return true;
+  }
+  const made = await saveField({ fieldLabel: '이슈 유형', fieldType: 'TEXT', isRequired: false });
   const sorted = (await idb.getAll('fields')).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
   const ids = sorted.map((f) => f.id).filter((id) => id !== made.id);
   const code = sorted.find((f) => fieldLabelKey(f.fieldLabel) === '오류코드');

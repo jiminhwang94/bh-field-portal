@@ -38,7 +38,6 @@ export async function guideDetailView(view, guideId) {
           ${code ? `<span class="gd-code tnum">${h(code)}</span>` : ''}
           <h1 class="page-head__title">${h(title)}</h1>
         </div>
-        ${guide.summary ? `<p class="gd-summary">${h(guide.summary)}</p>` : ''}
         <div class="gd-actions">
           <a class="btn btn-secondary" href="#/guides/edit/${guide.id}">수정</a>
           <button class="btn btn--danger" data-act="delete" type="button">삭제</button>
@@ -547,7 +546,7 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
         categoryType: state.categoryType,
         robotModel: state.robotModel,
         codeOrTitle: state.codeOrTitle,
-        summary: state.summary,
+        summary: '',                    // 요약은 더 쓰지 않는다 (v3.32) — 고치면 시트의 요약 칸도 비운다
         requiredTools: state.requiredTools,
         commands: state.commands,
         steps: state.steps,
