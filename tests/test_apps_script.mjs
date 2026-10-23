@@ -1221,6 +1221,33 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
          row: ['2099-09-01 10:00', '조각점', r.url, '조치 진행 중'] });
   const tab = ss.getSheetByName('2099-09');
   check('미리 올린 첨부 주소도 시트에서 눌러 열리는 링크가 된다', tab.links.size > 0 && tab.getLastRow() > before);
+
+  console.log('── 빨리 올리기 (v3.33) — 작은 파일은 한 번에 · 폴더 위치 기억 · 조각엔 탭 정리 없음');
+  const fake = env;
+  let sheetsAsked = 0;
+  const getSheets = ss.getSheets.bind(ss);
+  ss.getSheets = () => { sheetsAsked += 1; return getSheets(); };
+  fake.driveCalls.byName = 0;
+  r = call({ media: 'finish', uploadId: 'mzz-small', total: 1, data: 'DDDD', filename: '작은.jpg',
+             mimeType: 'image/jpeg', storeName: '조각점', dateText: '2099-08-01', device: '김현장' });
+  check('조각 하나짜리는 마무리 요청 한 번으로 파일이 된다', r.ok === true && made.files.length === 2
+        && made.files[1].getBlob()._bytes._b64 === 'DDDD', JSON.stringify(r));
+  check('한 번에 보낸 파일은 조각 폴더를 거치지 않는다', !chunkDir.files.some((f) => f.name.startsWith('mzz-small')));
+  check('같은 매장 · 날짜 폴더는 기억해 둔 위치로 바로 간다 (이름으로 다시 찾지 않는다)', fake.driveCalls.byName === 0,
+        `이름 찾기 ${fake.driveCalls.byName}번`);
+  call({ media: 'chunk', uploadId: 'mzz-fast', index: 0, total: 1, data: 'EEEE', device: '김현장' });
+  check('조각 · 마무리 요청은 탭 순서 맞추기를 건너뛴다 (재고 탭까지 읽지 않는다)', sheetsAsked === 0, `탭 목록 ${sheetsAsked}번`);
+  ss.getSheets = getSheets;
+  made.setTrashed(true);                                 // 누가 사진 폴더를 휴지통에 넣었다
+  r = call({ media: 'finish', uploadId: 'mzz-small2', total: 1, data: 'FFFF', filename: '작은2.jpg',
+             mimeType: 'image/jpeg', storeName: '조각점', dateText: '2099-08-01' });
+  const again = findPath('조각점', '2099-08-01', '사진');
+  check('기억한 폴더가 휴지통에 있으면 다시 찾아 만든다 (휴지통에 넣지 않는다)', r.ok === true && again && again !== made
+        && !again.trashed && again.files.some((f) => f.getBlob()._bytes._b64 === 'FFFF'));
+  r = call({ media: 'finish', uploadId: 'mzz-fast', total: 1, filename: '조각.jpg', mimeType: 'image/jpeg',
+             storeName: '조각점', dateText: '2099-08-01' });
+  check('미리 보낸 조각 하나는 data 없는 마무리로 붙는다', r.ok === true
+        && again.files.some((f) => f.getBlob()._bytes._b64 === 'EEEE'), JSON.stringify(r));
 }
 
 { // 작업 목록 (v3.31)

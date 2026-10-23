@@ -1,6 +1,6 @@
 // 현장 리포트 작성 (동적 폼) / 구글 시트 업로드. 이력 · 상세는 views/history.js
 import { api } from '../api.js';
-import { MEDIA_FILE_LIMIT, MEDIA_TOTAL_LIMIT, MEDIA_FILE_LIMIT_TEXT, MEDIA_TOTAL_LIMIT_TEXT } from '../sheets.js';
+import { MEDIA_FILE_LIMIT, MEDIA_TOTAL_LIMIT, MEDIA_FILE_LIMIT_TEXT, MEDIA_TOTAL_LIMIT_TEXT, preuploadMedia } from '../sheets.js';
 import {
   $, closeModal, confirmDialog, copyText, h, hydrateMedia, loading, openSheet,
   toast, when,
@@ -680,6 +680,7 @@ export async function reportFormView(view) {
           id: media.id, filename: media.filename, url: media.url,
           mime: media.mime, originalName: media.originalName, size: media.size,
         });
+        preuploadMedia(media.filename);     // 쓰는 동안 뒤에서 미리 올린다 — [업로드] 때는 마무리만 (v3.33)
         added += 1;
       } catch (err) {
         toast(`${original.name}: ${err.message}`, 'err');
