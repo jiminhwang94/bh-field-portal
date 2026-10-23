@@ -27,15 +27,20 @@ var IMAGE_GAP = 8;
 
 function doPost(e) {
   var out = handleRequest(e);
+  var asked = {};
   try {
-    var asked = (e && e.postData && e.postData.contents) ? JSON.parse(e.postData.contents) : {};
+    asked = (e && e.postData && e.postData.contents) ? JSON.parse(e.postData.contents) : {};
+  } catch (err) { asked = {}; }
+  // 첨부 조각 · 마무리는 가볍게 끝낸다 — 기기 기록 · 탭 순서는 리포트 줄을 올릴 때 한다.
+  // (예전에는 사진 조각마다 탭 순서를 맞추느라 재고 탭까지 읽었다: 요청마다 1~2초)
+  if (asked.media === 'chunk' || asked.media === 'finish') return out;
+  try {
     if (asked.device && !asked.changed) touchDevice(SpreadsheetApp.getActiveSpreadsheet(), asked);
   } catch (err) { /* 기기 기록 실패는 응답과 상관없다 */ }
   // 탭 순서 고정 — 요청을 처리한 뒤 매번 맞춘다. 사람이 손으로 옮겨 놓아도
   // 다음 기록 때 제자리로 돌아온다. 5분마다 오는 가벼운 물음(changed)은 건너뛴다.
   try {
-    var b = (e && e.postData && e.postData.contents) ? JSON.parse(e.postData.contents) : {};
-    if (!b.changed) arrangeTabs(SpreadsheetApp.getActiveSpreadsheet());
+    if (!asked.changed) arrangeTabs(SpreadsheetApp.getActiveSpreadsheet());
   } catch (err) { /* 순서 맞추기가 실패해도 응답은 그대로 간다 */ }
   return out;
 }
@@ -1555,7 +1560,10 @@ var FALLBACK_FOLDER_NAME = '현장 리포트 첨부';
 /** 이름이 같은 하위 폴더를 찾고, 없으면 만든다. */
 function folderByName(parent, name) {
   var found = parent.getFoldersByName(name);
-  if (found.hasNext()) return found.next();
+  while (found.hasNext()) {
+    var f = found.next();
+    if (!f.isTrashed || !f.isTrashed()) return f;     // 휴지통에 든 폴더에는 넣지 않는다
+  }
   return parent.createFolder(name);
 }
 
@@ -2951,14 +2959,45 @@ function inventoryDiff(before, after) {
  *   { media: 'chunk', uploadId, index, total, data(base64) }     → 조각 하나 보관
  *   { media: 'finish', uploadId, total, filename, mimeType, storeName, dateText }
  *     → 조각을 이어 붙여 드라이브(매장 → 날짜 → 사진/동영상)에 파일 하나로 만든다
+ *   { media: 'finish', total: 1, data(base64), … }  → 조각 하나짜리 작은 파일은 한 번에 (v3.33)
  * 조각은 바이트 수가 3의 배수라 base64 글자를 그대로 이어 붙이면 원래 파일이 된다.
+ * 폴더 위치는 6시간 기억한다(cachedFolder). 조각 요청은 탭 순서 맞추기를 건너뛴다(doPost).
  * 조각은 '업로드 조각' 폴더에 두었다가 다 붙이면 지운다. 버려진 조각은 이틀 뒤 지운다.
  */
 var CHUNK_FOLDER_NAME = '업로드 조각 (자동 정리)';
 var CHUNK_KEEP_MS = 2 * 86400000;
 
 function chunkFolder(ss) {
-  return folderByName(mediaRoot(ss).folder, CHUNK_FOLDER_NAME);
+  return cachedFolder('fold:chunk', function () { return folderByName(mediaRoot(ss).folder, CHUNK_FOLDER_NAME); });
+}
+
+/**
+ * 폴더 id 를 6시간 기억한다 (v3.33). 이름으로 찾으면 뿌리 → 매장 → 날짜 → 사진 폴더를
+ * 차례로 물어야 해서 사진마다 드라이브를 여러 번 불렀다. 기억한 폴더가 휴지통에 있으면 다시 찾는다.
+ */
+function cachedFolder(key, find) {
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (err) { cache = null; }
+  var id = cache ? cache.get(key) : null;
+  if (id) {
+    try {
+      var known = DriveApp.getFolderById(id);
+      if (!known.isTrashed()) return known;
+    } catch (err) { /* 지워졌거나 권한이 바뀌었다 — 다시 찾는다 */ }
+  }
+  var folder = find();
+  try { if (cache) cache.put(key, folder.getId(), 21600); } catch (err) { /* 기억 못 해도 된다 */ }
+  return folder;
+}
+
+/** 조각 마무리가 넣을 매장 → 날짜 → 사진/동영상 폴더 (기억해 둔다) */
+function cachedMediaTarget(ss, mimeType, storeName, dateText) {
+  var isVideo = String(mimeType || '').indexOf('video/') === 0;
+  var key = 'fold:' + safeFolderName(storeName, '매장 미지정') + '|' + safeFolderName(dateText, '날짜 미지정')
+    + '|' + (isVideo ? 'v' : 'p');
+  return cachedFolder(key.slice(0, 240), function () {
+    return mediaTargetFolder(mediaRoot(ss).folder, mimeType, storeName, dateText);
+  });
 }
 
 function safeUploadId(value) {
@@ -2991,7 +3030,10 @@ function handleMediaUpload(ss, body) {
   if (total < 1) return json({ ok: false, error: '조각 수가 없습니다.' });
   var parts = [];
   var missing = [];
-  for (var i = 0; i < total; i++) {
+  var text = '';
+  // 조각 하나짜리 작은 파일은 마무리 요청에 실려 온다 (v3.33) — 조각 폴더를 거치지 않는다
+  var inline = total === 1 && body.data ? String(body.data) : '';
+  for (var i = 0; !inline && i < total; i++) {
     var it = folder.getFilesByName(id + '.' + i);
     var found = null;
     while (it.hasNext()) {
@@ -3001,11 +3043,11 @@ function handleMediaUpload(ss, body) {
     if (found) parts.push(found); else missing.push(i);
   }
   if (missing.length) return json({ ok: false, missing: missing, error: '빠진 조각이 있습니다: ' + missing.join(',') });
-  var text = '';
+  text = inline;
   for (var p = 0; p < parts.length; p++) text += parts[p].getBlob().getDataAsString();
   var mime = String(body.mimeType || 'application/octet-stream');
   var blob = Utilities.newBlob(Utilities.base64Decode(text), mime, String(body.filename || '첨부'));
-  var target = mediaTargetFolder(mediaRoot(ss).folder, mime, body.storeName, body.dateText);
+  var target = cachedMediaTarget(ss, mime, body.storeName, body.dateText);
   var file = target.createFile(blob);
   var shared = sharePublic(file);
   for (var t = 0; t < parts.length; t++) parts[t].setTrashed(true);

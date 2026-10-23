@@ -64,7 +64,7 @@ test('올리다 아예 끊기면 기기에 남았다가, 다음에 남은 조각
   await page.locator('#reportForm button[type=submit]').click();
   // 다시 해 보다(1 · 3 · 6초) 결국 실패 — '실패' 로 멈추지 않고 기기 대기열에 남는다
   await expect(page.locator('#view')).toContainText('업로드 대기', { timeout: 30000 });
-  expect(sent).toEqual([0, 1]);
+  expect([...sent].sort()).toEqual([0, 1]);         // 3개씩 동시에 — 차례는 섞일 수 있다
   blocked = false;
   await page.evaluate(async () => {
     const sync = await import('/js/sync.js');
@@ -75,5 +75,55 @@ test('올리다 아예 끊기면 기기에 남았다가, 다음에 남은 조각
     const name = Object.keys(dump).find((n) => /^\d{4}-\d{2}$/.test(n));
     return name ? dump[name].flat().join(' ') : '';
   }, { timeout: 30000 }).toContain('조각 올리기 조치');
-  expect(sent).toEqual([0, 1, 2]);                // 0 · 1 은 다시 보내지 않았다
+  expect([...sent].sort()).toEqual([0, 1, 2]);    // 0 · 1 은 다시 보내지 않았다
+});
+
+// ── 빨리 올리기 (v3.33) ──────────────────────────────────────────────────────
+
+const rowText = async (sheet) => {
+  const dump = await sheet.dump();
+  const name = Object.keys(dump).find((n) => /^\d{4}-\d{2}$/.test(n));
+  return name ? dump[name].flat().join(' ') : '';
+};
+
+test('붙이는 순간 뒤에서 조각을 미리 보내고, [업로드] 때는 마무리만 한다', async ({ page, sheet }) => {
+  const video = Buffer.alloc(Math.round(3.5 * MB), 5);            // 조각 3개
+  const chunks = [];
+  const finishes = [];
+  let submitted = false;
+  await page.route('**/127.0.0.1:8791/exec', async (route) => {
+    const body = route.request().postDataJSON() || {};
+    if (body.media === 'chunk') chunks.push({ index: body.index, submitted });
+    if (body.media === 'finish') finishes.push(body);
+    return route.continue();
+  });
+  await fillReport(page, video);
+  await expect.poll(() => chunks.length, { timeout: 15000 }).toBe(3);            // 쓰는 동안 다 보냈다
+  submitted = true;
+  await page.locator('#reportForm button[type=submit]').click();
+  await expect.poll(() => rowText(sheet), { timeout: 30000 }).toContain('조각 올리기 조치');
+  expect(chunks.filter((c) => c.submitted)).toEqual([]);                        // [업로드] 뒤엔 조각을 다시 안 보낸다
+  expect(chunks.map((c) => c.index).sort()).toEqual([0, 1, 2]);
+  expect(finishes.length).toBe(1);
+  expect(finishes[0].data).toBeUndefined();                                      // 마무리에는 파일이 실리지 않는다
+});
+
+test('작은 파일은 조각 없이 마무리 요청 한 번으로 올라간다 (미리 올리기를 못 했을 때)', async ({ page, sheet }) => {
+  const small = Buffer.alloc(300 * 1024, 3);                      // 조각 하나짜리
+  const calls = [];
+  let offline = true;
+  await page.route('**/127.0.0.1:8791/exec', async (route) => {
+    const body = route.request().postDataJSON() || {};
+    if (body.media === 'chunk' || body.media === 'finish') calls.push({ media: body.media, data: Boolean(body.data) });
+    if (offline && body.media === 'chunk') return route.abort('internetdisconnected');   // 쓰는 동안엔 끊겨 있었다
+    return route.continue();
+  });
+  await fillReport(page, small);
+  await expect.poll(() => calls.length, { timeout: 15000 }).toBeGreaterThan(0);
+  offline = false;
+  calls.length = 0;
+  await page.locator('#reportForm button[type=submit]').click();
+  await expect.poll(() => rowText(sheet), { timeout: 30000 }).toContain('조각 올리기 조치');
+  expect(calls).toEqual([{ media: 'finish', data: true }]);
+  expect(await rowText(sheet)).toMatch(/drive\.google\.com\/file\/d\//);
 });

@@ -6,7 +6,7 @@ import * as store from './local/store.js';
 import { isOnline, OfflineError } from './sync.js';
 import { testMode } from './mode.js';
 import { APP_VERSION } from './version.js';
-import { uploadResumable, forgetUploads } from './mediaupload.js';
+import { uploadResumable, prefetchChunks, forgetUploads } from './mediaupload.js';
 
 const META_HEADERS = ['작성일시', '작성자'];
 
@@ -119,6 +119,8 @@ export async function buildPayload(report, fields, deviceName, { chunked = false
   const media = [];
   const skipped = [];
   const uploaded = [];            // 조각으로 미리 올린 것 { key, public, video }
+  const later = [];               // 첨부 칸 — 동시에 올린 뒤 주소를 채운다 { at, kept, early }
+  let upCount = 0;
   let budget = MEDIA_TOTAL_LIMIT;
   // 첨부는 공유 드라이브의 사진/동영상 → 매장 → 날짜 폴더로 들어간다.
   const storeName = findStoreName(report.payload);
@@ -132,7 +134,7 @@ export async function buildPayload(report, fields, deviceName, { chunked = false
       row.push(item.value === null || item.value === undefined ? '' : String(item.value));
       continue;
     }
-    const early = [];               // 이 칸에 미리 올린 첨부 주소
+    const early = [];               // 이 칸에 올리는 첨부 (주소를 줄 Promise — 3개씩 동시에)
     for (const attachment of item.media || []) {
       const filename = (attachment.filename || '').replace(/^.*\//, '');
       if (!filename) continue;
@@ -147,12 +149,16 @@ export async function buildPayload(report, fields, deviceName, { chunked = false
       budget -= blob.size;
       const mimeType = attachment.mime || blob.type || 'application/octet-stream';
       if (chunked) {
-        const up = await uploadResumable(blob, {
+        const video = mimeType.startsWith('video/');
+        // 기다리지 않고 다음 첨부로 — 요청 수는 mediaupload 가 3개로 묶는다
+        upCount += 1;
+        early.push(uploadResumable(blob, {
           key: filename, filename: attachment.originalName || filename, mimeType, storeName, dateText,
-          label: `${mimeType.startsWith('video/') ? '영상' : '사진'} ${uploaded.length + 1}`,
-        }, callAppsScript);
-        early.push(up.url);
-        uploaded.push({ key: filename, public: up.public, video: mimeType.startsWith('video/') });
+          label: `${video ? '영상' : '사진'} ${upCount}`,
+        }, callAppsScript).then((up) => {
+          uploaded.push({ key: filename, public: up.public, video });
+          return up.url;
+        }));
         continue;
       }
       media.push({
@@ -168,8 +174,12 @@ export async function buildPayload(report, fields, deviceName, { chunked = false
     // 지워져 드라이브에는 있는데 리포트에서는 사라진다.
     // 새로 올린 것은 Apps Script 가 이 뒤에 이어 붙인다.
     const kept = (item.kept || []).map((l) => l.url).filter(Boolean);
-    row.push([...kept, ...early].join('\n'));
+    later.push({ at: row.length, kept, early });
+    row.push('');
   }
+  // 모두 올라가면 칸에 주소를 쓴다 (칸 안의 차례는 고른 차례 그대로)
+  const urls = await Promise.all(later.map((c) => Promise.all(c.early)));
+  later.forEach((c, i) => { row[c.at] = [...c.kept, ...urls[i]].join('\n'); });
 
   row.push(seedStatus(report.payload));
 
@@ -285,6 +295,22 @@ export async function callAppsScript(payload, timeout = 60000) {
 
 /** 이 시트가 조각 올리기를 모르면(옛 Apps Script) 이번 실행 동안은 예전 방식으로 */
 let chunkUnsupported = false;
+
+/**
+ * 사진 · 영상을 붙이는 순간 뒤에서 조각을 미리 보낸다 — [업로드] 때는 마무리만 한다 (v3.33).
+ * 덤이라 조용히 한다: 오프라인 · 연결 안 됨 · 옛 시트면 그냥 두고 [업로드] 때 보낸다.
+ */
+export async function preuploadMedia(filename) {
+  try {
+    const key = String(filename || '').replace(/^.*\//, '');
+    if (!key || chunkUnsupported || !isOnline()) return;
+    const blob = await store.getMediaBlob(key);
+    if (!blob || blob.size > MEDIA_FILE_LIMIT) return;
+    await prefetchChunks(blob, { key }, callAppsScript);
+  } catch (err) {
+    if (err && err.unsupported) chunkUnsupported = true;
+  }
+}
 
 /** 리포트를 시트에 올린다. 첨부는 조각으로 먼저 올리고(이어 올리기), 줄에는 주소를 쓴다. */
 export async function uploadReport(report) {

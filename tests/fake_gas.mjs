@@ -194,8 +194,14 @@ export function createFakeGas() {
   function makeFolder(name, path) {
     const folder = {
       name, path, folders: new Map(), files: [],
+      id: `d${allFolders.size}${String(path).replace(/[^A-Za-z0-9]/g, '')}`.slice(0, 33),
       getName: () => name,
+      // 폴더 id 를 기억해 두었다가 getFolderById 로 다시 연다 (v3.33 cachedFolder)
+      getId: () => folder.id,
+      isTrashed: () => Boolean(folder.trashed),
+      setTrashed(value) { folder.trashed = value; return folder; },
       getFoldersByName(child) {
+        driveCalls.byName += 1;
         const found = folder.folders.get(child);
         let handed = false;
         return { hasNext: () => !!found && !handed,
@@ -204,6 +210,7 @@ export function createFakeGas() {
       createFolder(child) {
         const made = makeFolder(child, `${path}/${child}`);
         folder.folders.set(child, made);
+        allFolders.set(made.id, made);
         return made;
       },
       /** 실제 Folder 에 있는 훑기 메서드 — 사진 공개 복구가 이걸 쓴다. */
@@ -270,6 +277,9 @@ export function createFakeGas() {
   }
 
   const allFiles = new Map();
+  const allFolders = new Map();
+  // 드라이브를 몇 번 불렀는지 — 폴더 위치 기억(v3.33)이 이름 찾기를 줄이는지 본다
+  const driveCalls = { byName: 0, folderById: 0 };
 
   // 스프레드시트 파일 자체 — "마지막으로 바뀐 시각" 을 묻는 갈래가 이것을 본다.
   // 검사에서 시각을 바꿔 가며 앱이 '새 내용' 을 알아보는지 확인한다.
@@ -291,6 +301,7 @@ export function createFakeGas() {
       getRootFolder: () => makeFolder('내 드라이브', '내드라이브'),
       getFolderById: (id) => {
         if (id === SHARED_DRIVE_ROOT) return driveTree;
+        if (allFolders.has(id)) { driveCalls.folderById += 1; return allFolders.get(id); }
         throw new Error('없는 폴더입니다: ' + id);
       },
       getFileById: (id) => {
@@ -490,7 +501,7 @@ export function createFakeGas() {
   }
 
   return {
-    gs, ss, consumerSS, call, findPath, allFiles, fetchCalls, driveUpdates, scriptProps, scriptCache,
+    gs, ss, consumerSS, call, findPath, allFiles, fetchCalls, driveUpdates, scriptProps, scriptCache, driveCalls,
     FakeSheet, FakeSpreadsheet,
     get driveTree() { return driveTree; },
     set blockSharing(v) { SHARED_DRIVE_BLOCKS_LINK_SHARING = v; },

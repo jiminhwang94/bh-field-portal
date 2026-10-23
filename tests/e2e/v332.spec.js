@@ -73,7 +73,9 @@ test('[패치 내용] — 새로고침 옆, 안 본 새 버전이면 점 · 열�
   await btn.click();
   const notes = page.locator('#modalRoot .patch-notes');
   await expect(notes.locator('.patch-note').first()).toHaveClass(/is-current/);
-  await expect(notes.locator('.patch-note').first()).toContainText('이슈 유형');
+  const version = await page.evaluate(async () => (await import('/js/version.js')).APP_VERSION);
+  await expect(notes.locator('.patch-note').first()).toContainText(`v${version}`);         // 맨 위가 지금 버전
+  await expect(notes).toContainText('이슈 유형');                                           // 지난 버전도 아래에 남는다
   await expect(notes).toContainText('10월 23일');
   await page.locator('#modalRoot [data-act="close"]').click();
   await expect(btn).not.toHaveClass(/has-new/);
