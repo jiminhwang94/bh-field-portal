@@ -424,7 +424,7 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 4px var(--test-amber); }
   .stats-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* ── 사용 부품 (B안) — 칸에는 알약 · [부품 넣기] 창 (v3.30.1) ─────────────────── */
+/* ── 사용 부품 (B안) — 칸에는 알약 · [부품 추가] 창 (v3.30.1) ─────────────────── */
 .field--parts > .input { display: none; }          /* 글자칸 대신 알약. 값은 그대로 */
 .parts-field {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 56px; padding: 6px 8px;

@@ -334,7 +334,7 @@ export async function reportFormView(view) {
     }
     const partsBox = fieldBox(partsField);
     if (partsBox && inventory.length && !partsBox.querySelector('.field-helper')) {
-      partsBox.classList.add('field--parts');      // 글자칸 대신 알약 + [부품 넣기]
+      partsBox.classList.add('field--parts');      // 글자칸 대신 알약 + [부품 추가]
       partsBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="partsHelper"></div>');
       paintPartsHelper();
     }
@@ -353,7 +353,7 @@ export async function reportFormView(view) {
     const saved = localStorage.getItem(MY_VEHICLE_KEY);
     return names.includes(saved) ? saved : names[0] || '';
   }
-  // ─── 사용 부품 (B안) — 칸에는 넣은 부품 알약만, [부품 넣기] 창에서 분류 · 수량을 고른다
+  // ─── 사용 부품 (B안) — 칸에는 넣은 부품 알약만, [부품 추가] 창에서 분류 · 수량을 고른다
   const PART_CATS_KEY = 'bh_report_part_cats';     // 리포트에 보일 재고 분류 (기기마다)
   const NO_CAT = '분류 없음';
   let sheetCat = '';
@@ -388,7 +388,7 @@ export async function reportFormView(view) {
     else if (delta > 0) list.push({ name, n: delta });
     setParts(list);
   }
-  /** 칸 — 넣은 부품 알약(✕ 로 빼기) + [부품 넣기] */
+  /** 칸 — 넣은 부품 알약(✕ 로 빼기) + [부품 추가] */
   function paintPartsHelper() {
     const box = $('#partsHelper');
     if (!box || !partsField) return;
@@ -399,13 +399,13 @@ export async function reportFormView(view) {
           <span class="part-pill">${h(x.name)}${x.n > 1 ? ` <b class="tnum">×${x.n}</b>` : ''}
             <button class="part-pill__x" data-act="part-remove" data-part="${h(x.name)}" type="button"
                     aria-label="${h(x.name)} 빼기">✕</button></span>`).join('')}
-        <button class="parts-add" data-act="open-parts" type="button">＋ 부품 넣기</button>
+        <button class="parts-add" data-act="open-parts" type="button">＋ 부품 추가</button>
       </div>
       ${list.length ? `<span class="hint">올리면 ${h(myVehicle())} 재고에서 뺍니다</span>` : ''}`;
     const sheetBody = document.getElementById('partsSheet');
     if (sheetBody) paintPartsSheet(sheetBody);
   }
-  /** [부품 넣기] 창 — 차량 · 분류 탭(고른 것만) · 품목마다 −/+ · 목록에 없는 부품 */
+  /** [부품 추가] 창 — 차량 · 분류 탭(고른 것만) · 품목마다 −/+ · 목록에 없는 부품 */
   function paintPartsSheet(body) {
     const vehicles = [...new Set(inventory.map((i) => i.vehicleName))];
     const car = myVehicle();
@@ -424,7 +424,7 @@ export async function reportFormView(view) {
           ${allCats().map((c) => `
             <label class="ps-check"><input type="checkbox" data-act="toggle-cat" data-cat="${h(c)}"
               ${shownCats().includes(c) && localStorage.getItem(PART_CATS_KEY) ? 'checked' : ''} /> ${h(c)}</label>`).join('')}
-          <button class="btn btn-secondary btn--sm" data-act="cats-done" type="button">다 골랐어요</button>
+          <button class="btn btn-secondary btn--sm" data-act="cats-done" type="button">선택</button>
         </div>` : `
         <div class="ps-tabs" role="tablist">
           ${cats.map((c) => `<button class="ps-tab${c === sheetCat ? ' is-on' : ''}" data-act="part-cat" data-cat="${h(c)}"
@@ -451,11 +451,11 @@ export async function reportFormView(view) {
           <input class="input" id="partFree" placeholder="목록에 없는 부품 이름" autocomplete="off" />
           <button class="btn btn-secondary" data-act="part-free" type="button">넣기</button>
         </div>`}
-      <button class="btn btn-primary btn--block" data-act="close" type="button">다 됐어요</button>`;
+      <button class="btn btn-primary btn--block" data-act="close" type="button">추가</button>`;
   }
   function openPartsSheet() {
     catPicking = false;
-    openSheet('부품 넣기', '<div id="partsSheet" class="parts-sheet"></div>');
+    openSheet('부품 추가', '<div id="partsSheet" class="parts-sheet"></div>');
     const body = document.getElementById('partsSheet');
     paintPartsSheet(body);
     body.addEventListener('click', (ev) => {

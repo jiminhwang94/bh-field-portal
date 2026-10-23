@@ -66,7 +66,7 @@ test('작성 화면: 오류 코드를 적으면 가이드가 · 고른 부품은
   await expect(page.locator('#modalRoot')).toContainText('전원을 내리고 커넥터 CN3 를 확인한다');
   await page.locator('#modalRoot [data-act="close"]').click();
 
-  // B안 — [부품 넣기] 창에서 분류 탭 · −/+
+  // B안 — [부품 추가] 창에서 분류 탭 · −/+
   await page.locator('#partsHelper [data-act="open-parts"]').click();
   const sheetBox = page.locator('#partsSheet');
   await sheetBox.locator('[data-act="part-cat"]', { hasText: '소모품' }).click();
@@ -98,7 +98,7 @@ test('작성 화면: 오류 코드를 적으면 가이드가 · 고른 부품은
   }, { timeout: 20000 }).toBe(3);
 });
 
-test('[부품 넣기] 창 — 고른 분류만 탭으로 보인다 (다시 열어도 유지)', async ({ page, sheet }) => {
+test('[부품 추가] 창 — 고른 분류만 탭으로 보인다 (다시 열어도 유지)', async ({ page, sheet }) => {
   await seedMore(sheet);
   await openApp(page, '#/inventory');
   await expect(page.locator('.inv-pick').first()).toBeVisible({ timeout: 15000 });
