@@ -66,8 +66,20 @@ test('작성 화면: 오류 코드를 적으면 가이드가 · 고른 부품은
   await expect(page.locator('#modalRoot')).toContainText('전원을 내리고 커넥터 CN3 를 확인한다');
   await page.locator('#modalRoot [data-act="close"]').click();
 
-  await page.locator('#partsHelper [data-part="그리퍼 실리콘 패드"]').click();
-  await page.locator('#partsHelper [data-part="그리퍼 실리콘 패드"]').click();
+  // B안 — [부품 넣기] 창에서 분류 탭 · −/+
+  await page.locator('#partsHelper [data-act="open-parts"]').click();
+  const sheetBox = page.locator('#partsSheet');
+  await sheetBox.locator('[data-act="part-cat"]', { hasText: '소모품' }).click();
+  const plus = sheetBox.locator('[data-act="part-inc"][data-part="그리퍼 실리콘 패드"]');
+  await plus.click(); await plus.click(); await plus.click();          // 실수로 한 번 더
+  await sheetBox.locator('[data-act="part-dec"][data-part="그리퍼 실리콘 패드"]').click();   // − 로 고친다
+  await sheetBox.locator('[data-act="part-inc"][data-part="가스게이지"]').click();
+  await page.locator('#modalRoot [data-act="close"]').last().click();
+  await expect(page.locator('#partsHelper .part-pill')).toHaveCount(2);
+  await expect(page.locator('#partsHelper')).toContainText('그리퍼 실리콘 패드 ×2');
+  // 칸의 ✕ 로 뺀다
+  await page.locator('#partsHelper [data-act="part-remove"][data-part="가스게이지"]').click();
+  await expect(page.locator('#partsHelper .part-pill')).toHaveCount(1);
   await expect(field('사용 부품')).toHaveValue('그리퍼 실리콘 패드 ×2');
   await field('리포트 번호').selectOption('P260912-01');
   await field('로봇 시리얼').fill('SN-PART');
@@ -84,6 +96,26 @@ test('작성 화면: 오류 코드를 적으면 가이드가 · 고른 부품은
     const line = rows.find((r) => r[0] === '그리퍼 실리콘 패드') || [];
     return line[col];
   }, { timeout: 20000 }).toBe(3);
+});
+
+test('[부품 넣기] 창 — 고른 분류만 탭으로 보인다 (다시 열어도 유지)', async ({ page, sheet }) => {
+  await seedMore(sheet);
+  await openApp(page, '#/inventory');
+  await expect(page.locator('.inv-pick').first()).toBeVisible({ timeout: 15000 });
+  await openApp(page, '#/report/new');
+  await page.locator('#partsHelper [data-act="open-parts"]').click();
+  const sheetBox = page.locator('#partsSheet');
+  await expect(sheetBox.locator('[data-act="part-cat"]')).toHaveCount(2);      // 고르기 전에는 전부 (소모품 · 케이블)
+  await sheetBox.locator('[data-act="cats-pick"]').click();
+  await sheetBox.locator('[data-act="toggle-cat"][data-cat="소모품"]').check();
+  await sheetBox.locator('[data-act="cats-done"]').click();
+  await expect(sheetBox.locator('[data-act="part-cat"]')).toHaveCount(1);
+  await expect(sheetBox.locator('[data-act="part-cat"]')).toHaveText(/소모품/);
+  await expect(sheetBox).not.toContainText('C to C 2m');                    // 케이블 품목은 안 보인다
+  await page.reload();
+  await openApp(page, '#/report/new');
+  await page.locator('#partsHelper [data-act="open-parts"]').click();
+  await expect(page.locator('#partsSheet [data-act="part-cat"]')).toHaveCount(1);
 });
 
 test('고대비 보기 — 설정에서 켜면 다시 열어도 유지된다', async ({ page }) => {
