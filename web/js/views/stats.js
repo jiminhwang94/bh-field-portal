@@ -3,7 +3,7 @@
 // 품질팀 · 개발팀에 넘길 근거. 기기에 받아 둔 이력으로 계산한다 (없는 달만 시트에서 받는다).
 // 주소: #/stats?m=3   (m = 최근 몇 달: 1 · 3 · 6 · 12)
 import { $, h, loading } from '../ui.js';
-import { loadEntries, valueOf, parseParts, openDays, tally, findWork, isCodeShaped, issueOf } from '../insights.js';
+import { loadEntries, valueOf, parseParts, openDays, tally, findWork, isCodeShaped, issuesOf } from '../insights.js';
 import { api } from '../api.js';
 import { TRACK, trackOf } from './report-common.js';
 
@@ -36,16 +36,15 @@ export async function statsView(view, params) {
   const models = tally(entries.map((e) => valueOf(e, '모델') || '(모델 없음)'));
   // 작업 — 별칭 · 합친 이름도 같은 항목으로 센다. 예전 '오류 코드' 칸의 분류 글자도 작업으로 본다
   const work = await api.workList().catch(() => ({ cats: [], items: [] }));
-  const workText = (e) => issueOf(e);
-  const works = tally(entries.map((e) => {
-    const t = workText(e);
+  // 여러 개 고른 리포트는 이슈 유형마다 하나씩 센다 (v3.34)
+  const works = tally(entries.flatMap((e) => issuesOf(e).map((t) => {
     const it = findWork(t, work);
     return it ? it.name : t.split('›').pop().trim();
-  }).filter(Boolean));
-  const kinds = tally(entries.map((e) => {
-    const it = findWork(workText(e), work);
-    return it ? it.kind : (workText(e).includes('로봇 외') ? '로봇 외 이슈' : '');
-  }).filter(Boolean));
+  })).filter(Boolean));
+  const kinds = tally(entries.flatMap((e) => issuesOf(e).map((t) => {
+    const it = findWork(t, work);
+    return it ? it.kind : (t.includes('로봇 외') ? '로봇 외 이슈' : '');
+  })).filter(Boolean));
   const codes = tally(entries.map((e) => e.code).filter(isCodeShaped));
   const stores = tally(entries.map((e) => e.store).filter(Boolean));
   const parts = new Map();

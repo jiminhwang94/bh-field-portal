@@ -109,6 +109,18 @@ export function issueOf(entry) {
   return entry && entry.code && !isCodeShaped(entry.code) ? entry.code : '';
 }
 
+/**
+ * 이슈 유형은 여러 개 고를 수 있다 (v3.34) — 칸에는 한 줄에 하나씩 들어간다.
+ * '로봇 이슈 › 하드웨어 교체 › 로더 교체' 와 '로봇 외 이슈 › 네트워크 › 와이파이' 를 고르면 두 줄 → 두 개
+ */
+export const splitIssues = (text) => String(text || '').split(/[\r\n]+/).map((t) => t.trim()).filter(Boolean);
+export const issuesOf = (entry) => splitIssues(issueOf(entry));
+/** 칸의 글자에서 목록의 항목들을 찾는다 (못 찾은 것은 빠진다 · 같은 항목은 한 번) */
+export function findWorks(text, list) {
+  const seen = new Set();
+  return splitIssues(text).map((t) => findWork(t, list)).filter((it) => it && !seen.has(it.id) && seen.add(it.id));
+}
+
 /** 오류 코드처럼 생겼나 — E-101 · W204 · ERR12. '유지 보수' 같은 분류 글자는 아니다 */
 export const isCodeShaped = (v) => /^[A-Za-z]{1,4}[-\s]?\d{1,5}[A-Za-z]?$/.test(String(v || '').trim());
 
@@ -163,14 +175,13 @@ export async function workUsage(list, months = 3) {
   for (const m of recentMonths(months)) {
     const cached = await store.getMeta(`sheetReports:${m}`, null);
     for (const e of (cached && cached.entries) || []) {
-      const text = issueOf(e);
-      const it = findWork(text, list);
-      if (!it) continue;
-      all.set(it.id, (all.get(it.id) || 0) + 1);
-      const model = valueOf(e, '모델');
-      if (!byModel.has(model)) byModel.set(model, new Map());
-      const mm = byModel.get(model);
-      mm.set(it.id, (mm.get(it.id) || 0) + 1);
+      for (const it of findWorks(issueOf(e), list)) {        // 여러 개 고른 리포트는 하나씩 센다
+        all.set(it.id, (all.get(it.id) || 0) + 1);
+        const model = valueOf(e, '모델');
+        if (!byModel.has(model)) byModel.set(model, new Map());
+        const mm = byModel.get(model);
+        mm.set(it.id, (mm.get(it.id) || 0) + 1);
+      }
     }
   }
   return { all, byModel };

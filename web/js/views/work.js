@@ -8,7 +8,7 @@
 //  - 지난 리포트에서 가져오기 — '작업' · 옛 '오류 코드' 칸에 적힌 분류 글자를 '미분류' 로
 import { api } from '../api.js';
 import { $, closeModal, confirmDialog, h, loading, openSheet, promptDialog, toast } from '../ui.js';
-import { findWork, issueOf, loadEntries, matchWork, workPath, workUsage } from '../insights.js';
+import { findWork, issuesOf, loadEntries, matchWork, workPath, workUsage } from '../insights.js';
 
 const KINDS = ['로봇 이슈', '로봇 외 이슈'];
 const squash = (t) => String(t || '').toLowerCase().replace(/\s+/g, '');
@@ -269,8 +269,9 @@ export async function workView(view) {
         const { entries } = await loadEntries(12);
         const names = new Set();
         for (const e of entries) {
-          const text = issueOf(e);
-          if (text && !findWork(text, list)) names.add(text.split('›').pop().trim());
+          for (const text of issuesOf(e)) {
+            if (!findWork(text, list)) names.add(text.split('›').pop().trim());
+          }
         }
         if (!names.size) { toast('새로 가져올 것이 없습니다. (지난 리포트의 이슈 유형이 모두 목록에 있습니다)', 'ok'); return; }
         /** @type {any[]} */

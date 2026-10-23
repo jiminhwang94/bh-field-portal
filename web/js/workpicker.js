@@ -1,7 +1,8 @@
 // [이슈 유형 고르기] 창 (B안) — 왼쪽 구분 · 대분류, 오른쪽 세부 항목 · 검색 · 새로 적기.
 //
-// 리포트 작성 화면이 연다. 고르면 onPick('로봇 이슈 › 하드웨어 교체 › 로더 교체', 항목) 을
-// 부르고 창을 닫는다. 목록은 기기에 있다 (오프라인 OK).
+// 리포트 작성 화면이 연다. 목록은 기기에 있다 (오프라인 OK).
+// 여러 개 고를 수 있다 (v3.34) — 누를 때마다 고르고/빼고, [선택] 을 누르면
+// onPick(['로봇 이슈 › 하드웨어 교체 › 로더 교체', …], 항목들) 을 부르고 창을 닫는다.
 //
 // [편집] 을 켜면 이 창 안에서 바로 만들고 · 고치고 · 지운다 (v3.32) — 대분류도 세부 항목도.
 // 고친 것은 팀 전체 목록(시트 '이슈 유형 목록')에 올라간다. 정리(합치기 · 별칭 · 가이드 잇기)는
@@ -10,22 +11,24 @@
 // 검색칸은 한 번 만들고 다시 만들지 않는다 — 다시 만들면 한글 조합이 끊긴다.
 import { api } from './api.js';
 import { $, closeModal, h, openSheet, toast } from './ui.js';
-import { findWork, matchWork, workPath, workUsage } from './insights.js';
+import { findWorks, matchWork, workPath, workUsage } from './insights.js';
 
 const KINDS = ['로봇 이슈', '로봇 외 이슈'];
 const squash = (t) => String(t || '').replace(/\s/g, '');
 
 /**
- * @param {{ value?: string, robotModel?: string, onPick: (path: string, item: any) => void }} opts
+ * @param {{ value?: string, robotModel?: string, onPick: (paths: string[], items: any[]) => void }} opts
  */
 export async function openWorkPicker({ value = '', robotModel = '', onPick }) {
   let list = await api.workList();
   if (!list.cats.length) list = await api.ensureDefaultWork();
   const usage = await workUsage(list, 3).catch(() => ({ all: new Map(), byModel: new Map() }));
   const modelUse = usage.byModel.get(robotModel) || new Map();
-  const current = findWork(value, list);
-  let kind = current ? current.kind : list.cats[0].kind;
-  let cat = current ? current.cat : list.cats[0].name;
+  /** @type {string[]} */
+  let chosen = findWorks(value, list).map((it) => it.id);      // 고른 차례대로
+  const first = list.items.find((it) => it.id === chosen[0]);
+  let kind = first ? first.kind : list.cats[0].kind;
+  let cat = first ? first.cat : list.cats[0].name;
   let query = '';
   let editing = false;
   let editKey = '';          // 고치는 중인 것 — 'item:<id>' · 'cat:<구분>|<대분류>' · 'newcat:<구분>'
@@ -46,6 +49,10 @@ export async function openWorkPicker({ value = '', robotModel = '', onPick }) {
           <button class="btn btn-secondary" data-act="wk-add" type="button">추가</button>
         </div>
         <p class="hint" id="wkWhere"></p>
+        <div class="wk-done">
+          <div class="wk-chosen" id="wkChosen" aria-live="polite"></div>
+          <button class="btn btn-primary" data-act="wk-done" type="button">선택</button>
+        </div>
       </div>
     </div>`);
 
@@ -92,10 +99,11 @@ export async function openWorkPicker({ value = '', robotModel = '', onPick }) {
       if (editing && editKey === key) return `<div class="wk-item wk-item--edit">${inlineEdit(key, it.name, '세부 항목 이름')}</div>`;
       if (editing && confirmKey === key) return `<div class="wk-item wk-item--edit">${confirmDel(key, it.name)}</div>`;
       const n = usage.all.get(it.id) || 0;
-      const on = current && current.id === it.id;
+      const on = chosen.includes(it.id);
       return `
         <div class="wk-itemwrap">
-          <button class="wk-item${on ? ' is-on' : ''}" data-act="wk-pick" data-id="${h(it.id)}" type="button">
+          <button class="wk-item${on ? ' is-on' : ''}" data-act="wk-pick" data-id="${h(it.id)}" type="button"
+                  aria-pressed="${on}">
             <span class="wk-item__name">${h(it.name)}${it.isNew ? ' <em class="wk-new-badge">새 항목</em>' : ''}</span>
             <span class="wk-item__sub">${[query ? `${it.kind} › ${it.cat}` : '',
               it.aliases.length ? `별칭 ${it.aliases.join(', ')}` : ''].filter(Boolean).map(h).join(' · ')}</span>
@@ -108,9 +116,18 @@ export async function openWorkPicker({ value = '', robotModel = '', onPick }) {
       아래에 새로 적어 넣으세요.</p>`;
     $('#wkWhere').textContent = editing
       ? '편집 중 — ✎ 이름 바꾸기 · 🗑 삭제. 고친 것은 팀 전체 목록에 올라갑니다'
-      : `새로 적으면 '${kind} › ${cat}' 에 들어갑니다`;
+      : `여러 개 고를 수 있습니다 · 새로 적으면 '${kind} › ${cat}' 에 들어갑니다`;
   }
-  const paint = () => { paintSide(); paintList(); };
+  function paintChosen() {
+    chosen = chosen.filter((id) => list.items.some((it) => it.id === id));      // 지운 항목은 뺀다
+    const items = chosen.map((id) => list.items.find((it) => it.id === id));
+    $('#wkChosen').innerHTML = items.length
+      ? `<span class="wk-chosen__n tnum">${items.length}개</span>${items.map((it) => `
+          <span class="wk-chip">${h(it.name)}<button class="part-pill__x" data-act="wk-unpick" data-id="${h(it.id)}"
+            type="button" aria-label="${h(it.name)} 빼기">✕</button></span>`).join('')}`
+      : '<span class="muted">고른 것이 없습니다</span>';
+  }
+  const paint = () => { paintSide(); paintList(); paintChosen(); };
   paint();
   const focusEdit = () => {
     const inp = /** @type {HTMLInputElement | null} */ (document.querySelector('#modalRoot [data-edit-input]'));
@@ -198,26 +215,27 @@ export async function openWorkPicker({ value = '', robotModel = '', onPick }) {
     if (act === 'wk-del-yes') await remove(btn.dataset.key);
     if (act === 'wk-pick') {
       if (editing) return;                        // 편집 중에는 고르지 않는다
-      const it = list.items.find((x) => x.id === btn.dataset.id);
-      if (!it) return;
+      const id = btn.dataset.id;
+      chosen = chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id];
+      paintList(); paintChosen();
+    }
+    if (act === 'wk-unpick') { chosen = chosen.filter((x) => x !== btn.dataset.id); paintList(); paintChosen(); }
+    if (act === 'wk-done') {
+      const items = chosen.map((id) => list.items.find((it) => it.id === id)).filter(Boolean);
       closeModal();
-      onPick(workPath(it), it);
+      onPick(items.map(workPath), items);
     }
     if (act === 'wk-add') {
       const name = /** @type {HTMLInputElement} */ ($('#wkNew')).value.trim();
       if (!name) { toast('이슈 유형 이름을 적어 주세요.', 'err'); return; }
       const dup = list.items.find((it) => it.kind === kind && it.cat === cat && squash(it.name) === squash(name));
       const it = dup || await api.addWorkItem(kind, cat, name);
-      if (editing) {                              // 편집 중에는 목록에만 넣고 창을 닫지 않는다
-        list = await api.workList();
-        /** @type {HTMLInputElement} */ ($('#wkNew')).value = '';
-        if (!dup) toast(`'${name}' 을(를) 넣었습니다.`, 'ok');
-        paint();
-        return;
-      }
-      closeModal();
-      if (!dup) toast(`'${name}' 을(를) 이슈 유형 목록에 새 항목으로 넣었습니다.`, 'ok');
-      onPick(workPath(it), it);
+      list = await api.workList();
+      /** @type {HTMLInputElement} */ ($('#wkNew')).value = '';
+      // 편집 중에는 목록에만 넣는다. 아니면 넣고 고른다 — 창은 열어 둔다 (더 고를 수 있게)
+      if (!editing && !chosen.includes(it.id)) chosen = [...chosen, it.id];
+      if (!dup) toast(editing ? `'${name}' 을(를) 넣었습니다.` : `'${name}' 을(를) 새 항목으로 넣고 골랐습니다.`, 'ok');
+      paint();
     }
   });
   // 고치는 칸에서 Enter = 저장
