@@ -355,19 +355,6 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 4px var(--test-amber); }
   background: var(--st-doing-tint); color: var(--st-doing); font: inherit; font-weight: 600; text-align: left; cursor: pointer;
 }
 .guide-hint span { margin-left: auto; }
-.parts-pick { display: flex; flex-direction: column; gap: 8px; }
-.parts-pick__head .chip { min-height: 48px; cursor: pointer; font: inherit; font-weight: 700; }   /* 장갑 — 48px 이상 */
-.parts-pick__head .chip.is-on { background: var(--color-text); border-color: var(--color-text); color: var(--color-bg); }
-.parts-pick__head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
-.parts-pick__list { display: flex; flex-wrap: wrap; gap: 8px; }
-.part-chip {
-  min-height: 48px; padding: 0 14px; border-radius: 999px; border: 1.5px solid var(--color-border-strong);
-  background: var(--color-bg); color: var(--color-text); font: inherit; font-weight: 600; cursor: pointer;
-}
-.part-chip small { color: var(--color-muted); font-weight: 600; margin-left: 4px; }
-.part-chip.is-on { background: var(--st-doing); border-color: var(--st-doing); color: var(--color-on-accent); }
-.part-chip.is-on small { color: var(--color-on-accent-muted); }
-.part-chip.is-empty { border-style: dashed; }
 .peek-steps { margin: 12px 0; padding-left: 22px; line-height: 1.7; }
 .peek-cmds { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .peek-cmds code { padding: 8px 10px; border-radius: 8px; background: var(--color-surface-2); font-family: var(--font-mono, monospace); }
@@ -436,3 +423,57 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 4px var(--test-amber); }
   .store-sum__tile--wide { grid-column: 1 / -1; }
   .stats-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── 사용 부품 (B안) — 칸에는 알약 · [부품 넣기] 창 (v3.30.1) ─────────────────── */
+.field--parts > .input { display: none; }          /* 글자칸 대신 알약. 값은 그대로 */
+.parts-field {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 56px; padding: 6px 8px;
+  border: 1.5px solid var(--color-border-strong); border-radius: 12px; background: var(--color-bg);
+}
+.part-pill {
+  display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 4px 0 14px; border-radius: 999px;
+  background: var(--st-doing-tint); color: var(--st-doing); font-weight: 650;
+}
+.part-pill b { font-weight: 800; }
+.part-pill__x {
+  width: 40px; height: 40px; border: 0; border-radius: 999px; background: transparent; color: inherit;
+  font: inherit; font-size: 16px; cursor: pointer;
+}
+.part-pill__x:hover { background: var(--color-bg); }
+.parts-add {
+  margin-left: auto; min-height: 44px; padding: 0 14px; border: 0; border-radius: 10px; cursor: pointer;
+  background: transparent; color: var(--color-accent); font: inherit; font-weight: 700;
+}
+.parts-add:hover { background: var(--color-accent-tint); }
+.parts-sheet { display: flex; flex-direction: column; gap: 12px; }
+.ps-car { margin: 0; }
+.ps-row, .ps-tabs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ps-chip, .ps-tab {
+  min-height: 48px; padding: 0 16px; border-radius: 999px; border: 1.5px solid var(--color-border-strong);
+  background: var(--color-bg); color: var(--color-text); font: inherit; font-weight: 700; cursor: pointer;
+}
+.ps-chip.is-on, .ps-tab.is-on { background: var(--color-text); border-color: var(--color-text); color: var(--color-bg); }
+.ps-tab i { font-style: normal; color: var(--st-doing); font-size: 11px; margin-left: 2px; }
+.ps-tab.is-on i { color: var(--color-bg); }
+.ps-gear { margin-left: auto; min-height: 48px; padding: 0 10px; border: 0; background: transparent;
+  color: var(--color-muted); font: inherit; text-decoration: underline; cursor: pointer; }
+.ps-list { display: flex; flex-direction: column; max-height: 50vh; overflow-y: auto; }
+.ps-item { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 6px 2px; border-top: 1px solid var(--color-hairline); }
+.ps-item:first-child { border-top: 0; }
+.ps-item.is-on .ps-item__name { color: var(--st-doing); }
+.ps-item__name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 17px; font-weight: 650; }
+.ps-item__name small { font-size: 14px; font-weight: 500; }
+.ps-over { color: var(--color-danger); }
+.ps-step { display: inline-flex; align-items: center; border: 1.5px solid var(--color-border-strong); border-radius: 12px; overflow: hidden; }
+.ps-step button {
+  width: 56px; height: 52px; border: 0; background: var(--color-bg); color: var(--color-text);
+  font: inherit; font-size: 24px; font-weight: 700; cursor: pointer;
+}
+.ps-step button:disabled { color: var(--color-border-strong); cursor: default; }
+.ps-step b { min-width: 40px; text-align: center; font-size: 20px; font-weight: 800;
+  border-left: 1px solid var(--color-hairline); border-right: 1px solid var(--color-hairline); line-height: 52px; }
+.ps-free { display: flex; gap: 8px; }
+.ps-free .input { flex: 1; min-width: 0; }
+.ps-cats { display: flex; flex-direction: column; gap: 6px; }
+.ps-check { display: flex; align-items: center; gap: 10px; min-height: 48px; font-weight: 650; }
+.ps-check input { width: 24px; height: 24px; }

@@ -66,7 +66,7 @@ export async function storeHistoryView(view, name) {
           이력 화면에서 달을 한 번 열면 그 달 기록이 기기에 담깁니다.</div>`}
     </div>`;
 
-  // [이 매장 새 리포트] — 매장 이름을 채워서 연다 (이력의 [이어서 작성] 과 같은 길)
+  // [이 매장 새 리포트] — 지난 기록의 매장 · 시리얼 · 오류 코드를 채워 새 리포트를 연다
   $('#pageRoot').addEventListener('click', (ev) => {
     const a = /** @type {HTMLElement} */ (ev.target).closest('[data-act="new-here"]');
     if (!a || !last) return;

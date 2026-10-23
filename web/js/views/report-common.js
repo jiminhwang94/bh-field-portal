@@ -1,8 +1,8 @@
-// 리포트 작성 화면과 이력 화면이 함께 쓰는 것 — 상태 4종 · 아이콘 · [이어서 작성] 넘기기.
+// 리포트 작성 화면과 이력 화면이 함께 쓰는 것 — 상태 4종 · 아이콘 · 지난 기록을 새 리포트로 넘기기.
 // (작성: views/report.js · 이력: views/history.js. 서로를 부르지 않게 공통은 여기 둔다)
 import { toast } from '../ui.js';
 
-export const SEED_KEY = 'bh_report_seed';   // 이력에서 [이어서 작성] 로 넘겨받는 값
+export const SEED_KEY = 'bh_report_seed';   // [수정] · [이 매장 새 리포트] 가 넘기는 값
 
 export const ICON = (paths) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;

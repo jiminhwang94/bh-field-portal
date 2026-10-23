@@ -194,7 +194,6 @@ function entryDetailHtml(entry) {
 
       <div class="hist-actions">
         <button class="btn btn-secondary" data-act="edit" type="button">수정</button>
-        <button class="btn btn-secondary" data-act="reuse" type="button">이어서 작성</button>
         <button class="btn btn--danger" data-act="delete" type="button">삭제</button>
       </div>
     </div>`;
@@ -233,14 +232,8 @@ function bindEntry(box, getEntry, { onStatus, inModal = false } = {}) {
         toast(err.message, 'err');
       }
     }
-    if (act === 'reuse') {
-      // 새 방문 — 아는 값만 채우고 시트에는 새 줄로 들어간다.
-      // (예전에는 여기서 없는 이름 NEW_DRAFT_KEY 를 지우려다 오류가 나서 버튼이 아무 일도 안 했다)
-      seedFromEntry(entry);
-      if (inModal) closeModal();
-      location.hash = '#/report/new';
-      toast('지난 기록을 바탕으로 새 리포트를 엽니다.', 'ok');
-    }
+    // [이어서 작성] 은 v3.30.1 에 뺐다 — 고치기는 [수정], 같은 매장 새 방문은
+    // 매장별 이력의 [이 매장 새 리포트] 가 맡는다 (버튼이 둘이면 헷갈린다는 현장 의견).
     if (act === 'edit') {
       // 같은 방문을 고침 — 시트의 그 줄을 다시 쓴다.
       seedFromEntry(entry, { edit: true });

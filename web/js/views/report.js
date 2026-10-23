@@ -50,7 +50,7 @@ export async function reportFormView(view) {
     if (!Array.isArray(values[f.id].kept)) values[f.id].kept = [];
   });
 
-  // 이력에서 [이어서 작성] 으로 왔으면 아는 값을 미리 채운다.
+  // 이력 [수정] 이나 매장별 이력 [이 매장 새 리포트] 로 왔으면 아는 값을 미리 채운다.
   let seeded = null;
   try {
     seeded = JSON.parse(sessionStorage.getItem(SEED_KEY) || 'null');
@@ -82,7 +82,7 @@ export async function reportFormView(view) {
         if (field) values[field.id].kept.push(link);
       }
     } else {
-      // 이어서 작성 — 아는 것만 채운다.
+      // 새 방문 — 지난 기록에서 아는 것만 채운다.
       for (const f of fields) {
         const label = f.fieldLabel;
         if (seeded.store && (label.includes('식당') || label.includes('매장'))) {
@@ -334,6 +334,7 @@ export async function reportFormView(view) {
     }
     const partsBox = fieldBox(partsField);
     if (partsBox && inventory.length && !partsBox.querySelector('.field-helper')) {
+      partsBox.classList.add('field--parts');      // 글자칸 대신 알약 + [부품 넣기]
       partsBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="partsHelper"></div>');
       paintPartsHelper();
     }
@@ -352,37 +353,137 @@ export async function reportFormView(view) {
     const saved = localStorage.getItem(MY_VEHICLE_KEY);
     return names.includes(saved) ? saved : names[0] || '';
   }
-  function paintPartsHelper() {
-    const box = $('#partsHelper');
-    if (!box || !partsField) return;
-    const vehicles = [...new Set(inventory.map((i) => i.vehicleName))];
-    const car = myVehicle();
-    const chosen = new Map(parseParts(values[partsField.id].value).map((p) => [p.name, p.n]));
-    const items = inventory.filter((i) => i.vehicleName === car);
-    box.innerHTML = `
-      <div class="parts-pick">
-        <span class="parts-pick__head">${vehicles.length > 1
-          ? vehicles.map((v) => `<button class="chip${v === car ? ' is-on' : ''}" data-act="pick-car" data-car="${h(v)}" type="button">${h(v)}</button>`).join('')
-          : `<span class="muted">${h(car)}</span>`}
-          <span class="muted">에서 골라 넣기 · 올리면 재고에서 뺍니다</span></span>
-        <span class="parts-pick__list">
-          ${items.map((i) => {
-            const n = chosen.get(i.partName) || 0;
-            return `<button class="part-chip${n ? ' is-on' : ''}${i.quantity < 1 ? ' is-empty' : ''}" data-act="pick-part"
-                      data-part="${h(i.partName)}" type="button" aria-pressed="${n > 0}">
-                      ${h(i.partName)} <small class="tnum">${n ? `×${n}` : `${i.quantity}개`}</small></button>`;
-          }).join('')}
-        </span>
-      </div>`;
+  // ─── 사용 부품 (B안) — 칸에는 넣은 부품 알약만, [부품 넣기] 창에서 분류 · 수량을 고른다
+  const PART_CATS_KEY = 'bh_report_part_cats';     // 리포트에 보일 재고 분류 (기기마다)
+  const NO_CAT = '분류 없음';
+  let sheetCat = '';
+  let catPicking = false;
+  const catOf = (i) => String(i.category || '').trim() || NO_CAT;
+  function allCats() {
+    const out = [];
+    for (const i of inventory) if (!out.includes(catOf(i))) out.push(catOf(i));
+    return out;
   }
-  function addPart(name) {
-    const list = parseParts(values[partsField.id].value);
-    const hit = list.find((p) => p.name === name);
-    if (hit) hit.n += 1; else list.push({ name, n: 1 });
-    values[partsField.id].value = partsText(list);
+  /** 내가 고른 분류. 아직 안 골랐으면 전부 */
+  function shownCats() {
+    let saved = [];
+    try { saved = JSON.parse(localStorage.getItem(PART_CATS_KEY) || '[]') || []; } catch { saved = []; }
+    const all = allCats();
+    const mine = all.filter((c) => saved.includes(c));
+    return mine.length ? mine : all;
+  }
+  function chosenParts() {
+    return parseParts(values[partsField.id].value);
+  }
+  function setParts(list) {
+    values[partsField.id].value = partsText(list.filter((x) => x.n > 0));
     const input = /** @type {HTMLInputElement} */ (document.querySelector(`#reportForm [data-input="${partsField.id}"]`));
     if (input) input.value = values[partsField.id].value;
     paintPartsHelper();
+  }
+  function changePart(name, delta) {
+    const list = chosenParts();
+    const hit = list.find((x) => x.name === name);
+    if (hit) hit.n = Math.max(0, hit.n + delta);
+    else if (delta > 0) list.push({ name, n: delta });
+    setParts(list);
+  }
+  /** 칸 — 넣은 부품 알약(✕ 로 빼기) + [부품 넣기] */
+  function paintPartsHelper() {
+    const box = $('#partsHelper');
+    if (!box || !partsField) return;
+    const list = chosenParts();
+    box.innerHTML = `
+      <div class="parts-field">
+        ${list.map((x) => `
+          <span class="part-pill">${h(x.name)}${x.n > 1 ? ` <b class="tnum">×${x.n}</b>` : ''}
+            <button class="part-pill__x" data-act="part-remove" data-part="${h(x.name)}" type="button"
+                    aria-label="${h(x.name)} 빼기">✕</button></span>`).join('')}
+        <button class="parts-add" data-act="open-parts" type="button">＋ 부품 넣기</button>
+      </div>
+      ${list.length ? `<span class="hint">올리면 ${h(myVehicle())} 재고에서 뺍니다</span>` : ''}`;
+    const sheetBody = document.getElementById('partsSheet');
+    if (sheetBody) paintPartsSheet(sheetBody);
+  }
+  /** [부품 넣기] 창 — 차량 · 분류 탭(고른 것만) · 품목마다 −/+ · 목록에 없는 부품 */
+  function paintPartsSheet(body) {
+    const vehicles = [...new Set(inventory.map((i) => i.vehicleName))];
+    const car = myVehicle();
+    const cats = shownCats();
+    if (!cats.includes(sheetCat)) sheetCat = cats[0] || '';
+    const counts = new Map(chosenParts().map((x) => [x.name, x.n]));
+    const items = inventory.filter((i) => i.vehicleName === car && catOf(i) === sheetCat);
+    const picked = (c) => inventory.some((i) => i.vehicleName === car && catOf(i) === c && counts.get(i.partName));
+    body.innerHTML = `
+      ${vehicles.length > 1 ? `<div class="ps-row">
+        ${vehicles.map((v) => `<button class="ps-chip${v === car ? ' is-on' : ''}" data-act="pick-car" data-car="${h(v)}" type="button">${h(v)}</button>`).join('')}
+      </div>` : `<p class="muted ps-car">${h(car)} 재고</p>`}
+      ${catPicking ? `
+        <div class="ps-cats">
+          <p class="muted">리포트에 보일 분류를 고르세요 · 이 기기에만 저장됩니다</p>
+          ${allCats().map((c) => `
+            <label class="ps-check"><input type="checkbox" data-act="toggle-cat" data-cat="${h(c)}"
+              ${shownCats().includes(c) && localStorage.getItem(PART_CATS_KEY) ? 'checked' : ''} /> ${h(c)}</label>`).join('')}
+          <button class="btn btn-secondary btn--sm" data-act="cats-done" type="button">다 골랐어요</button>
+        </div>` : `
+        <div class="ps-tabs" role="tablist">
+          ${cats.map((c) => `<button class="ps-tab${c === sheetCat ? ' is-on' : ''}" data-act="part-cat" data-cat="${h(c)}"
+              role="tab" aria-selected="${c === sheetCat}" type="button">${h(c)}${picked(c) ? ' <i aria-hidden="true">●</i>' : ''}</button>`).join('')}
+          <button class="ps-gear" data-act="cats-pick" type="button">보일 분류 고르기</button>
+        </div>
+        <div class="ps-list">
+          ${items.length ? items.map((i) => {
+            const n = counts.get(i.partName) || 0;
+            const over = n > i.quantity;
+            return `
+              <div class="ps-item${n ? ' is-on' : ''}">
+                <span class="ps-item__name">${h(i.partName)}
+                  <small class="${over ? 'ps-over' : 'muted'}">재고 ${i.quantity}${over ? ' · 재고보다 많음' : ''}</small></span>
+                <span class="ps-step">
+                  <button data-act="part-dec" data-part="${h(i.partName)}" type="button" aria-label="${h(i.partName)} 하나 빼기" ${n ? '' : 'disabled'}>−</button>
+                  <b class="tnum">${n}</b>
+                  <button data-act="part-inc" data-part="${h(i.partName)}" type="button" aria-label="${h(i.partName)} 하나 넣기">+</button>
+                </span>
+              </div>`;
+          }).join('') : '<p class="muted">이 분류에 품목이 없습니다.</p>'}
+        </div>
+        <div class="ps-free">
+          <input class="input" id="partFree" placeholder="목록에 없는 부품 이름" autocomplete="off" />
+          <button class="btn btn-secondary" data-act="part-free" type="button">넣기</button>
+        </div>`}
+      <button class="btn btn-primary btn--block" data-act="close" type="button">다 됐어요</button>`;
+  }
+  function openPartsSheet() {
+    catPicking = false;
+    openSheet('부품 넣기', '<div id="partsSheet" class="parts-sheet"></div>');
+    const body = document.getElementById('partsSheet');
+    paintPartsSheet(body);
+    body.addEventListener('click', (ev) => {
+      const btn = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (ev.target).closest('[data-act]'));
+      if (!btn) return;
+      const act = btn.dataset.act;
+      if (act === 'pick-car') { localStorage.setItem(MY_VEHICLE_KEY, btn.dataset.car); paintPartsHelper(); }
+      if (act === 'part-cat') { sheetCat = btn.dataset.cat; paintPartsSheet(body); }
+      if (act === 'part-inc') changePart(btn.dataset.part, 1);
+      if (act === 'part-dec') changePart(btn.dataset.part, -1);
+      if (act === 'cats-pick') { catPicking = true; paintPartsSheet(body); }
+      if (act === 'cats-done') { catPicking = false; paintPartsSheet(body); }
+      if (act === 'part-free') {
+        const inp = /** @type {HTMLInputElement} */ (document.getElementById('partFree'));
+        const name = inp.value.trim();
+        if (name) changePart(name, 1);
+      }
+    });
+    body.addEventListener('change', (ev) => {
+      const box = /** @type {HTMLInputElement} */ (ev.target);
+      if (box.dataset.act !== 'toggle-cat') return;
+      const on = [...body.querySelectorAll('[data-act="toggle-cat"]')]
+        .filter((x) => /** @type {HTMLInputElement} */ (x).checked).map((x) => /** @type {HTMLElement} */ (x).dataset.cat);
+      try {
+        if (on.length) localStorage.setItem(PART_CATS_KEY, JSON.stringify(on));
+        else localStorage.removeItem(PART_CATS_KEY);       // 하나도 안 고르면 전부 보인다
+      } catch { /* 이번만 */ }
+    });
   }
   /** 새 리포트를 올릴 때 한 번만 — 고른 부품을 내 차량 재고에서 뺀다 */
   async function deductParts(reportId) {
@@ -556,8 +657,11 @@ export async function reportFormView(view) {
     if (!btn) return;
     const act = btn.dataset.act;
     if (act === 'peek-guide') { peekGuide(btn.dataset.id); return; }
-    if (act === 'pick-car') { localStorage.setItem('bh_my_vehicle', btn.dataset.car); paintPartsHelper(); return; }
-    if (act === 'pick-part') { addPart(btn.dataset.part); return; }
+    if (act === 'open-parts') { openPartsSheet(); return; }
+    if (act === 'part-remove') {
+      setParts(chosenParts().filter((x) => x.name !== btn.dataset.part));
+      return;
+    }
 
     if (act === 'capture' || act === 'record' || act === 'pick') {
       const input = $({ capture: '#mediaCapture', record: '#mediaRecord', pick: '#mediaPick' }[act]);

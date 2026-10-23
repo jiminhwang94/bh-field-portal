@@ -92,11 +92,11 @@ check(
                   report) is not None,
 )
 
-check(
-    "이력의 [이어서 작성] 은 새 리포트 주소로 간다",
-    re.search(r"seedFromEntry\(entry\);\s*\n\s*(?:if \(inModal\) )?closeModal\(\);\s*\n\s*location\.hash = '#/report/new';",
-              report) is not None,
-)
+# v3.30.1: 이력의 [이어서 작성] 을 뺐다. 같은 매장 새 방문은 매장별 이력에서 연다.
+check("이력 상세에 [이어서 작성] 이 없다 (수정 · 삭제만)", 'data-act="reuse"' not in report)
+check("매장별 이력의 [이 매장 새 리포트] 가 지난 값으로 새 리포트를 연다",
+      "seedFromEntry(last);" in read("web/js/views/store.js")
+      and "location.hash = '#/report/new';" in read("web/js/views/store.js"))
 
 # 고칠 줄은 이력에서 넘겨받은 것 하나뿐이다. 기기에 담아 둔 것을 주워 오면
 # 다른 줄을 고치러 들어왔을 때 엉뚱한 줄을 덮어쓸 수 있다.
