@@ -143,7 +143,7 @@ export async function guideDetailView(view, guideId, query = null) {
             <button class="btn btn-secondary" data-act="prev-step" type="button"${at === 0 ? ' disabled' : ''}>‹ 이전 단계</button>
             <span class="gs-bar__count tnum">${done.size} / ${total} 단계 했음</span>
             <button class="btn btn-primary gs-bar__next" data-act="done-next" type="button">${
-              last ? '다 했어요 · 리포트 쓰기 ›' : '다 했어요 · 다음 ›'}</button>
+              last ? '완료' : '다음 ›'}</button>
           </div>` : ''}
       </div>`;
     $('#pageRoot').addEventListener('click', onClick);   // 그릴 때마다 새 칸이라 한 번씩만 붙는다
@@ -202,7 +202,12 @@ export async function guideDetailView(view, guideId, query = null) {
     if (act === 'done-next') {
       done.add(String(at));
       saveDone();
-      if (at >= total - 1) { writeReport(); return; }
+      // 마지막 단계의 [완료] — 그 로봇의 가이드 목록으로 돌아간다 (리포트는 위 [이 작업으로 리포트 쓰기])
+      if (at >= total - 1) {
+        toast('가이드를 마쳤습니다.', 'ok');
+        location.hash = modelHref(key);
+        return;
+      }
       at += 1;
       render();
       window.scrollTo(0, 0);

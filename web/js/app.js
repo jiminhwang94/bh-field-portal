@@ -176,6 +176,10 @@ async function mainView() {
     alerts.push({ tone: 'warn', href: '#/settings', text: `남이 먼저 고친 가이드 ${attn.conflicts}건`,
                   sub: '내 것 · 남의 것 중 고르세요' });
   }
+  if (attn.orphans) {
+    alerts.push({ tone: 'warn', href: '#/guides', text: `시트에 없는 가이드 ${attn.orphans}건`,
+                  sub: '이 기기에만 남아 있습니다 — 지울지 다시 올릴지 고르세요' });
+  }
   if (overdue.length) {
     alerts.push({ tone: 'warn', href: '#/reports?old=1', text: `${OVERDUE_DAYS}일 넘게 끝나지 않은 리포트 ${overdue.length}건`,
                   sub: overdue.slice(0, 3).map((e) => e.store).filter(Boolean).join(' · ') });

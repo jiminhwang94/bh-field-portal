@@ -139,12 +139,40 @@ test('가이드 — 한 단계씩 [다 했어요] 로 넘기고, 끝나면 마�
   await page.locator('[data-act="done-next"]').click();
   await expect(page.locator('.gs-no')).toHaveText('2 / 2');
   await expect(page.locator('.gs-item.is-done')).toHaveCount(1);
-  await page.locator('[data-act="done-next"]').click();                    // 마지막 = 리포트 쓰기
+  await expect(page.locator('[data-act="done-next"]')).toHaveText('완료');    // 마지막 단계는 [완료]
+  await page.locator('[data-act="write-report"]').click();                 // 리포트는 위 버튼으로
   await expect(page).toHaveURL(/#\/report\/new$/);
   await expect(field(page, '매장명')).toHaveValue('옥동식 서초점');
   await expect(field(page, '로봇 시리얼')).toHaveValue('SN-0009');
   await expect(field(page, '오류 코드')).toHaveValue('E-101');
-  await expect(field(page, '조치 내용')).toHaveValue(/벨트 장력을 재조정한다/);
+  await expect(field(page, '조치 내용')).toHaveValue(/커넥터 CN3/);       // 마친 단계만 들어간다
+  // 마지막 단계에서 [완료] → 그 로봇의 가이드 목록으로 돌아간다
+  await openApp(page, `#/guides/${GUIDES[0].id}`);
+  await page.locator('[data-act="go-step"][data-idx="1"]').click();
+  await page.locator('[data-act="done-next"]').click();
+  await expect(page).toHaveURL(/#\/guides\/m\/Gen\.1$/);
+});
+
+test('시트에서 한꺼번에 지운 가이드가 기기에 남으면 — 가이드 첫 화면에서 지우거나 다시 올린다', async ({ page, sheet }) => {
+  // 로봇 미지정 가이드 8건이 시트에 있다
+  const many = Array.from({ length: 8 }, (_, i) => ({
+    id: `b1b2c3d4e5f6000${i}`, categoryType: 'ERROR_CODE', robotModel: '', codeOrTitle: `E-9${i}0 옛 가이드 ${i}`,
+    summary: '', requiredTools: '', commands: [], steps: [{ instruction: '확인한다', expectedMetric: '' }],
+    updatedAt: '2026-09-07T10:00:00' }));
+  await sheet.call({ guides: 'push', items: many });
+  await openApp(page, '#/guides');
+  await expect(page.locator('.rband--none')).toContainText('8', { timeout: 15000 });
+  // 누군가 시트에서 5건을 한꺼번에 지웠다 (절반 넘게 — 기기는 안전하게 바로 지우지 않는다)
+  await sheet.call({ guides: 'push', items: many.slice(0, 3) });
+  await openApp(page, '#/guides');
+  await page.locator('#btn-update').click();                                // 받기
+  await openApp(page, '#/guides');
+  const band = page.locator('.gh-orphans');
+  await expect(band).toContainText('시트에 없는 가이드 5건', { timeout: 15000 });
+  await band.locator('[data-act="orphans-drop"]').click();
+  await page.locator('#modalRoot [data-act="ok"]').click();
+  await expect(page.locator('.gh-orphans')).toHaveCount(0);
+  await expect(page.locator('.rband--none')).toContainText('3');            // 기기에서도 사라졌다
 });
 
 test('재고 — 줄에서 바로 +/− · 맨 위 보충 필요 띠를 누르면 부족한 것만', async ({ page, sheet }) => {

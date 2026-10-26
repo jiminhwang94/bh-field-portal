@@ -325,7 +325,47 @@ async function pullGuidesNow() {
     removed += 1;
   }
 
+  // 시트에 없는데 이 기기에만 남은 가이드 (v3.35) — 사람이 고르게 표시해 둔다.
+  // 규칙 3(한꺼번에 절반 넘게 사라짐)으로 지우지 않은 것은 위에서 '아는 ID' 를 이번 시트로
+  // 바꾸는 순간 다시는 알아볼 수 없게 되어 영영 남았다 (시트에서 13건을 지운 뒤 기기에 그대로 남은 일).
+  // 내가 아직 안 올린 것은 빼고 본다 — 그건 곧 올라간다.
+  const orphans = (await idb.getAll('guides'))
+    .filter((g) => !seen.has(g.id) && !pending.has(g.id)).map((g) => g.id);
+  await store.setMeta(ORPHAN_KEY, orphans);
+
   return { changed: changed + modelsChanged, added, removed, deleted };
+}
+
+// ─────────────────────────────────────────────── 시트에 없는 가이드 (v3.35)
+const ORPHAN_KEY = 'guideOrphans';
+
+/** 시트에 없고 이 기기에만 남은 가이드 */
+export async function listOrphans() {
+  const ids = (await store.getMeta(ORPHAN_KEY, [])) || [];
+  if (!ids.length) return [];
+  return (await idb.getAll('guides')).filter((g) => ids.includes(g.id));
+}
+
+/** 이 기기에서 지운다 — 시트에는 이미 없으므로 시트로 보낼 것은 없다 */
+export async function dropOrphans() {
+  const list = await listOrphans();
+  for (const g of list) await idb.remove('guides', g.id);
+  await store.setMeta(ORPHAN_KEY, []);
+  return list.length;
+}
+
+/** 실수로 시트에서 지운 것이면 — 이 기기 것을 시트에 다시 올린다 */
+export async function reuploadOrphans() {
+  const list = await listOrphans();
+  for (const g of list) {
+    await store.saveGuide({
+      categoryType: g.categoryType, robotModel: g.robotModel || '', codeOrTitle: g.codeOrTitle,
+      summary: g.summary || '', requiredTools: g.requiredTools || '', commands: g.commands || [],
+      steps: (g.steps || []).map((s) => ({ instruction: s.instruction, expectedMetric: s.expectedMetric || '', imageUrl: s.imageUrl || '' })),
+    }, g.id);
+  }
+  await store.setMeta(ORPHAN_KEY, []);
+  return list.length;
 }
 
 /** 시트에서 온 내용이 기기 것과 같은가 (같으면 건드리지 않는다) */
