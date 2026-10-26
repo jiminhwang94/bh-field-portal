@@ -150,7 +150,7 @@ check("상세 화면이 '기준값' 대신 공구 칩을 보여 준다",
       "기준값" not in guides and 'class="tag tag-accent"' in guides)
 # 시트 쪽 표기
 check("시트에는 '(공구: …)' 로 적는다", "'  (공구: '" in gs_src)
-check("옛 '(기준: …)' 기록도 그대로 읽는다", "indexOf('  (기준: ')" in gs_src)
+check("옛 '(기준: …)' 기록도 그대로 읽는다", "lastIndexOf('  (기준: ')" in gs_src)   # 여러 줄 단계(v3.35.2)는 맨 끝 표시를 찾는다
 
 print()
 print("== 8. 차량 재고 — 부품 검색")

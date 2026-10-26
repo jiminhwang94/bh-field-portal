@@ -251,3 +251,18 @@ test('가이드 편집 — 단계가 명령어보다 위 · 명령어는 접혀 
   await expect(page.locator('#cmdFold')).toHaveAttribute('open', '');      // 다시 그려도 펼친 채
   await expect(page.locator('[name=cmdText]')).toHaveCount(1);
 });
+
+test('가이드 단계에 여러 줄을 쓰면 시트를 다녀와도 한 단계로 남는다', async ({ page, sheet }) => {
+  await openApp(page, '#/guides/new/HARDWARE_SOP');
+  await page.locator('#gTitle').fill('여러 줄 단계 검사');
+  await page.locator('textarea[name=stepText]').first().fill('덮개를 연다\n나사 4개를 푼다');
+  await page.locator('#guideForm button[type=submit]').click();
+  await expect(page).toHaveURL(/#\/guides\/[0-9a-f]{6,}$/);
+  // 시트에 올라간 뒤 받아 와도
+  await expect.poll(async () => JSON.stringify(await sheet.dump()), { timeout: 15000 }).toContain('여러 줄 단계 검사');
+  await page.locator('#btn-update').click();
+  await page.waitForTimeout(1500);
+  await page.reload();
+  await expect(page.locator('.gs-no')).toHaveText('1 / 1');
+  await expect(page.locator('.gs-instr')).toContainText('나사 4개를 푼다');
+});

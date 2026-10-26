@@ -172,6 +172,11 @@ export function createFakeGas() {
       return s;
     }
     setActiveSheet(sheet) { this.active = sheet; return this; }
+    deleteSheet(sheet) {
+      this.sheets = this.sheets.filter((s) => s !== sheet);
+      if (this.active === sheet) this.active = null;
+      return this;
+    }
     moveActiveSheet(pos) {
       const i = this.sheets.indexOf(this.active);
       if (i < 0) return this;

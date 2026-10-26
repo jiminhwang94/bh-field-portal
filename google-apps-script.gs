@@ -1397,22 +1397,32 @@ function readGuideSheet(sheet, categoryType) {
       });
     }
 
+    // 단계 칸 읽기 — **다음 번호로 시작하는 줄**만 새 단계다 ('1. …' 다음은 '2. …').
+    // 번호가 없거나 띄워 쓴 줄, 번호가 차례에 안 맞는 줄은 앞 단계에 이어 붙인다.
+    // 예전에는 줄마다 새 단계로 읽어, 한 단계에 여러 줄을 쓰면 단계가 여러 개로 갈라졌다.
+    var blocks = [];
+    String(row[stepCol] || '').replace(/\r/g, '').split(NEWLINE).forEach(function (line) {
+      var num = line.match(/^(\d+)\.\s*(.*)$/);
+      if (num && Number(num[1]) === blocks.length + 1) { blocks.push([num[2]]); return; }
+      if (!blocks.length) { if (line.trim()) blocks.push([line.trim()]); return; }
+      blocks[blocks.length - 1].push(line.replace(/^ {1,3}/, ''));
+    });
     var steps = [];
-    String(row[stepCol] || '').split(NEWLINE).forEach(function (line) {
-      var text = line.trim();
-      if (!text) return;
-      text = text.replace(/^\d+\.\s*/, '');
+    blocks.forEach(function (block) {
+      var text = block.join(NEWLINE).replace(/\s+$/, '');
       var metric = '';
       // 단계에 딸린 값. 예전에는 '기준 수치'였고 지금은 '필요 공구'다.
-      // 옛 기록을 그대로 읽어야 하므로 두 이름을 모두 받는다.
-      var mark = text.indexOf('  (공구: ');
-      if (mark < 0) mark = text.indexOf('  (기준: ');
+      // 옛 기록을 그대로 읽어야 하므로 두 이름을 모두 받는다. 여러 줄이면 맨 끝에 붙어 있다.
+      var mark = text.lastIndexOf('  (공구: ');
+      if (mark < 0) mark = text.lastIndexOf('  (기준: ');
       if (mark >= 0) {
         metric = text.slice(mark + 7).replace(/\)$/, '').trim();
         text = text.slice(0, mark);
       }
+      text = text.trim();
+      if (!text) return;
       steps.push({
-        instruction: text.trim(),
+        instruction: text,
         expectedMetric: metric || null,
         imageUrl: photos[steps.length + 1] || null
       });
@@ -1464,7 +1474,11 @@ function writeGuideSheet(ss, name, list) {
     var stepList = g.steps || [];
     for (var k = 0; k < stepList.length; k++) {
       var step = stepList[k] || {};
-      var text = (k + 1) + '. ' + (step.instruction || '');
+      // 한 단계 안의 여러 줄은 둘째 줄부터 앞을 띄워 적는다 — 번호 없이 띄운 줄은 앞 단계에 이어진다.
+      // (예전에는 줄마다 새 단계로 읽혀, 여러 줄로 쓴 단계가 새로고침 뒤 여러 단계로 갈라졌다)
+      var lines = String(step.instruction || '').replace(/\r/g, '').split(NEWLINE);
+      var text = (k + 1) + '. ' + lines[0];
+      for (var ln = 1; ln < lines.length; ln++) text += NEWLINE + '   ' + lines[ln];
       if (step.expectedMetric) text += '  (공구: ' + step.expectedMetric + ')';
       steps.push(text);
       // 드라이브에 올라간 사진만 적는다. 기기 안에만 있는 것(/media/...)은
