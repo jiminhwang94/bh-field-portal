@@ -239,3 +239,15 @@ test('오류 코드 가이드 제목 — 맨 앞이 코드 모양일 때만 파�
   await expect(page.locator('.gd-code')).toHaveCount(0);
   await expect(page.locator('.gd-title h1')).toHaveText('[SocketManager] Client connection Failed.');
 });
+
+test('가이드 편집 — 단계가 명령어보다 위 · 명령어는 접혀 있다가 펼친다', async ({ page }) => {
+  await openApp(page, '#/guides/new');
+  const panels = page.locator('#guideForm > .panel, #guideForm > details.panel');
+  await expect(panels.nth(1)).toContainText('단계');
+  await expect(panels.nth(2)).toHaveId('cmdFold');
+  await expect(page.locator('#cmdFold')).not.toHaveAttribute('open', '');
+  await page.locator('#cmdFold > summary').click();
+  await page.locator('[data-act="add-cmd"]').click();
+  await expect(page.locator('#cmdFold')).toHaveAttribute('open', '');      // 다시 그려도 펼친 채
+  await expect(page.locator('[name=cmdText]')).toHaveCount(1);
+});

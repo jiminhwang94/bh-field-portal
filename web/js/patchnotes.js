@@ -6,6 +6,13 @@
 //   · 새 버전은 맨 위에 더한다. 버전을 올릴 때(tools/release.py) 여기에 없으면 알려 준다
 export const PATCH_NOTES = [
   {
+    version: '3.35.1',
+    date: '2026-10-26',
+    items: [
+      '가이드를 쓸 때 단계가 위, 명령어가 아래에 있어요. 명령어 칸은 눌러서 펼쳐요.',
+    ],
+  },
+  {
     version: '3.35.0',
     date: '2026-10-26',
     items: [
