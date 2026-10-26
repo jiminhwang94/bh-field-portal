@@ -4,6 +4,7 @@ import {
   $, $$, h, CATEGORY, closeModal, confirmDialog, copyText, hydrateMedia, loading,
   openSheet, promptDialog, toast, when,
 } from '../ui.js';
+import { isCodeShaped } from '../insights.js';
 
 export const DONE_KEY = (id) => `bh_steps_done_${id}`;
 
@@ -117,11 +118,17 @@ export const modelLabel = (key) => (key === NONE ? NONE_LABEL : key);
 export const modelHref = (key, cat = null) =>
   `#/guides/m/${encodeURIComponent(key || NONE)}${cat ? `/${cat}` : ''}`;
 
-/** 오류 코드는 코드(E-101)와 제목을 나눠 보여 준다. 나머지는 제목만. */
+/**
+ * 오류 코드는 코드(E-101)와 제목을 나눠 보여 준다. 나머지는 제목만.
+ * 맨 앞 낱말이 **코드처럼 생겼을 때만** 나눈다 — '[SocketManager] Client connection Failed.' 처럼
+ * 로그 문구를 제목으로 쓰면 '[SocketManager]' 가 파란 코드 칸으로 떨어져 나갔다 (v3.35).
+ */
 export function splitTitle(guide) {
-  if (guide.categoryType !== 'ERROR_CODE') return { code: '', title: guide.codeOrTitle };
-  const [first, ...rest] = guide.codeOrTitle.split(' ');
-  return { code: first, title: rest.join(' ') || guide.codeOrTitle };
+  const full = String(guide.codeOrTitle || '').trim();
+  if (guide.categoryType !== 'ERROR_CODE') return { code: '', title: full };
+  const [first, ...rest] = full.split(/\s+/);
+  if (!isCodeShaped(first) || !rest.length) return { code: '', title: full };
+  return { code: first, title: rest.join(' ') };
 }
 
 /** 로봇 이름 바꾸기 · 삭제 — 가이드 탭과 로봇 화면이 같은 창을 쓴다. */

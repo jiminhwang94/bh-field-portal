@@ -221,3 +221,21 @@ test('이력 카드 아래 [가이드] · 가이드 첫 화면에 최근 이력�
   await page.locator('.gh-code').first().click();
   await expect(page.locator('.gs-no')).toHaveText('1 / 2');
 });
+
+test('오류 코드 가이드 제목 — 맨 앞이 코드 모양일 때만 파란 코드 칸으로 나눈다', async ({ page, sheet }) => {
+  await sheet.call({ guides: 'push', items: [
+    { id: 'c1c2c3d4e5f60001', categoryType: 'ERROR_CODE', robotModel: 'Gen.1', codeOrTitle: '[SocketManager] Client connection Failed.',
+      summary: '', requiredTools: '', commands: [], steps: [{ instruction: '재연결한다', expectedMetric: '' }], updatedAt: '2026-10-26T10:00:00' },
+    { id: 'c1c2c3d4e5f60002', categoryType: 'ERROR_CODE', robotModel: 'Gen.1', codeOrTitle: 'E-101 로더 모터 과전류',
+      summary: '', requiredTools: '', commands: [], steps: [{ instruction: '확인한다', expectedMetric: '' }], updatedAt: '2026-10-26T10:00:00' },
+  ] });
+  await openApp(page, '#/guides/m/Gen.1/ERROR_CODE');
+  const sock = page.locator('.guide-row', { hasText: 'SocketManager' });
+  await expect(sock).toBeVisible({ timeout: 15000 });
+  await expect(sock.locator('.row__code')).toHaveCount(0);
+  await expect(sock.locator('.row__title')).toHaveText('[SocketManager] Client connection Failed.');
+  await expect(page.locator('.guide-row', { hasText: '로더 모터' }).locator('.row__code')).toHaveText('E-101');
+  await sock.click();
+  await expect(page.locator('.gd-code')).toHaveCount(0);
+  await expect(page.locator('.gd-title h1')).toHaveText('[SocketManager] Client connection Failed.');
+});
