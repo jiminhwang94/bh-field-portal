@@ -63,4 +63,8 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.webkit:webkit:1.11.0'      // WebViewAssetLoader
     implementation 'androidx.activity:activity:1.9.2'   // 뒤로가기 · 결과 받기
+    // 영상 줄이기 (v3.36) — 찍은 영상을 720p · 2.2Mbps 로 다시 만든다 (VideoCompressor)
+    implementation 'androidx.media3:media3-transformer:1.4.1'
+    implementation 'androidx.media3:media3-effect:1.4.1'
+    implementation 'androidx.media3:media3-common:1.4.1'
 }

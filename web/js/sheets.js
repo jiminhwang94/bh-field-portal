@@ -11,17 +11,19 @@ import { uploadResumable, prefetchChunks, forgetUploads } from './mediaupload.js
 const META_HEADERS = ['작성일시', '작성자'];
 
 /**
- * 첨부는 드라이브에 저장한다 — 한 건당 20MB, 리포트 하나당 25MB 까지.
+ * 첨부는 드라이브에 저장한다 — 한 건당 25MB, 리포트 하나당 60MB 까지 (v3.36).
  *
- * 이 숫자는 기술 한계에 가깝다. 첨부는 구글 시트 웹 앱에 **한 번의 요청**으로
- * 실려 가는데, 구글이 한 요청에 받는 양이 약 50MB 이고 전송 중 base64 로
- * 1.33배 불어난다. 사진은 올리기 전에 줄이므로 거의 안 걸리고, 동영상이 걸린다.
- * 20MB 는 휴대폰 기본 화질(1080p)로 약 15~20초다. 화질에 따라 크게 다르다.
+ * 파일 하나는 조각(1.5MB)으로 나눠 올리고 Apps Script 가 마지막에 이어 붙인다.
+ * 이어 붙일 때 base64 로 1.33배 불어난 글자를 한 번에 다루므로 파일 하나가 이 정도가 알맞다.
+ * 영상은 APK 가 찍은 뒤 720p · 2.2Mbps 로 줄여 1분이 약 17MB 다 (android VideoCompressor).
+ * 조각 업로드를 모르는 옛 Apps Script 에는 한 요청에 다 실어 보내므로 리포트당 25MB 로 묶는다.
  */
-export const MEDIA_FILE_LIMIT = 20 * 1024 * 1024;
-export const MEDIA_TOTAL_LIMIT = 25 * 1024 * 1024;
-export const MEDIA_FILE_LIMIT_TEXT = '20MB';
-export const MEDIA_TOTAL_LIMIT_TEXT = '25MB';
+export const MEDIA_FILE_LIMIT = 25 * 1024 * 1024;
+export const MEDIA_TOTAL_LIMIT = 60 * 1024 * 1024;
+export const MEDIA_FILE_LIMIT_TEXT = '25MB';
+export const MEDIA_TOTAL_LIMIT_TEXT = '60MB';
+/** 옛 Apps Script(조각 업로드 없음) — 한 요청에 다 실어 보낼 때의 리포트 전체 한도 */
+const LEGACY_TOTAL_LIMIT = 25 * 1024 * 1024;
 
 /**
  * 이력 화면의 추적 상태 — 시트 맨 뒤 '상태' 열에 기록된다.
@@ -121,7 +123,7 @@ export async function buildPayload(report, fields, deviceName, { chunked = false
   const uploaded = [];            // 조각으로 미리 올린 것 { key, public, video }
   const later = [];               // 첨부 칸 — 동시에 올린 뒤 주소를 채운다 { at, kept, early }
   let upCount = 0;
-  let budget = MEDIA_TOTAL_LIMIT;
+  let budget = chunked ? MEDIA_TOTAL_LIMIT : LEGACY_TOTAL_LIMIT;
   // 첨부는 공유 드라이브의 사진/동영상 → 매장 → 날짜 폴더로 들어간다.
   const storeName = findStoreName(report.payload);
   const dateText = (report.createdAt || '').slice(0, 10);
@@ -141,10 +143,10 @@ export async function buildPayload(report, fields, deviceName, { chunked = false
       const blob = await store.getMediaBlob(filename);
       if (!blob) { skipped.push({ filename, reason: '기기에 파일 없음' }); continue; }
       if (blob.size > MEDIA_FILE_LIMIT) {
-        skipped.push({ filename, reason: '파일 하나가 20MB 를 넘음' }); continue;
+        skipped.push({ filename, reason: `파일 하나가 ${MEDIA_FILE_LIMIT_TEXT} 를 넘음` }); continue;
       }
       if (blob.size > budget) {
-        skipped.push({ filename, reason: '리포트 전체 용량 25MB 초과' }); continue;
+        skipped.push({ filename, reason: `리포트 전체 용량 ${chunked ? MEDIA_TOTAL_LIMIT_TEXT : '25MB'} 초과` }); continue;
       }
       budget -= blob.size;
       const mimeType = attachment.mime || blob.type || 'application/octet-stream';

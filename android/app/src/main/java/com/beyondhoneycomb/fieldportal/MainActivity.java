@@ -54,6 +54,8 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
     private Uri cameraOutputUri;
+    /** 이번에 띄운 카메라가 동영상 카메라인가 (찍은 뒤 줄일지 정한다) */
+    private boolean cameraIsVideo;
 
     /** 사진 촬영/선택 결과를 받아 WebView 의 <input type="file"> 로 넘긴다. */
     private final androidx.activity.result.ActivityResultLauncher<Intent> filePicker =
@@ -64,19 +66,67 @@ public class MainActivity extends AppCompatActivity {
                         if (filePathCallback == null) {
                             return;
                         }
-                        Uri[] uris = null;
+                        Uri picked = null;
+                        boolean fromCamera = false;
                         if (result.getResultCode() == Activity.RESULT_OK) {
                             Intent data = result.getData();
                             if (data != null && data.getData() != null) {
-                                uris = new Uri[]{data.getData()};       // 앨범에서 선택
+                                picked = data.getData();                 // 앨범에서 선택
                             } else if (cameraOutputUri != null) {
-                                uris = new Uri[]{cameraOutputUri};      // 카메라로 촬영
+                                picked = cameraOutputUri;                // 카메라로 촬영
+                                fromCamera = true;
                             }
                         }
-                        filePathCallback.onReceiveValue(uris);
+                        ValueCallback<Uri[]> callback = filePathCallback;
+                        boolean video = picked != null && (fromCamera ? cameraIsVideo : isVideo(picked));
                         filePathCallback = null;
                         cameraOutputUri = null;
+                        cameraIsVideo = false;
+                        if (video && VideoCompressor.needsWork(this, picked)) {
+                            shrinkVideo(picked, fromCamera, callback);   // 720p · 1분으로 줄여서 넘긴다
+                            return;
+                        }
+                        callback.onReceiveValue(picked == null ? null : new Uri[]{picked});
                     });
+
+    private boolean isVideo(Uri uri) {
+        try {
+            String type = getContentResolver().getType(uri);
+            return type != null && type.startsWith("video/");
+        } catch (Exception exc) {
+            return false;
+        }
+    }
+
+    /**
+     * 영상을 올릴 크기로 줄인 뒤 웹에 넘긴다 (v3.36 — VideoCompressor 참고).
+     * 줄이다 실패하면 원본이 한도(25MB) 안일 때만 원본을 넘기고, 아니면 아무것도 붙이지 않는다
+     * (웹이 '너무 크다' 고 거절하는 것보다 여기서 이유를 말하는 편이 낫다).
+     */
+    private void shrinkVideo(Uri input, boolean fromCamera, ValueCallback<Uri[]> callback) {
+        File out = VideoCompressor.outputFile(this);
+        VideoCompressor.compress(this, input, out, (file, message) -> {
+            if (message != null) Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            if (file != null) {
+                if (fromCamera) deleteCapture(input);      // 원본(고화질)은 더 쓸 일이 없다
+                callback.onReceiveValue(new Uri[]{FileProvider.getUriForFile(
+                        this, getPackageName() + ".fileprovider", file)});
+                return;
+            }
+            callback.onReceiveValue(null);
+        });
+    }
+
+    /** 앱 캐시에 찍어 둔 원본 영상을 지운다 (FileProvider 주소 → 캐시 파일) */
+    private void deleteCapture(Uri uri) {
+        try {
+            String name = uri.getLastPathSegment();
+            if (name == null) return;
+            File f = new File(new File(getCacheDir(), "captures"), name);
+            //noinspection ResultOfMethodCallIgnored
+            f.delete();
+        } catch (Exception ignored) { }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -319,10 +369,8 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
-    /** 웹의 첨부 한도와 같은 값. 카메라 앱이 이 크기에서 녹화를 멈춘다(지원 기기). */
-    private static final long VIDEO_SIZE_LIMIT = 20L * 1024 * 1024;
-    /** 동영상 최대 길이(초). 현장 확인용은 이 정도면 충분하고, 저화질이면 20MB 안에 넉넉히 든다. */
-    private static final int VIDEO_SECONDS_LIMIT = 20;
+    /** 동영상 최대 길이(초). 찍은 뒤 720p 로 줄이면 1분이 약 17MB (VideoCompressor) */
+    private static final int VIDEO_SECONDS_LIMIT = 60;
 
     private boolean openPicker(WebChromeClient.FileChooserParams params) {
         String[] accept = params.getAcceptTypes();
@@ -390,17 +438,15 @@ public class MainActivity extends AppCompatActivity {
                                            : "photo-" + stamp + ".jpg");
             cameraOutputUri = FileProvider.getUriForFile(
                     this, getPackageName() + ".fileprovider", out);
+            cameraIsVideo = video;
             intent.putExtra(MediaStore.EXTRA_OUTPUT, cameraOutputUri);
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
             if (video) {
-                // 웹 첨부 한도와 같은 크기에서 녹화가 멈추게 부탁한다.
-                // 모든 카메라 앱이 지키지는 않으므로 웹 쪽 확인은 그대로 남아 있다.
-                intent.putExtra(MediaStore.EXTRA_SIZE_LIMIT, VIDEO_SIZE_LIMIT);
-                // 저화질(0). 고화질(1)로 두니 태블릿이 초당 6.7MB 로 찍어 20MB 가 3초에
-                // 찼다. 카메라 앱이 이 값을 어느 해상도로 받는지는 기기마다 다르다
-                // (720p 도, 480p 도 있다). 너무 낮으면 앱 안 녹화로 바꾼다.
-                intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 0);
-                // 길이도 함께 막는다 — "동영상은 최대 20초" 안내와 맞춘다.
+                // 고화질(1)로 찍고, 찍은 뒤 VideoCompressor 가 720p · 2.2Mbps 로 줄인다 (v3.36).
+                // 예전에는 저화질(0) · 20초 · 20MB 로 부탁했는데, 카메라 앱마다 저화질 해상도가
+                // 달라(문자 전송용 아주 작은 화면까지) 로봇을 알아볼 수 없었다.
+                // 크기 한도는 두지 않는다 — 고화질 1분은 기기 안에서만 잠시 쓰고 줄인 뒤 지운다.
+                intent.putExtra(MediaStore.EXTRA_VIDEO_QUALITY, 1);
                 intent.putExtra(MediaStore.EXTRA_DURATION_LIMIT, VIDEO_SECONDS_LIMIT);
             }
             return intent;
