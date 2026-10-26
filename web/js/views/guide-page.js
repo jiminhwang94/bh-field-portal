@@ -331,6 +331,8 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
     };
   }
 
+  let cmdOpen = false;     // 명령어 칸 펼침 — 처음엔 접어 둔다 (추가를 누르면 펼친다)
+
   /** 쉼표로 적은 공구 목록을 배열로. 빈 항목·중복은 버린다. */
   function splitTools(text) {
     const out = [];
@@ -446,28 +448,6 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
 
         <div class="panel">
           <div class="row row--between" style="margin-bottom:12px">
-            <h2 class="panel__title" style="margin:0">명령어 (${state.commands.length})</h2>
-            <button class="btn btn--ghost btn--sm" data-act="add-cmd" type="button">＋ 명령어 추가</button>
-          </div>
-          <div class="stack">
-            ${state.commands.map((c, i) => `
-              <div class="sub-card" data-cmd-row data-idx="${i}">
-                <div class="row row--between" style="margin-bottom:8px">
-                  <strong>#${i + 1}</strong>
-                  <button class="btn btn--danger btn--sm" data-act="del-cmd" data-idx="${i}" type="button">삭제</button>
-                </div>
-                <div class="field"><label>설명 라벨</label>
-                  <input class="input" name="cmdLabel" value="${h(c.label || '')}" placeholder="예) 현재 버전 확인" /></div>
-                <div class="field"><label>명령어</label>
-                  <input class="input mono" name="cmdText" value="${h(c.cmd || '')}" placeholder="bhctl version" /></div>
-                <div class="field" style="margin-bottom:0"><label>주의사항</label>
-                  <input class="input" name="cmdDesc" value="${h(c.desc || '')}" placeholder="예) 진행 중 전원 차단 금지" /></div>
-              </div>`).join('') || '<div class="empty">등록된 명령어가 없습니다.</div>'}
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="row row--between" style="margin-bottom:12px">
             <h2 class="panel__title" style="margin:0">단계 (${state.steps.length})</h2>
             <button class="btn btn--ghost btn--sm" data-act="add-step" type="button">＋ 단계 추가</button>
           </div>
@@ -505,6 +485,31 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
           </div>
         </div>
 
+        <!-- 명령어는 접었다 폈다 (v3.35) — 대부분의 가이드는 명령어가 없거나 적은데 자리를 많이 차지했다 -->
+        <details class="panel panel--fold cmd-fold" id="cmdFold"${cmdOpen ? ' open' : ''}>
+          <summary><span class="panel__title">명령어 <span class="tnum">${state.commands.length}</span>개</span>
+            <span class="cmd-fold__hint">${cmdOpen ? '접기' : '펼쳐서 보기 · 추가'}</span></summary>
+          <div class="row row--between" style="margin:14px 0 12px">
+            <span class="hint">복사해서 쓰는 명령어 — 없으면 비워 두세요</span>
+            <button class="btn btn--ghost btn--sm" data-act="add-cmd" type="button">＋ 명령어 추가</button>
+          </div>
+          <div class="stack">
+            ${state.commands.map((c, i) => `
+              <div class="sub-card" data-cmd-row data-idx="${i}">
+                <div class="row row--between" style="margin-bottom:8px">
+                  <strong>#${i + 1}</strong>
+                  <button class="btn btn--danger btn--sm" data-act="del-cmd" data-idx="${i}" type="button">삭제</button>
+                </div>
+                <div class="field"><label>설명 라벨</label>
+                  <input class="input" name="cmdLabel" value="${h(c.label || '')}" placeholder="예) 현재 버전 확인" /></div>
+                <div class="field"><label>명령어</label>
+                  <input class="input mono" name="cmdText" value="${h(c.cmd || '')}" placeholder="bhctl version" /></div>
+                <div class="field" style="margin-bottom:0"><label>주의사항</label>
+                  <input class="input" name="cmdDesc" value="${h(c.desc || '')}" placeholder="예) 진행 중 전원 차단 금지" /></div>
+              </div>`).join('') || '<div class="empty">등록된 명령어가 없습니다.</div>'}
+          </div>
+        </details>
+
         <div class="form-actions">
           <button class="btn btn--ghost" data-act="cancel" type="button">취소</button>
           <button class="btn btn--primary" type="submit">저장</button>
@@ -518,6 +523,15 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
     const form = $('#guideForm');
     form.addEventListener('submit', save);
     form.addEventListener('click', onClick);
+    // 접고 편 것을 기억한다 — 단계를 더하거나 사진을 붙여 다시 그려도 그대로
+    const fold = $('#cmdFold');
+    if (fold) {
+      fold.addEventListener('toggle', () => {
+        cmdOpen = fold.open;
+        const hint = fold.querySelector('.cmd-fold__hint');
+        if (hint) hint.textContent = cmdOpen ? '접기' : '펼쳐서 보기 · 추가';
+      });
+    }
 
     // [준비 공구 · 부품] 을 고치면 단계의 고를 거리도 따라 바뀌어야 한다.
     // 글자를 칠 때마다 화면 전체를 다시 그리면 커서가 튀므로 칩만 다시 그린다.
@@ -548,7 +562,7 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
       return;
     }
 
-    if (act === 'add-cmd') { collect(); state.commands.push({ label: '', cmd: '', desc: '' }); render(); }
+    if (act === 'add-cmd') { collect(); cmdOpen = true; state.commands.push({ label: '', cmd: '', desc: '' }); render(); }
     if (act === 'del-cmd') { collect(); state.commands.splice(idx, 1); render(); }
     if (act === 'add-step') { collect(); state.steps.push({ instruction: '', expectedMetric: '', imageUrl: '' }); render(); }
     if (act === 'del-step') {

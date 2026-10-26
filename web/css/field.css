@@ -365,6 +365,12 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .store-visit a { border-left: 6px solid var(--track, var(--color-border)); }
 .panel, .settings-list .panel { border: 2px solid var(--color-border); border-radius: 20px; padding: 22px 24px; }
 .panel__title { font-size: 19px; font-weight: 800; }
+.panel.panel--fold { padding: 0; }          /* 접는 칸은 머리줄이 칸 전체를 누르는 자리라 안쪽 여백을 따로 둔다 */
+.panel--fold > summary { min-height: 72px; padding: 0 24px; cursor: pointer; }
+/* 가이드 편집의 명령어 칸 — 접었다 폈다 */
+.cmd-fold > summary { gap: 12px; }
+.cmd-fold__hint { margin-left: auto; font-size: 16px; font-weight: 700; color: var(--color-accent); }
+.cmd-fold > summary::after { margin-left: 8px; }
 .sx-card { border-radius: 20px; }
 .rows > .row, .list > .item, .rows > .item, .list > .row {
   box-shadow: none; border: 2px solid var(--color-border); border-radius: 16px; min-height: 72px;
