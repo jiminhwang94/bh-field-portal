@@ -479,7 +479,7 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
                     <button class="btn btn--ghost btn--sm" data-act="step-pick" data-idx="${i}" type="button">앨범 · 파일</button>
                     ${s.imageUrl ? `<button class="btn btn--danger btn--sm" data-act="clear-image" data-idx="${i}" type="button">첨부 제거</button>` : ''}
                   </div>
-                  <span class="hint">영상 최대 20초</span>
+                  <span class="hint">영상 최대 1분 (앱이 720p 로 줄여 올립니다)</span>
                 </div>
               </div>`).join('')}
           </div>

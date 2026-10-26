@@ -303,7 +303,7 @@ export async function reportFormView(view) {
         <div class="field field--wide field--media" ${tag}>
           ${label}
           ${mediaPickHtml(field.id)}
-          <span class="hint">첨부 ${state.kept.length + state.media.length}개 · 영상 최대 20초 · 파일 ${MEDIA_FILE_LIMIT_TEXT}</span>
+          <span class="hint">첨부 ${state.kept.length + state.media.length}개 · 영상 최대 1분 · 파일 ${MEDIA_FILE_LIMIT_TEXT}</span>
           ${state.kept.length || state.media.length ? `
             <div class="media-grid">
               ${state.kept.map((l, i) => keptTile(field.id, l, i)).join('')}

@@ -146,12 +146,18 @@ check("붙인 첨부에 크기를 남긴다 (전체 한도 계산용)",
 # 20초는 카메라가 실제로 멈추는 한도다(MainActivity 의 EXTRA_DURATION_LIMIT).
 # 그래서 시간 안내를 써도 거짓이 아니다. 용량 한도는 그대로 함께 적는다.
 # v3.23 — 설명은 한 줄로 줄였지만 한도 둘은 그대로 적는다 (거짓이 아니어야 한다).
-check("안내 문구에 진짜 한도 둘(최대 20초 · 파일당 20MB)이 함께 있다",
-      "영상 최대 20초 · 파일 ${MEDIA_FILE_LIMIT_TEXT}" in view_js
-      and "EXTRA_DURATION_LIMIT, VIDEO_SECONDS_LIMIT" in read("android", "app", "src", "main", "java",
-          "com", "beyondhoneycomb", "fieldportal", "MainActivity.java")
-      and "VIDEO_SECONDS_LIMIT = 20" in read("android", "app", "src", "main", "java",
-          "com", "beyondhoneycomb", "fieldportal", "MainActivity.java"))
+# v3.36 — 고화질로 1분 찍고 APK 가 720p · 2.2Mbps 로 줄인다 (1분 ≈ 17MB, 파일당 25MB 안)
+_main = read("android", "app", "src", "main", "java", "com", "beyondhoneycomb", "fieldportal", "MainActivity.java")
+_vc = read("android", "app", "src", "main", "java", "com", "beyondhoneycomb", "fieldportal", "VideoCompressor.java")
+check("안내 문구에 진짜 한도 둘(최대 1분 · 파일당 25MB)이 함께 있다",
+      "영상 최대 1분 · 파일 ${MEDIA_FILE_LIMIT_TEXT}" in view_js
+      and "EXTRA_DURATION_LIMIT, VIDEO_SECONDS_LIMIT" in _main
+      and "VIDEO_SECONDS_LIMIT = 60" in _main
+      and "export const MEDIA_FILE_LIMIT = 25 * 1024 * 1024;" in sheets_js)
+check("영상은 고화질로 찍고 앱이 720p · 2.2Mbps 로 줄인다",
+      "EXTRA_VIDEO_QUALITY, 1" in _main and "VideoCompressor.needsWork(this, picked)" in _main
+      and "VIDEO_BITRATE = 2_200_000" in _vc and "SHORT_SIDE = 720" in _vc
+      and "FILE_LIMIT = 25L * 1024 * 1024" in _vc and "MAX_DURATION_MS = 60_000L" in _vc)
 check("Apps Script 가 공개 실패 수를 알려 준다", "mediaPrivate: saved.privateCount || 0" in gs)
 check("전송이 공개 실패 수와 동영상 수를 화면에 넘긴다",
       "mediaPrivate: Number(result.mediaPrivate || 0)" in sheets_js

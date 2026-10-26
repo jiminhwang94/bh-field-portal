@@ -133,7 +133,7 @@ for phrase in ["따로 누를 것이 없습니다", "저장 즉시 모든 기기
                "구글 시트의 팀 전체 기록", "상태 변경은 시트에 즉시 기록", "기록 방식"]:
     check(f"'{phrase}' 가 없다", phrase not in views)
 check("빈 화면 안내는 남는다", "등록된 품목이 없습니다" in inv and "운행 기록이 없습니다" in drv)
-check("한도는 남는다 (거짓 안내가 되면 안 된다)", "영상 최대 20초 · 파일 ${MEDIA_FILE_LIMIT_TEXT}" in report)
+check("한도는 남는다 (거짓 안내가 되면 안 된다)", "영상 최대 1분 · 파일 ${MEDIA_FILE_LIMIT_TEXT}" in report)
 
 print()
 print("== 11-나. 정상이면 조용하다")
