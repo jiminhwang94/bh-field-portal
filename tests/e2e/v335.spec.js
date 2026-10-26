@@ -120,7 +120,7 @@ test('이력 카드 — 증상 · 조치가 보이고, 같은 로봇 같은 코�
   await expect(card.locator('.hist-row__story')).toContainText('커넥터 재체결');
   await expect(card.locator('.hist-row__repeat')).toHaveText('이 로봇에서 E-101 2번째');
   await card.click();
-  const past = page.locator('#histPanel .past');
+  const past = page.locator('#modalRoot .past');
   await expect(past).toContainText('이 로봇 지난번');
   await expect(past.locator('.past__warn')).toContainText('지난번 조치: 벨트 장력 조정');
 });
@@ -145,4 +145,47 @@ test('가이드 — 한 단계씩 [다 했어요] 로 넘기고, 끝나면 마�
   await expect(field(page, '로봇 시리얼')).toHaveValue('SN-0009');
   await expect(field(page, '오류 코드')).toHaveValue('E-101');
   await expect(field(page, '조치 내용')).toHaveValue(/벨트 장력을 재조정한다/);
+});
+
+test('재고 — 줄에서 바로 +/− · 맨 위 보충 필요 띠를 누르면 부족한 것만', async ({ page, sheet }) => {
+  await seed(sheet);
+  await openApp(page, '#/inventory');
+  const row = page.locator('tr.inv-item', { hasText: '그리퍼 실리콘 패드' });
+  await expect(row).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.inv-alert')).toContainText('보충 필요');
+  await row.locator('.inv-step__btn--plus').click();                        // 창을 열지 않고 줄에서
+  await expect(row.locator('.inv-qty')).toHaveText('2');
+  await page.locator('.inv-alert').click();
+  await expect(page.locator('tr.inv-item')).toHaveCount(1);
+});
+
+test('운행일지 — 맨 위 [오늘 운행 기록] · 기록은 카드로 (출발 → 도착 · 주행거리)', async ({ page, sheet }) => {
+  await seed(sheet);                                                         // 차량은 재고에서 온다
+  await openApp(page, '#/inventory');
+  await expect(page.locator('tr.inv-item').first()).toBeVisible({ timeout: 15000 });
+  await openApp(page, '#/driving');
+  await expect(page.locator('.drv-hero')).toBeVisible();
+  await page.locator('.drv-hero__add').click();
+  await page.locator('#drvBefore').fill('1,000');
+  await page.locator('#drvAfter').fill('1,042');
+  await page.locator('#drvFrom').fill('언주사무실');
+  await page.locator('#drvTo').fill('옥동식 서초점');
+  await page.locator('#drvForm button[type=submit]').click();
+  const card = page.locator('.drv-card').first();
+  await expect(card.locator('.drv-card__route')).toContainText('언주사무실');
+  await expect(card.locator('.drv-card__km b')).toHaveText('42');
+  await expect(page.locator('.drv-hero__stats .is-done')).toContainText('1건');
+});
+
+test('이력 카드 아래 [가이드] · 가이드 첫 화면에 최근 이력의 코드', async ({ page, sheet }) => {
+  await seed(sheet);
+  await seedRepeat(sheet);
+  await page.clock.setFixedTime(NOW);
+  await openApp(page, '#/reports');
+  const card = page.locator('.hist-card', { hasText: '로더가 또 멈춤' });
+  await expect(card.locator('.hist-card__guide')).toContainText('E-101', { timeout: 15000 });
+  await openApp(page, '#/guides');
+  await expect(page.locator('.gh-code').first()).toContainText('E-101');
+  await page.locator('.gh-code').first().click();
+  await expect(page.locator('.gs-no')).toHaveText('1 / 2');
 });

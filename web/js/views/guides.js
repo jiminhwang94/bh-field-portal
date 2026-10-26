@@ -230,6 +230,7 @@ export async function guideHubView(view) {
     if (k !== NONE && !keys.includes(k)) keys.push(k);
   }
   const unassigned = all.filter((g) => modelKey(g) === NONE).length;
+  const recent = await recentCodes(all);
 
   const band = (key) => {
     const list = all.filter((g) => modelKey(g) === key);
@@ -260,14 +261,28 @@ export async function guideHubView(view) {
     <div id="pageRoot" class="page-stack">
       <div class="page-head">
         <h1 class="page-head__title">가이드</h1>
-        <form class="page-search" id="guideSearch" role="search">
-          <input class="input" id="guideSearchQ" type="search" autocomplete="off" enterkeyhint="search"
-                 aria-label="가이드 검색" placeholder="오류 코드 · 증상 · 부품 검색" />
-        </form>
         <span class="page-head__spacer"></span>
         <button class="btn btn-secondary" data-act="add-model" type="button">＋ 로봇</button>
-        <a class="btn btn-primary" href="#/guides/new">＋ 가이드 작성</a>
+        <a class="btn btn-secondary" href="#/guides/new">＋ 가이드 작성</a>
       </div>
+      <!-- 현장에서는 '무엇이 고장났나' 로 찾는다 (v3.35). 로봇별 목록은 그 아래 -->
+      <section class="gh-find" aria-label="가이드 찾기">
+        <h2 class="gh-find__title">무엇을 고치나요?</h2>
+        <form class="page-search gh-search" id="guideSearch" role="search">
+          <input class="input" id="guideSearchQ" type="search" autocomplete="off" enterkeyhint="search"
+                 aria-label="가이드 검색" placeholder="오류 코드 · 증상 · 부품 (E-101, 로더, 패드)" />
+          <button class="btn btn-primary" type="submit">찾기</button>
+        </form>
+        ${recent.length ? `
+          <div class="gh-recent">
+            <span class="gh-recent__label">최근 3달 이력에 나온 코드</span>
+            ${recent.map((r) => `
+              <a class="gh-code" href="#/guides/${h(r.guide.id)}">
+                <b class="tnum">${h(r.code)}</b><span>${h(splitTitle(r.guide).title)}</span><i class="tnum">${r.n}건</i>
+              </a>`).join('')}
+          </div>` : ''}
+      </section>
+      <h2 class="gh-sub">로봇별 가이드</h2>
       <div class="rbands">
         ${keys.map(band).join('')}
         ${unassigned ? `
@@ -513,4 +528,25 @@ export function row(guide, withModel = false) {
       </span>
       <span class="item__chevron" aria-hidden="true">›</span>
     </a>`;
+}
+
+/**
+ * 최근 3달 이력에 나온 오류 코드 중 가이드가 있는 것 — 많이 난 차례 (가이드 첫 화면 바로가기, v3.35).
+ * 받아 둔 이력만 본다 (시트에 묻지 않는다).
+ */
+async function recentCodes(guides) {
+  try {
+    const { cachedEntries, guidesForCode, isCodeShaped, normCode, tally } = await import('../insights.js');
+    const entries = await cachedEntries(3);
+    const out = [];
+    for (const [key, n] of tally(entries.filter((e) => isCodeShaped(e.code)).map((e) => normCode(e.code)))) {
+      const sample = entries.find((e) => normCode(e.code) === key);
+      const guide = guidesForCode(sample.code, guides)[0];
+      if (guide) out.push({ code: sample.code, n, guide });
+      if (out.length >= 6) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }

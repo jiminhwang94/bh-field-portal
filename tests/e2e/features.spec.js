@@ -21,7 +21,7 @@ test('이력의 오류 코드에서 그 가이드로 · 가이드에서는 그 �
   await seedMore(sheet);
   await warm(page);
   await page.locator('.hist-row', { hasText: '로더 과전류 재발' }).click();
-  const link = page.locator('#histPanel .hd-guide', { hasText: 'E-101 로더 모터 과전류' });
+  const link = page.locator('#modalRoot .hd-guide', { hasText: 'E-101 로더 모터 과전류' });
   await expect(link).toBeVisible();
   await link.click();
   await expect(page).toHaveURL(/#\/guides\/a1b2c3d4e5f60001(\?|$)/);   // 이력의 매장 · 로봇이 붙어 온다 (v3.35)
@@ -33,7 +33,7 @@ test('매장 이름을 누르면 그 매장의 방문 기록 · 로봇 · 끝나
   await seedMore(sheet);
   await warm(page);
   await page.locator('.hist-row', { hasText: '로더 과전류 재발' }).click();
-  await page.locator('#histPanel .hd-title--link').click();
+  await page.locator('#modalRoot .hd-title--link').click();
   await expect(page).toHaveURL(/#\/store\?name=/);
   await expect(page.locator('.store-visit')).toHaveCount(2);
   await expect(page.locator('.store-sum')).toContainText('SN-0001');

@@ -407,6 +407,132 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .table th { font-size: 15px; font-weight: 800; color: var(--color-text-2); }
 .table td { font-size: 17px; }
 
+/* ══ 9. 화면별 다시 짠 것 — 이력 · 가이드 · 운행일지 · 재고 (v3.35) ══════════ */
+
+/* ── 리포트 이력: 카드 두 줄 격자, 카드를 누르면 큰 창. 카드 아래 [가이드] 로 바로 */
+.hist-list { display: flex; flex-direction: column; gap: 14px; }
+.hist-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; background: none; border: 0; padding: 0; }
+.hist-card {
+  display: flex; flex-direction: column; border-radius: 20px; background: var(--color-bg);
+  border: 2px solid var(--color-border); overflow: hidden; min-width: 0;
+}
+.hist-card:hover { border-color: var(--color-accent); }
+.hist-card .hist-row { flex: 1; border: 0; border-radius: 0; min-height: 0; padding: 18px 20px 16px 26px; background: none; }
+.hist-card .hist-row::before { left: 0; top: 0; bottom: 0; width: 8px; border-radius: 0; }
+.hist-card .hist-row:hover { background: none; }
+.hist-card__guide {
+  display: flex; align-items: center; gap: 10px; min-height: 60px; padding: 0 20px 0 26px;
+  border-top: 2px solid var(--color-hairline); background: var(--color-accent-tint);
+  color: var(--color-accent); text-decoration: none; font-size: 17px;
+}
+.hist-card__guide b { font-weight: 800; flex: none; }
+.hist-card__guide span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--color-text); }
+.hist-card__guide i { margin-left: auto; font-style: normal; font-size: 22px; }
+.hist-card__guide:hover { background: var(--color-accent-tint-2); color: var(--color-accent); }
+.hist-sheet .hd2 { margin: -4px 0 0; }
+.hist-search { min-width: 320px; }
+
+/* ── 가이드 첫 화면: '무엇을 고치나요?' 큰 찾기 + 최근 이력에 나온 코드 */
+.gh-find {
+  border-radius: 24px; background: var(--color-bg); border: 2px solid var(--color-border);
+  padding: 22px 24px; display: grid; gap: 14px;
+}
+.gh-find__title { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.03em; }
+.gh-search { display: flex; gap: 12px; margin: 0; }
+.gh-search .input { flex: 1; min-height: 72px; font-size: 21px; border-radius: 16px; }
+.gh-search .btn { min-height: 72px; min-width: 140px; font-size: 20px; border-radius: 16px; }
+.gh-recent { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.gh-recent__label { flex-basis: 100%; font-size: 15px; font-weight: 800; color: var(--color-muted); }
+.gh-code {
+  min-height: 64px; padding: 8px 18px; border-radius: 16px; display: inline-flex; align-items: center; gap: 10px;
+  background: var(--color-surface); color: var(--color-text); text-decoration: none; font-size: 17px; max-width: 100%;
+}
+.gh-code b { font-family: var(--font-mono); font-size: 18px; color: var(--color-accent); }
+.gh-code span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.gh-code i { font-style: normal; font-size: 14px; font-weight: 800; color: var(--memo-ink); background: var(--memo-tint); padding: 2px 8px; border-radius: 8px; }
+.gh-code:hover { box-shadow: inset 0 0 0 3px var(--color-accent); color: var(--color-text); }
+.gh-sub { margin: 6px 0 0; font-size: 19px; font-weight: 800; color: var(--color-text-2); }
+.guide-row { min-height: 84px; }
+.guide-row .row__code { font-size: 20px; }
+.gd-more { font-size: 24px; }
+.gd-more-menu .btn { min-height: 64px; }
+
+/* 화면 묶음 이름표 — 운행일지 · 재고 화면 전체 간격 */
+.drv, .inv { gap: 16px; }
+
+/* ── 운행일지: 맨 위 카드에 지난 계기판 · 이번 달 · 오늘, [오늘 운행 기록] 하나 */
+.drv-hero {
+  border-radius: 24px; background: var(--color-bg); border: 2px solid var(--color-border);
+  padding: 22px 24px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px 20px; align-items: center;
+}
+.drv-hero__id h2 { margin: 0 0 4px; font-size: 26px; font-weight: 800; letter-spacing: -0.03em; }
+.drv-hero__id p { margin: 2px 0 0; font-size: 16px; color: var(--color-text-2); }
+.drv-hero__stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.drv-hero__stats > div { border-radius: 16px; background: var(--color-surface); padding: 14px 18px; display: grid; gap: 2px; }
+.drv-hero__stats span { font-size: 15px; font-weight: 800; color: var(--color-muted); }
+.drv-hero__stats b { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; }
+.drv-hero__stats small { font-size: 15px; color: var(--color-muted); font-weight: 600; }
+.drv-hero__stats .is-todo { background: var(--memo-tint); }
+.drv-hero__stats .is-todo b, .drv-hero__stats .is-todo span { color: var(--memo-ink); }
+.drv-hero__stats .is-done { background: var(--st-done-tint); }
+.drv-hero__stats .is-done b { color: var(--st-done); }
+.drv-hero__add { grid-row: 1; grid-column: 2; min-height: 76px; min-width: 260px; font-size: 21px; border-radius: 18px; }
+.link-btn { border: 0; background: none; padding: 0 0 0 8px; font: inherit; font-weight: 700; color: var(--color-accent); cursor: pointer; text-decoration: underline; min-height: 44px; }
+.drv-filter { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.drv-months { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+.drv-month {
+  min-height: 52px; padding: 0 18px; border-radius: 14px; cursor: pointer;
+  background: var(--color-bg); border: 2px solid var(--color-border); font: inherit; font-size: 17px; font-weight: 700; color: var(--color-text-2);
+}
+.drv-month.is-on { background: var(--color-text); border-color: var(--color-text); color: var(--color-bg); }
+.drv-list { display: grid; gap: 12px; }
+.drv-card {
+  display: grid; grid-template-columns: 76px minmax(0, 1fr) auto auto; gap: 18px; align-items: center;
+  border-radius: 20px; background: var(--color-bg); border: 2px solid var(--color-border); padding: 14px 18px;
+}
+.drv-card__date { display: grid; justify-items: center; gap: 2px; border-radius: 14px; background: var(--color-surface); padding: 10px 0; }
+.drv-card__date b { font-size: 20px; font-weight: 800; }
+.drv-card__date span { font-size: 15px; font-weight: 700; color: var(--color-muted); }
+.drv-card__main { display: grid; gap: 4px; min-width: 0; }
+.drv-card__route { font-size: 20px; font-weight: 800; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drv-card__route i { font-style: normal; color: var(--color-muted); }
+.drv-card__meta { font-size: 16px; color: var(--color-text-2); }
+.drv-card__odo { font-size: 15px; color: var(--color-muted); font-weight: 600; }
+.drv-card__km { display: grid; justify-items: end; }
+.drv-card__km b { font-size: 30px; font-weight: 800; color: var(--color-accent); line-height: 1.1; }
+.drv-card__km span { font-size: 14px; font-weight: 700; color: var(--color-muted); }
+.drv-card__acts { display: flex; gap: 8px; }
+.drv-card__acts .btn { min-height: 56px; }
+.btn--danger-text { color: var(--color-danger); }
+#drvForm .tag { min-height: 52px; padding: 0 16px; font-size: 17px; border-radius: 14px; }
+
+/* ── 차량 재고: 줄에서 바로 −/+, 맨 위 '보충 필요' 띠, 상세는 창 */
+.inv-vehicles { align-self: flex-start; max-width: 100%; }
+.inv-alert {
+  width: 100%; min-height: 72px; border-radius: 18px; padding: 10px 22px; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font: inherit;
+  background: var(--color-danger-tint); border: 2px solid var(--color-danger-border); color: var(--color-danger);
+}
+.inv-alert b { font-size: 20px; font-weight: 800; }
+.inv-alert span { font-size: 16px; font-weight: 600; color: var(--color-text-2); }
+.inv-alert i { margin-left: auto; font-style: normal; font-weight: 800; font-size: 17px; }
+.inv-alert.is-on { background: var(--color-bg); }
+.inv-split--full { grid-template-columns: minmax(0, 1fr); }
+.inv-step { display: inline-flex; align-items: center; gap: 10px; justify-content: flex-end; padding: 6px 12px 6px 0; }
+.inv-step__btn {
+  width: 64px; height: 64px; border-radius: 16px; cursor: pointer; font: inherit; font-size: 30px; font-weight: 600; line-height: 1;
+  background: var(--color-bg); border: 2px solid var(--color-border); color: var(--color-text);
+  display: grid; place-items: center; flex: none;
+}
+.inv-step__btn:hover { border-color: var(--color-accent); }
+.inv-step__btn--plus { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
+.inv-step__btn--plus:hover { background: var(--color-accent-hover); }
+.inv-step__btn:disabled { opacity: .35; cursor: not-allowed; }
+.inv-step__val { min-width: 88px; display: inline-flex; align-items: baseline; justify-content: center; gap: 4px; }
+.inv-step__val .inv-qty { font-size: 30px; }
+.inv-table tr.inv-item td { height: 80px; }
+.inv-table td.qty-cell { text-align: right; width: 1%; white-space: nowrap; }
+
 /* ══ 7. 좁은 화면 ═══════════════════════════════════════════════════════ */
 @media (max-width: 999px) {
   .home3, .home3--alert { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: none; }
@@ -415,6 +541,11 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
   .hist-split { grid-template-columns: minmax(0, 1fr); }
   .wz-check { grid-template-columns: minmax(0, 1fr); }
   .gd--step .gd-side { order: 0; }       /* 좁으면 지금 단계가 먼저, 목록은 아래 */
+  .hist-rows { grid-template-columns: minmax(0, 1fr); }
+  /* 좁으면 재고 목록이 안쪽 스크롤 칸에 갇혀 0 줄이 됐다 — 화면 전체로 내린다 */
+  .inv .inv-split, .inv .inv-list > .scroll { flex: none; overflow: visible; min-height: auto; }
+  .drv-card { grid-template-columns: 64px minmax(0, 1fr) auto; }
+  .drv-card__acts { grid-column: 1 / -1; justify-content: flex-end; }
 }
 @media (max-width: 720px) {
   .door { padding: 20px; }
@@ -449,5 +580,29 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
   .topbar > * { flex-shrink: 0; }
   .topbar .topbar__spacer { flex-shrink: 1; }
   .rcat__name { font-size: 14px; }
+  .drv-hero { grid-template-columns: minmax(0, 1fr); }
+  .drv-hero__add { grid-row: auto; grid-column: auto; min-width: 0; width: 100%; }
+  .drv-hero__stats { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .drv-hero__stats > div:last-child { grid-column: 1 / -1; }
+  .drv-card { grid-template-columns: 56px minmax(0, 1fr); }
+  .drv-card__km { grid-column: 2; justify-items: start; }
+  .gh-search { flex-direction: column; }
+  .gh-search .btn { width: 100%; }
+  .hist-search { min-width: 0; }
+  .inv-step { gap: 6px; padding-right: 6px; }
+  .inv-step__btn { width: 52px; height: 52px; font-size: 26px; }
+  .inv-step__val { min-width: 56px; }
+  /* 폰 — 재고 줄: 손잡이 · 이름 한 줄, 아래에 −/+ (칸마다 한 줄씩 쌓이던 것을 묶는다) */
+  .inv-table tr.inv-item {
+    display: grid; grid-template-columns: 40px minmax(0, 1fr); grid-template-areas: "h n" "q q";
+    align-items: center; gap: 2px 6px; padding: 8px 10px;
+  }
+  .inv-table tr.inv-item td { display: block; height: auto; width: auto; padding: 0; border: 0; background: none; }
+  .inv-table tr.inv-item td.drag-td { grid-area: h; }
+  .inv-table tr.inv-item td.name-cell { grid-area: n; padding-left: 0; }
+  .inv-table tr.inv-item td.qty-cell { grid-area: q; text-align: right; }
+  .inv-table tr.inv-item.is-low-row { background: var(--color-danger-tint); }
+  .inv-table tr.grp-row { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; padding: 4px 10px; }
+  .inv-table tr.grp-row td { display: block; height: auto; width: auto; padding: 0; border: 0; background: none; }
   .hd2-head__text { flex-basis: 100%; }
 }

@@ -18,7 +18,8 @@ test('가이드를 만들면 시트 탭에 적히고, 지우면 시트에서도 
   await expect.poll(() => tabText(sheet, '오류 코드 가이드'), { timeout: 15000 }).toContain('E-777 검사용 오류');
   expect(await tabText(sheet, '오류 코드 가이드')).toContain('Gen.1');   // 로봇 열
 
-  await page.locator('[data-act="delete"]').first().click();
+  await page.locator('[data-act="more"]').click();                      // 수정 · 삭제는 [⋯] 안 (v3.35)
+  await page.locator('#modalRoot [data-act="delete"]').click();
   await page.locator('#modalRoot [data-act="ok"]').click();
   await expect.poll(() => tabText(sheet, '오류 코드 가이드'), { timeout: 15000 }).not.toContain('E-777');
 

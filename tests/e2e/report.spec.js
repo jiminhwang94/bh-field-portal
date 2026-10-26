@@ -59,9 +59,9 @@ test('이력 상세에는 [수정] · [삭제] 만 · 같은 매장 새 리포�
     .toContain('새 방문 검사 조치');
   await openApp(page, '#/reports');
   await page.locator('.hist-row', { hasText: '홍기와' }).first().click();
-  await expect(page.locator('#histPanel [data-act="reuse"]')).toHaveCount(0);
-  await expect(page.locator('#histPanel [data-act="edit"]')).toBeVisible();
-  await page.locator('#histPanel .hd-title--link').click();
+  await expect(page.locator('#modalRoot [data-act="reuse"]')).toHaveCount(0);
+  await expect(page.locator('#modalRoot [data-act="edit"]')).toBeVisible();
+  await page.locator('#modalRoot .hd-title--link').click();
   await page.locator('[data-act="new-here"]').click();
   await expect(page).toHaveURL(/#\/report\/new$/);
   await expect(field(page, '매장명')).toHaveValue('홍기와');

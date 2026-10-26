@@ -115,7 +115,7 @@ test('이슈 유형 여러 개 — 누를 때마다 고르고/빼고 · [선택]
   }, { timeout: 15000 }).toContain('로봇 이슈 › 하드웨어 교체 › 로더 교체' + String.fromCharCode(10) + '로봇 외 이슈 › 네트워크 · 와이파이 › 와이파이 재연결');
   await openApp(page, '#/reports');
   await page.locator('.hist-row', { hasText: '와이파이 끊김' }).first().click();
-  await expect(page.locator('#histPanel .hd-work')).toContainText('로더 교체 · 와이파이 재연결');
+  await expect(page.locator('#modalRoot .hd-work')).toContainText('로더 교체 · 와이파이 재연결');
 });
 
 test('이슈 유형 정리 — 비슷한 이름은 합치기 후보 · 합치면 별칭으로 남는다', async ({ page, sheet }) => {
@@ -147,11 +147,13 @@ test('이력 — 이슈 유형에 이어 둔 가이드로 · 분류 글자에는
   await page.clock.setFixedTime(NOW);
   await openApp(page, '#/reports');
   await page.locator('.hist-row', { hasText: '작업점' }).click();
-  await expect(page.locator('#histPanel .hd-work')).toContainText('로더 교체');
-  await expect(page.locator('#histPanel .hd-guide')).toContainText('E-101 로더 모터 과전류');
+  await expect(page.locator('#modalRoot .hd-work')).toContainText('로더 교체');
+  await expect(page.locator('#modalRoot .hd-guide')).toContainText('E-101 로더 모터 과전류');
+  await page.locator('#modalRoot [data-act="close"]').first().click();   // 상세는 창 — 닫고 다음 카드
   await page.locator('.hist-row', { hasText: '분류점' }).click();
-  await expect(page.locator('#histPanel .hd-work')).toContainText('유지 보수');
-  await expect(page.locator('#histPanel .hd-guide--none')).toHaveCount(0);           // '유지 보수 가이드 만들기' 없음
+  await expect(page.locator('#modalRoot .hd-work')).toContainText('유지 보수');
+  await expect(page.locator('#modalRoot .hd-guide--none')).toHaveCount(0);           // '유지 보수 가이드 만들기' 없음
+  await page.locator('#modalRoot [data-act="close"]').first().click();   // 상세는 창 — 닫고 다음 카드
   await page.locator('.hist-row', { hasText: '코드점' }).click();
-  await expect(page.locator('#histPanel .hd-guide--none')).toContainText('E-999');
+  await expect(page.locator('#modalRoot .hd-guide--none')).toContainText('E-999');
 });

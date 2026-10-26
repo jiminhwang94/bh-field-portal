@@ -17,7 +17,6 @@ const COLLAPSED_KEY = 'bh_inv_collapsed';     // 접어 둔 분류 — 기기에
 const NONE_LABEL = '분류 없음';
 const LOW = '__low';                          // 칩 [부족만]
 /** 패널을 옆에 둘 만큼 넓은가. 좁으면 품목을 누를 때 창으로 띄운다. */
-const wide = () => window.matchMedia('(min-width: 1000px)').matches;
 
 export async function inventoryView(view) {
   loading(view);
@@ -138,11 +137,14 @@ export async function inventoryView(view) {
           </button>
         </td>
         <td class="qty-cell">
-          <button class="inv-pick inv-pick--qty" data-act="select" data-id="${item.id}" type="button"
-                  aria-label="${name} 수량 ${item.quantity}, 최소 ${item.minQuantity}">
-            <span class="inv-qty tnum ${low ? 'is-low' : ''}" data-qty="${item.id}">${item.quantity}</span>
-            <span class="inv-min tnum">/ ${item.minQuantity}</span>
-          </button>
+          <!-- 줄에서 바로 −/+ (v3.35) — 장갑 낀 손으로 품목을 열지 않고 수량을 바꾼다 -->
+          <div class="inv-step" role="group" aria-label="${name} 수량">
+            <button class="inv-step__btn" data-act="dec" data-id="${item.id}" type="button"
+                    aria-label="${name} 하나 빼기"${item.quantity <= 0 ? ' disabled' : ''}>−</button>
+            <span class="inv-step__val"><b class="inv-qty tnum ${low ? 'is-low' : ''}" data-qty="${item.id}">${item.quantity}</b><small class="inv-min tnum">/ ${item.minQuantity}</small></span>
+            <button class="inv-step__btn inv-step__btn--plus" data-act="inc" data-id="${item.id}" type="button"
+                    aria-label="${name} 하나 넣기">+</button>
+          </div>
         </td>
       </tr>`;
   }
@@ -192,7 +194,7 @@ export async function inventoryView(view) {
           <tr>
             <th class="drag-td"></th>
             <th>부품</th>
-            <th style="text-align:right">보유 / 최소</th>
+            <th style="text-align:right">보유 / 최소 · 바로 바꾸기</th>
           </tr>
         </thead>
         <tbody id="invRows">${rows}</tbody>
@@ -233,6 +235,18 @@ export async function inventoryView(view) {
       </div>`;
   }
 
+  /** 맨 위 '보충 필요' 띠 — 누르면 부족한 것만 (v3.35). 없으면 비운다. */
+  function alertHtml() {
+    const low = items.filter(isLow);
+    if (!low.length) return '';
+    return `
+      <button class="inv-alert${chip === LOW ? ' is-on' : ''}" data-act="chip" data-chip="${h(LOW)}" type="button">
+        <b>보충 필요 <span class="tnum">${low.length}</span>종</b>
+        <span>${h(low.slice(0, 3).map((i) => i.partName).join(' · '))}${low.length > 3 ? ' 외' : ''}</span>
+        <i aria-hidden="true">${chip === LOW ? '전체 보기 ›' : '부족만 보기 ›'}</i>
+      </button>`;
+  }
+
   /** 오른쪽 아래 알약에 적을 글자. 거르는 중이면 '보인 것 / 전체' 로 적는다. */
   function countText() {
     const shown = visibleItems().length;
@@ -251,6 +265,8 @@ export async function inventoryView(view) {
     if (chips) chips.innerHTML = chipsHtml();
     const count = $('#invCount');
     if (count) count.textContent = countText();
+    const alert = $('#invAlert');
+    if (alert) alert.innerHTML = alertHtml();
   }
 
   function paintPanel() {
@@ -268,7 +284,7 @@ export async function inventoryView(view) {
       tr.classList.toggle('is-selected', on);
       tr.querySelectorAll('[data-act="select"]').forEach((b) => b.setAttribute('aria-pressed', String(on)));
     });
-    if (wide()) { paintPanel(); return; }
+    // 상세(다른 차량 수량 · 숫자로 입력 · 수정 · 삭제)는 창으로 — 수량은 줄에서 바로 바꾼다
     const item = items.find((i) => i.id === id);
     if (!item) return;
     const body = openSheet(item.partName, `<div class="inv-panel inv-sheet">${panelHtml(item)}</div>`);
@@ -276,30 +292,30 @@ export async function inventoryView(view) {
   }
 
   function render() {
-    if (!items.some((i) => i.id === selectedId)) {
-      // 처음엔 보충이 필요한 것부터 보여 준다 — 그게 이 화면에 온 이유인 경우가 많다.
-      selectedId = (items.find(isLow) || items[0] || {}).id || null;
-    }
+    // 오른쪽 패널이 없어졌으니 미리 골라 두지 않는다 (v3.35) — 고른 줄은 창을 연 줄뿐이다.
+    // 보충이 필요한 것은 맨 위 '보충 필요' 띠가 알려 준다.
+    if (!items.some((i) => i.id === selectedId)) selectedId = null;
 
     view.innerHTML = `
-      <div id="pageRoot" class="page-stack">
+      <div id="pageRoot" class="page-stack inv">
         <div class="page-head">
           <h1 class="page-head__title">차량 재고</h1>
-          <div class="veh-tabs" role="tablist" aria-label="차량">
-            ${vehicles.map((v) => `
-              <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
-                      role="tab" aria-selected="${v.name === current}"
-                      data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
-            <button class="veh-tab veh-tab--manage" data-act="manage-vehicles"
-                    type="button" aria-label="차량 추가 · 삭제">＋ 차량</button>
-          </div>
           <span class="page-head__spacer"></span>
           ${current ? `
             ${sheetMode ? `
               <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
             <button class="btn btn-secondary" data-act="cat-order" type="button">분류 순서</button>
-            <button class="btn btn-primary" data-act="add-item" type="button">＋ 품목 추가</button>` : ''}
+            <button class="btn btn-secondary" data-act="add-item" type="button">＋ 품목 추가</button>` : ''}
         </div>
+        <div class="veh-tabs inv-vehicles" role="tablist" aria-label="차량">
+          ${vehicles.map((v) => `
+            <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
+                    role="tab" aria-selected="${v.name === current}"
+                    data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
+          <button class="veh-tab veh-tab--manage" data-act="manage-vehicles"
+                  type="button" aria-label="차량 추가 · 삭제">＋ 차량</button>
+        </div>
+        ${current ? `<div id="invAlert">${alertHtml()}</div>` : ''}
 
         ${current ? `
           <div class="inv-filter">
@@ -307,7 +323,7 @@ export async function inventoryView(view) {
             <input class="input inv-search" id="invQ" type="search"
                    placeholder="부품 찾기" aria-label="${h(current)} 부품 검색" />
           </div>
-          <div class="inv-split">
+          <div class="inv-split inv-split--full">
             <section class="inv-list">
               <div class="scroll" id="invBody">${bodyHtml()}</div>
               <div class="inv-list__foot">
@@ -317,7 +333,6 @@ export async function inventoryView(view) {
                 <button class="btn btn-secondary btn--sm" data-act="unfold-all" type="button">모두 펴기</button>
               </div>
             </section>
-            <aside class="inv-panel" id="invPanel" aria-label="고른 품목">${panelHtml(items.find((i) => i.id === selectedId))}</aside>
           </div>`
         : `<div class="empty">
              등록된 차량이 없습니다.<br />

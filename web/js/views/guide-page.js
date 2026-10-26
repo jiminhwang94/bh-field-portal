@@ -114,10 +114,10 @@ export async function guideDetailView(view, guideId, query = null) {
           ${ctx.store || ctx.serial ? `<p class="gd-ctx">${h([ctx.store, ctx.serial].filter(Boolean).join(' · '))}에서 보는 중</p>` : ''}
           <div class="gd-actions">
             ${total ? `<button class="btn btn-secondary" data-act="view-mode" type="button">${stepView ? '한눈에 보기' : '한 단계씩 보기'}</button>` : ''}
-            <a class="btn btn-secondary" href="#/guides/edit/${guide.id}">수정</a>
-            <button class="btn btn--danger" data-act="delete" type="button">삭제</button>
             <span class="spacer"></span>
-            <button class="btn btn-primary" data-act="write-report" type="button">이 작업으로 리포트 쓰기</button>
+            <!-- 고치기 · 지우기는 현장에서 드물다 — [⋯] 안으로 (v3.35). 주 동작은 아래 [다 했어요] 하나 -->
+            <button class="btn btn-secondary btn--icon gd-more" data-act="more" type="button" aria-label="가이드 수정 · 삭제">⋯</button>
+            <button class="btn ${stepView ? 'btn-secondary' : 'btn-primary'}" data-act="write-report" type="button">이 작업으로 리포트 쓰기</button>
           </div>
         </header>
 
@@ -208,6 +208,14 @@ export async function guideDetailView(view, guideId, query = null) {
       window.scrollTo(0, 0);
     }
     if (act === 'write-report') writeReport();
+    if (act === 'more') {
+      const box = openSheet('가이드 관리', `
+        <div class="sheet-actions gd-more-menu">
+          <a class="btn btn-secondary btn--block" href="#/guides/edit/${guide.id}">수정</a>
+          <button class="btn btn--danger btn--block" data-act="delete" type="button">삭제</button>
+        </div>`);
+      box.addEventListener('click', onClick);
+    }
     if (act === 'copy' || act === 'copy-all') {
       const text = act === 'copy'
         ? $('#' + btn.dataset.target).textContent

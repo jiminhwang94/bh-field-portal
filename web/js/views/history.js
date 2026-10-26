@@ -300,10 +300,11 @@ function paintEntry(box, entry) {
  * 시트 한 줄의 상세를 창으로 보여 준다.
  * 좁은 화면의 이력과 새 리포트의 [지난 방문] 이 쓴다.
  */
-export function showSheetEntry(entry) {
+export function showSheetEntry(entry, onChange = null) {
   const box = openSheet(entry.store || '리포트', '');
+  box.classList.add('hist-sheet');
   paintEntry(box, entry);
-  bindEntry(box, () => entry, { inModal: true, onStatus: () => paintEntry(box, entry) });
+  bindEntry(box, () => entry, { inModal: true, onStatus: () => { paintEntry(box, entry); if (onChange) onChange(); } });
 }
 
 
@@ -422,7 +423,6 @@ const shortDate = (value) => {
  * 건수이자 필터다. 좁은 화면에서는 줄을 누르면 상세를 창으로 띄운다.
  * 주소의 ?q= 는 검색어, ?open= 은 바로 열 건 (홈의 최근 기록에서 넘어온다).
  */
-const wideHist = () => window.matchMedia('(min-width: 1000px)').matches;
 
 export async function reportListView(view, params = null) {
   loading(view);
@@ -523,7 +523,9 @@ export async function reportListView(view, params = null) {
         const symptom = valueOf(e, '증상') || (!valueOf(e, '조치') ? e.summary : '');
         const action = [valueOf(e, '조치'), valueOf(e, '처리 결과')].filter(Boolean).join(' → ');
         const nth = repeatCount(knownPast, e);
+        const guide = cardGuide(e);
         return `
+          <article class="hist-card${on ? ' is-on' : ''}" data-track="${t.cls}">
           <button class="hist-row${on ? ' is-on' : ''}${late ? ' is-overdue' : ''}" data-act="open" data-key="${h(e.key)}"
                   data-track="${t.cls}" type="button" aria-pressed="${on}">
             <span class="hist-row__top">
@@ -538,7 +540,9 @@ export async function reportListView(view, params = null) {
               ${action ? `<span><i>조치</i>${h(action)}</span>` : ''}
             </span>` : ''}
             ${nth >= 2 ? `<span class="hist-row__repeat">이 로봇에서 ${h(e.code)} ${nth}번째</span>` : ''}
-          </button>`;
+          </button>
+          ${guide ? `<a class="hist-card__guide" href="${h(guide.href)}"><b>가이드</b><span>${h(guide.title)}</span><i aria-hidden="true">›</i></a>` : ''}
+          </article>`;
       }).join('')}
     </div>`;
   }
@@ -594,14 +598,6 @@ export async function reportListView(view, params = null) {
 
   const selected = () => (data.entries || []).find((e) => e.key === selectedKey) || null;
 
-  function paintPanel() {
-    const panel = $('#histPanel');
-    if (!panel) return;
-    const entry = selected();
-    if (entry) paintEntry(panel, entry);
-    else panel.innerHTML = '<div class="hist-panel__empty">왼쪽에서 리포트를 고르면<br />로봇 · 증상 · 조치 · 사진을 여기서 봅니다.</div>';
-  }
-
   /**
    * 화면을 두 겹으로 나눈다.
    *  - 껍데기(renderShell): 검색창·월 선택기. **한 번만 만들고 다시 만들지 않는다.**
@@ -625,18 +621,14 @@ export async function reportListView(view, params = null) {
         <div class="hist-filter">
           <div id="histTop"></div>
           <input class="input hist-search" id="histQ" type="search"
-                 placeholder="식당명 · 날짜 (미트로, 08-22)" aria-label="이력 검색" />
+                 placeholder="매장 · 오류 코드 · 증상 · 날짜 (미트로, E-101, 08-22)" aria-label="이력 검색" />
         </div>
-        <div class="hist-split">
-          <section class="hist-list scroll" id="histBody"></section>
-          <aside class="hist-panel" id="histPanel" aria-label="고른 리포트"></aside>
-        </div>
+        <section class="hist-list" id="histBody"></section>
       </div>`;
 
     const root = $('#pageRoot');
     root.addEventListener('click', onClick);
     root.addEventListener('change', onChange);
-    bindEntry($('#histPanel'), selected, { onStatus: () => paint() });
 
     const box = $('#histQ');
     box.value = query;
@@ -659,17 +651,14 @@ export async function reportListView(view, params = null) {
     const top = $('#histTop');
     const body = $('#histBody');
     if (!top || !body) return;
-    // 넓은 화면은 처음부터 한 건을 열어 둔다 — 오른쪽이 비어 있을 이유가 없다.
-    if (wideHist() && !selected()) selectedKey = (visible()[0] || {}).key || null;
     top.innerHTML = tilesHtml();
     body.innerHTML = noticeHtml() + localHtml() + rowsHtml();
     paintMeta();
-    paintPanel();
   }
 
   async function onClick(ev) {
     const btn = ev.target.closest('[data-act]');
-    if (!btn || btn.closest('#histPanel')) return;     // 상세 안의 버튼은 bindEntry 가 맡는다
+    if (!btn) return;
     const act = btn.dataset.act;
 
     if (act === 'overdue-off') {
@@ -685,10 +674,10 @@ export async function reportListView(view, params = null) {
       return;
     }
     if (act === 'open') {
+      // 카드를 누르면 큰 창으로 — 로봇 · 증상 · 조치 · 지난번 · 사진 · 상태 (v3.35)
       selectedKey = btn.dataset.key;
-      if (wideHist()) { paint(); return; }
       const entry = selected();
-      if (entry) showSheetEntry(entry);
+      if (entry) showSheetEntry(entry, () => paint());
       return;
     }
     if (act === 'refresh') {
@@ -727,8 +716,8 @@ export async function reportListView(view, params = null) {
   await load({ refresh: false });
   paintMonths();
   paint();
-  // 홈에서 한 건을 골라 왔으면 좁은 화면에서도 바로 연다.
-  if (openKey && !wideHist() && selected()) showSheetEntry(selected());
+  // 홈 · 가이드에서 한 건을 골라 왔으면 바로 연다.
+  if (openKey && selected()) showSheetEntry(selected(), () => paint());
 
   // 그런 다음 조용히 최신본을 받아 온다. 화면 전환을 여기서 붙잡지 않는다.
   //
@@ -899,4 +888,26 @@ function guideLinksHtml(entry) {
   const q = ctx.toString() ? `?${ctx}` : '';
   return found.filter((g) => !seen.has(g.id) && seen.add(g.id)).map((g) => `<a class="hd-guide" href="#/guides/${h(g.id)}${h(q)}">
       <b>가이드</b> ${h(g.codeOrTitle)}${g.robotModel ? ` <small>${h(g.robotModel)}</small>` : ''} <span aria-hidden="true">›</span></a>`).join('') + make;
+}
+
+/**
+ * 카드 아래 [가이드] 한 줄 — 이 리포트의 오류 코드 · 이슈 유형에 맞는 가이드 하나 (v3.35).
+ * 매장 · 시리얼을 함께 넘겨 가이드에서 '이 로봇 지난번' 이 보이고 리포트로 이어진다.
+ */
+function cardGuide(entry) {
+  const model = valueOf(entry, '모델');
+  let g = isCodeShaped(entry.code) ? guidesForCode(entry.code, knownGuides)
+    .sort((a, b) => Number(sameRobot(model, b.robotModel)) - Number(sameRobot(model, a.robotModel)))[0] : null;
+  if (!g) {
+    for (const item of findWorks(workOf(entry), knownWork)) {
+      g = knownGuides.find((x) => item.guides.includes(x.id) && (!x.robotModel || !model || sameRobot(model, x.robotModel)));
+      if (g) break;
+    }
+  }
+  if (!g) return null;
+  const ctx = new URLSearchParams();
+  if (entry.store) ctx.set('store', entry.store);
+  if (serialOf(entry)) ctx.set('serial', serialOf(entry));
+  if (model) ctx.set('model', model);
+  return { href: `#/guides/${g.id}${ctx.toString() ? `?${ctx}` : ''}`, title: g.codeOrTitle };
 }
