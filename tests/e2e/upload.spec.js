@@ -1,5 +1,5 @@
 // 첨부 조각 올리기 — LTE 가 끊겨도 받은 조각 다음부터 이어 올린다.
-const { test, expect, openApp } = require('./fixtures.js');
+const { test, expect, openApp, pick } = require('./fixtures.js');
 
 const field = (page, label) => page.locator('#reportForm .field', {
   has: page.locator('label', { hasText: label }),
@@ -9,12 +9,12 @@ const MB = 1024 * 1024;
 
 async function fillReport(page, video) {
   await openApp(page, '#/report/new');
-  await field(page, '리포트 번호').selectOption('P260912-01');
+  await pick(page, '리포트 번호', 'P260912-01');
   await field(page, '로봇 시리얼').fill('SN-UP-1');
-  await field(page, '로봇 모델').selectOption('Gen.1(D1)');
+  await pick(page, '로봇 모델', 'Gen.1(D1)');
   await field(page, '증상 요약').fill('영상 첨부 검사');
   await field(page, '조치 내용').fill('조각 올리기 조치');
-  await field(page, '처리 결과').selectOption('완료');
+  await pick(page, '처리 결과', '완료');
   // 사람이 하듯 [앨범 · 파일] 타일을 눌러 고른다 (타일을 눌러야 받는 쪽이 연결된다)
   const chooser = page.waitForEvent('filechooser');
   await page.locator('#reportForm button', { hasText: '앨범' }).first().click();

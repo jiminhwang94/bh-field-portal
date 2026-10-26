@@ -112,7 +112,10 @@ check("재고는 카드가 아니라 표다",
 # 작성 · 이력 · 공통 세 파일을 함께 본다 (v3.30 에 나눔)
 report = read("web/js/views/report.js") + "\n" + read("web/js/views/history.js") + "\n" + read("web/js/views/report-common.js")
 check("새 리포트 입력은 2열 격자다", 'class="form-grid"' in report)
-check("여러 줄 항목은 두 칸을 다 쓴다", 'class="field field--wide"' in report)
+check("여러 줄 항목은 두 칸을 다 쓴다", 'class="field field--wide field--long"' in report)
+# v3.35 — 새 리포트는 한 화면에 질문 하나 (단계식). [한 번에 보기] 로 예전 모습도 남는다.
+check("새 리포트는 단계식이다 (칸마다 단계 · 이전/다음 막대)",
+      'data-step="${stepOf(field)}"' in report and 'class="wz-bar"' in report and "data-act=\"toggle-mode\"" in report)
 
 guides = (read("web/js/views/guides.js") + "\n" + read("web/js/views/guide-page.js"))
 fields = read("web/js/views/fields.js")
@@ -252,7 +255,7 @@ check("상태는 그 줄이 속한 묶음에서 칸을 찾는다",
 check("리포트 번호는 소비자 시트의 필드팀 요청 건에서 고른다",
       "function handleReportNumbers" in gs and "CONSUMER_REQUEST_MARK" in gs
       and "pullRequestNumbers" in read("web/js/reportsheet.js")
-      and "numberOptionsHtml" in read("web/js/views/report.js"),
+      and "ticketsHtml" in read("web/js/views/report.js"),
       "번호를 손으로 적으면 접수 건과 리포트가 이어지지 않는다")
 check("콘솔에서 끝난 접수는 고를 수 없다 (콘솔 상태 '대기'·'진행중' 만)",
       "CONSUMER_OPEN_MARKS" in gs and "function isConsoleOpen" in gs

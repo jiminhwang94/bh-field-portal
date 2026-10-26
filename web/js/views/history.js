@@ -11,12 +11,18 @@ import {
   previewUrl, pullRequestNumbers, thumbUrl,
 } from '../reportsheet.js';
 
-import { ICON, seedFromEntry, TRACK, trackOf, warnPrivateVideo } from './report-common.js';
-import { guidesForCode, findWorks, isCodeShaped, sameRobot, valueOf, issueOf, issuesOf, isIssueLabel } from '../insights.js';
+import { ICON, pastMemoHtml, seedFromEntry, TRACK, trackOf, warnPrivateVideo } from './report-common.js';
+import {
+  guidesForCode, findWorks, isCodeShaped, sameRobot, valueOf, issueOf, issuesOf, isIssueLabel,
+  loadEntries, repeatCount, robotPast, serialOf,
+} from '../insights.js';
 
 /** 상세에서 오류 코드 → 가이드를 잇는 데 쓴다 (기기 안 가이드, 화면을 열 때 한 번 받는다) */
 let knownGuides = [];
 const loadGuides = () => api.listGuides().then((r) => { knownGuides = r.items || []; }).catch(() => {});
+/** 최근 3달 이력 — 같은 로봇의 '지난번' 과 반복 경고에 쓴다 (기기 사본, 화면을 열 때 한 번) */
+let knownPast = [];
+const loadPast = () => loadEntries(3).then((r) => { knownPast = r.entries || []; }).catch(() => {});
 /** 이슈 유형 목록 — 리포트의 이슈 유형 → 이어 둔 가이드 */
 let knownWork = { cats: [], items: [] };
 const loadWork = () => api.workList().then((l) => { knownWork = l; }).catch(() => {});
@@ -162,6 +168,8 @@ function entryDetailHtml(entry) {
           ${p.result.map((v) => `<span class="hd-result">${h(v.label)} · <b>${h(v.value)}</b></span>`).join('')}
         </div>
       </div>
+      ${pastMemoHtml(robotPast(knownPast, serialOf(entry), entry.key),
+        { code: entry.code, nth: repeatCount(knownPast, entry) })}
       <div class="hd2-row" data-sec="media">
         ${label('media', `사진·영상<span class="tnum">${entry.links.length}</span>`)}
         <div class="hd2-body">
@@ -419,6 +427,8 @@ const wideHist = () => window.matchMedia('(min-width: 1000px)').matches;
 export async function reportListView(view, params = null) {
   loading(view);
   await Promise.all([loadGuides(), loadWork()]);
+  // 지난번 · 반복은 받아 둔 3달치로 센다 — 기다리지 않고, 모이면 한 번 다시 그린다
+  loadPast().then(() => { if (view.querySelector('#histQ')) paint(); });
 
   const settings = await api.getSettings();
   if (!settings.sheetsReady) {
@@ -505,10 +515,14 @@ export async function reportListView(view, params = null) {
     return `<div class="hist-rows">
       ${list.map((e) => {
         const on = e.key === selectedKey;
-        const detail = [e.code, e.summary].filter(Boolean).join(' · ');
         const t = trackOf(e.status);
         const age = ageText(e);
         const late = e.status !== '조치 완료' && openDays(e) >= OVERDUE_DAYS;
+        // 카드만 봐도 무엇이 문제였고 무엇을 했는지 — 증상 · 조치 · 결과를 한 줄씩 (v3.35)
+        const robot = [valueOf(e, '모델'), serialOf(e)].filter(Boolean).join(' · ');
+        const symptom = valueOf(e, '증상') || (!valueOf(e, '조치') ? e.summary : '');
+        const action = [valueOf(e, '조치'), valueOf(e, '처리 결과')].filter(Boolean).join(' → ');
+        const nth = repeatCount(knownPast, e);
         return `
           <button class="hist-row${on ? ' is-on' : ''}${late ? ' is-overdue' : ''}" data-act="open" data-key="${h(e.key)}"
                   data-track="${t.cls}" type="button" aria-pressed="${on}">
@@ -517,7 +531,13 @@ export async function reportListView(view, params = null) {
               <span class="hist-row__status">${stIcon(t.cls)}${h(t.short)}${age ? ` · ${age}` : ''}</span>
             </span>
             <span class="hist-row__store">${h(e.store || '(식당명 없음)')}</span>
-            ${detail ? `<span class="hist-row__sub">${h(detail)}</span>` : ''}
+            ${robot || isCodeShaped(e.code) ? `<span class="hist-row__robot">${h(robot)}${
+              isCodeShaped(e.code) ? `${robot ? ' · ' : ''}<b class="hist-row__code">${h(e.code)}</b>` : ''}</span>` : ''}
+            ${symptom || action ? `<span class="hist-row__story">
+              ${symptom ? `<span><i>증상</i>${h(symptom)}</span>` : ''}
+              ${action ? `<span><i>조치</i>${h(action)}</span>` : ''}
+            </span>` : ''}
+            ${nth >= 2 ? `<span class="hist-row__repeat">이 로봇에서 ${h(e.code)} ${nth}번째</span>` : ''}
           </button>`;
       }).join('')}
     </div>`;
@@ -763,6 +783,7 @@ export async function reportDetailView(view, reportId) {
       </div>
 
       <div class="row" style="margin-bottom:16px">
+        ${report.status === 'DRAFT' ? `<a class="btn btn-primary" href="#/report/new?draft=${h(report.id)}">이어 쓰기</a>` : ''}
         <button class="btn btn--primary btn--sm" data-act="upload" type="button">
           ${report.status === 'UPLOADED' ? ' 구글 시트에 다시 업로드' : ' 구글 시트로 업로드'}
         </button>
@@ -869,6 +890,13 @@ function guideLinksHtml(entry) {
     }
   }
   const seen = new Set();
-  return found.filter((g) => !seen.has(g.id) && seen.add(g.id)).map((g) => `<a class="hd-guide" href="#/guides/${h(g.id)}">
+  // 가이드로 갈 때 이 리포트의 매장 · 로봇을 함께 넘긴다 — 가이드가 '이 로봇 지난번' 을 보여 주고,
+  // 다 하고 [리포트 쓰기] 를 누르면 매장 · 시리얼이 채워진다 (v3.35)
+  const ctx = new URLSearchParams();
+  if (entry.store) ctx.set('store', entry.store);
+  if (serialOf(entry)) ctx.set('serial', serialOf(entry));
+  if (model) ctx.set('model', model);
+  const q = ctx.toString() ? `?${ctx}` : '';
+  return found.filter((g) => !seen.has(g.id) && seen.add(g.id)).map((g) => `<a class="hd-guide" href="#/guides/${h(g.id)}${h(q)}">
       <b>가이드</b> ${h(g.codeOrTitle)}${g.robotModel ? ` <small>${h(g.robotModel)}</small>` : ''} <span aria-hidden="true">›</span></a>`).join('') + make;
 }

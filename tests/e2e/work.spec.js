@@ -1,5 +1,5 @@
 // 이슈 유형 목록 (v3.31 '작업' → v3.32 '이슈 유형') — 구분 › 대분류 › 세부 항목. 고르기 · 새로 적기 · 검색(별칭 · 초성) · 합치기 · 가이드 잇기.
-const { test, expect, openApp } = require('./fixtures.js');
+const { test, expect, openApp, pick } = require('./fixtures.js');
 const { seed, NOW, GUIDES } = require('./seed.js');
 
 const field = (page, label) => page.locator('#reportForm .field', {
@@ -32,12 +32,12 @@ test('[이슈 유형 고르기] 창 — 대분류를 고르고 목록에 없는 
   await expect(page.locator('#workHelper .work-pill')).toContainText('로봇 이슈 › 하드웨어 교체 › 로더 교체');
   await expect(field(page, '이슈 유형')).toHaveValue('로봇 이슈 › 하드웨어 교체 › 로더 교체');
 
-  await field(page, '리포트 번호').selectOption('P260912-01');
+  await pick(page, '리포트 번호', 'P260912-01');
   await field(page, '로봇 시리얼').fill('SN-WORK');
-  await field(page, '로봇 모델').selectOption('Gen.1(D1)');
+  await pick(page, '로봇 모델', 'Gen.1(D1)');
   await field(page, '증상 요약').fill('로더 소음');
   await field(page, '조치 내용').fill('로더 교체함');
-  await field(page, '처리 결과').selectOption('완료');
+  await pick(page, '처리 결과', '완료');
   await page.locator('#reportForm button[type=submit]').click();
   await expect.poll(async () => {
     const dump = await sheet.dump();
@@ -57,7 +57,7 @@ test('검색 — 별칭(팔)과 초성(ㄹㄷ)으로도 같은 항목을 찾는�
   await openApp(page, '#/');
   await page.waitForTimeout(1500);                       // 이슈 유형 목록 · 가이드를 받아 둔다
   await openApp(page, '#/report/new');
-  await field(page, '로봇 모델').selectOption('Gen.1(D1)');
+  await pick(page, '로봇 모델', 'Gen.1(D1)');
   await page.locator('#workHelper [data-act="open-work"]').click();
   const box = page.locator('#modalRoot .wk');
   await box.locator('#wkQ').fill('팔');
@@ -101,12 +101,12 @@ test('이슈 유형 여러 개 — 누를 때마다 고르고/빼고 · [선택]
   await page.locator('#modalRoot .wk-item', { hasText: '와이파이 재연결' }).click();
   await page.locator('#modalRoot [data-act="wk-done"]').click();
 
-  await field(page, '리포트 번호').selectOption('P260912-01');
+  await pick(page, '리포트 번호', 'P260912-01');
   await field(page, '로봇 시리얼').fill('SN-MULTI');
-  await field(page, '로봇 모델').selectOption('Gen.1(D1)');
+  await pick(page, '로봇 모델', 'Gen.1(D1)');
   await field(page, '증상 요약').fill('로더 소음 · 와이파이 끊김');
   await field(page, '조치 내용').fill('로더 교체 · 공유기 재시작');
-  await field(page, '처리 결과').selectOption('완료');
+  await pick(page, '처리 결과', '완료');
   await page.locator('#reportForm button[type=submit]').click();
   await expect.poll(async () => {
     const dump = await sheet.dump();

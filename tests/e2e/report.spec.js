@@ -1,5 +1,5 @@
 // 리포트 — 쓰고 올리면 시트에 한 줄 · 이력에서 상태를 바꾸면 시트 칸이 바뀐다.
-const { test, expect, openApp } = require('./fixtures.js');
+const { test, expect, openApp, pick } = require('./fixtures.js');
 
 /** 이름표(label) 글자로 칸을 찾는다 — 항목 ID 는 기기마다 달라서 쓰지 않는다. */
 const field = (page, label) => page.locator('#reportForm .field', {
@@ -14,13 +14,13 @@ function monthRows(dump) {
 
 async function writeReport(page, { number = 'P260912-01', symptom = '바퀴 소음', action = '베어링 교체' } = {}) {
   await openApp(page, '#/report/new');
-  await field(page, '리포트 번호').selectOption(number);
+  await pick(page, '리포트 번호', number);
   await expect(field(page, '매장명')).not.toHaveValue('');
   await field(page, '로봇 시리얼').fill('SN-E2E-001');
-  await field(page, '로봇 모델').selectOption('Gen.1(D1)');
+  await pick(page, '로봇 모델', 'Gen.1(D1)');
   await field(page, '증상 요약').fill(symptom);
   await field(page, '조치 내용').fill(action);
-  await field(page, '처리 결과').selectOption('완료');
+  await pick(page, '처리 결과', '완료');
   await page.locator('#reportForm button[type=submit]').click();
 }
 
