@@ -36,11 +36,15 @@ export async function guideDetailView(view, guideId, query = null) {
     done = new Set(JSON.parse(localStorage.getItem(DONE_KEY(guideId)) || '[]'));
   } catch { /* 무시 */ }
   const total = guide.steps.length;
+  // 단계를 다 마친 채 남은 기록(예전 버전 · [완료] 전에 나간 경우)은 새로 시작한다 — 다음 현장에서는 처음부터다
+  if (total && guide.steps.every((_, i) => done.has(String(i)))) {
+    done = new Set();
+    try { localStorage.removeItem(DONE_KEY(guideId)); } catch { /* 이번만 */ }
+  }
   let viewMode = 'step';
   try { if (localStorage.getItem(GUIDE_VIEW_KEY) === 'list') viewMode = 'list'; } catch { /* 기본 */ }
   /** 지금 단계 — 아직 안 한 첫 단계 (다 했으면 마지막) */
   let at = Math.max(0, guide.steps.findIndex((_, i) => !done.has(String(i))));
-  if (done.size >= total) at = Math.max(0, total - 1);
   let pastHtml = '';
 
   const saveDone = () => localStorage.setItem(DONE_KEY(guideId), JSON.stringify([...done]));
@@ -204,6 +208,8 @@ export async function guideDetailView(view, guideId, query = null) {
       saveDone();
       // 마지막 단계의 [완료] — 그 로봇의 가이드 목록으로 돌아간다 (리포트는 위 [이 작업으로 리포트 쓰기])
       if (at >= total - 1) {
+        // 진행 기록을 지운다 — 다음에 이 가이드를 열면 1단계부터 (v3.35)
+        try { localStorage.removeItem(DONE_KEY(guideId)); } catch { /* 이번만 */ }
         toast('가이드를 마쳤습니다.', 'ok');
         location.hash = modelHref(key);
         return;

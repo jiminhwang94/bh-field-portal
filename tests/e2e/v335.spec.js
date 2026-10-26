@@ -151,6 +151,10 @@ test('가이드 — 한 단계씩 [다 했어요] 로 넘기고, 끝나면 마�
   await page.locator('[data-act="go-step"][data-idx="1"]').click();
   await page.locator('[data-act="done-next"]').click();
   await expect(page).toHaveURL(/#\/guides\/m\/Gen\.1$/);
+  // 다시 열면 처음부터 — 마친 기록이 남지 않는다
+  await openApp(page, `#/guides/${GUIDES[0].id}`);
+  await expect(page.locator('.gs-no')).toHaveText('1 / 2');
+  await expect(page.locator('.gs-item.is-done')).toHaveCount(0);
 });
 
 test('시트에서 한꺼번에 지운 가이드가 기기에 남으면 — 가이드 첫 화면에서 지우거나 다시 올린다', async ({ page, sheet }) => {
