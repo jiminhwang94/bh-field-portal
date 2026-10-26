@@ -87,8 +87,71 @@ export async function loadEntries(n = 3) {
   return { entries, months, missing };
 }
 
+/**
+ * 최근 n 달의 이력 — **받아 둔 사본만** 읽는다 (시트에 묻지 않는다).
+ *
+ * 새 리포트 · 가이드처럼 '지난번' 을 곁들여 보여 주는 화면이 쓴다. 여기서 시트를 부르면
+ * 그 달 사본이 '방금 받음' 으로 바뀌어, 리포트를 올린 직후 이력 화면이 새 줄을 받지 않고
+ * 넘어간다 (이력은 1분 안에 받은 사본은 다시 받지 않는다).
+ */
+export async function cachedEntries(n = 3) {
+  const store = await import('./local/store.js');
+  const entries = [];
+  for (const m of recentMonths(n)) {
+    const cached = await store.getMeta(`sheetReports:${m}`, null);
+    entries.push(...((cached && cached.entries) || []));
+  }
+  return entries;
+}
+
 /** 매장 이름 비교용 (띄어쓰기 · 대소문자 무시) */
 export const storeKey = (name) => String(name || '').replace(/\s+/g, '').toLowerCase();
+
+// ─────────────────────────────────────────────── 지난번 (v3.35 — 같은 로봇의 지난 기록)
+//
+// 현장에서 "이 로봇 지난번에 무슨 일이 있었나" 를 이력 · 가이드 · 새 리포트가 함께 쓴다.
+// 같은 로봇은 **시리얼**로 가린다. 매장 이름만으로는 로봇이 여러 대라 섞인다.
+
+/** 리포트의 로봇 시리얼 */
+export const serialOf = (entry) => valueOf(entry, '시리얼');
+const serialKey = (s) => String(s || '').toUpperCase().replace(/[\s_-]+/g, '');
+
+/**
+ * 같은 로봇의 지난 기록 — 최근 것 먼저. 자기 자신(exceptKey)은 뺀다.
+ * 시리얼을 모르면 빈 목록이다 (매장 전체를 보여 주면 다른 로봇 일이 섞인다).
+ */
+export function robotPast(entries, serial, exceptKey = '') {
+  const want = serialKey(serial);
+  if (want.length < 3) return [];
+  return (entries || [])
+    .filter((e) => e.key !== exceptKey && serialKey(serialOf(e)) === want)
+    .sort((a, b) => String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || '')));
+}
+
+/**
+ * 이 기록이 같은 로봇 · 같은 오류 코드로 **몇 번째**인가 (이 기록 포함, 그 전까지).
+ * 오류 코드가 코드 모양이 아니거나 시리얼이 없으면 0.
+ */
+export function repeatCount(entries, entry) {
+  if (!entry || !isCodeShaped(entry.code)) return 0;
+  const code = normCode(entry.code);
+  const at = String(entry.createdAt || entry.date || '');
+  const same = robotPast(entries, serialOf(entry), entry.key)
+    .filter((e) => normCode(e.code) === code && String(e.createdAt || e.date || '') <= at);
+  return same.length ? same.length + 1 : 0;
+}
+
+/** 지난 기록 한 줄 — 무엇이 문제였고 무엇을 했나 */
+export function pastStory(entry) {
+  return {
+    date: String(entry.date || entry.createdAt || '').slice(5, 10),
+    code: isCodeShaped(entry.code) ? entry.code : '',
+    symptom: valueOf(entry, '증상') || entry.summary || '',
+    action: valueOf(entry, '조치'),
+    result: valueOf(entry, '처리 결과'),
+    status: entry.status || '',
+  };
+}
 
 /** 개수 세기 → 많은 차례 [이름, 수] */
 export function tally(items) {

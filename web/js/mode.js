@@ -42,9 +42,14 @@ export function paintTestBanner() {
     bar.id = 'test-banner';
     bar.className = 'test-banner';
     bar.href = '#/settings';
-    document.body.prepend(bar);
+    // 상단바 안의 작은 표시로 둔다 (v3.35) — 예전에는 화면 맨 위 한가운데 띠라 앱 이름보다 먼저 읽혔다.
+    const spot = document.querySelector('.topbar .topbar__spacer');
+    if (spot) spot.after(bar); else document.body.prepend(bar);
   }
-  bar.textContent = tm.url
+  const full = tm.url
     ? '테스트 모드 — 팀 시트가 아닌 연습용 시트에 적습니다 · 설정에서 끄기'
     : '테스트 모드 — 시트 주소가 없어 기기 안에만 저장합니다 · 설정에서 끄기';
+  bar.textContent = '테스트 모드';
+  bar.title = full;
+  bar.setAttribute('aria-label', full);
 }

@@ -4,6 +4,7 @@ import {
   $, $$, h, CATEGORY, closeModal, confirmDialog, copyText, hydrateMedia, loading,
   openSheet, promptDialog, toast, when,
 } from '../ui.js';
+import { isCodeShaped } from '../insights.js';
 
 export const DONE_KEY = (id) => `bh_steps_done_${id}`;
 
@@ -117,11 +118,17 @@ export const modelLabel = (key) => (key === NONE ? NONE_LABEL : key);
 export const modelHref = (key, cat = null) =>
   `#/guides/m/${encodeURIComponent(key || NONE)}${cat ? `/${cat}` : ''}`;
 
-/** 오류 코드는 코드(E-101)와 제목을 나눠 보여 준다. 나머지는 제목만. */
+/**
+ * 오류 코드는 코드(E-101)와 제목을 나눠 보여 준다. 나머지는 제목만.
+ * 맨 앞 낱말이 **코드처럼 생겼을 때만** 나눈다 — '[SocketManager] Client connection Failed.' 처럼
+ * 로그 문구를 제목으로 쓰면 '[SocketManager]' 가 파란 코드 칸으로 떨어져 나갔다 (v3.35).
+ */
 export function splitTitle(guide) {
-  if (guide.categoryType !== 'ERROR_CODE') return { code: '', title: guide.codeOrTitle };
-  const [first, ...rest] = guide.codeOrTitle.split(' ');
-  return { code: first, title: rest.join(' ') || guide.codeOrTitle };
+  const full = String(guide.codeOrTitle || '').trim();
+  if (guide.categoryType !== 'ERROR_CODE') return { code: '', title: full };
+  const [first, ...rest] = full.split(/\s+/);
+  if (!isCodeShaped(first) || !rest.length) return { code: '', title: full };
+  return { code: first, title: rest.join(' ') };
 }
 
 /** 로봇 이름 바꾸기 · 삭제 — 가이드 탭과 로봇 화면이 같은 창을 쓴다. */
@@ -230,6 +237,8 @@ export async function guideHubView(view) {
     if (k !== NONE && !keys.includes(k)) keys.push(k);
   }
   const unassigned = all.filter((g) => modelKey(g) === NONE).length;
+  const recent = await recentCodes(all);
+  const orphans = await (await import('../guidesheet.js')).listOrphans().catch(() => []);
 
   const band = (key) => {
     const list = all.filter((g) => modelKey(g) === key);
@@ -260,14 +269,38 @@ export async function guideHubView(view) {
     <div id="pageRoot" class="page-stack">
       <div class="page-head">
         <h1 class="page-head__title">가이드</h1>
-        <form class="page-search" id="guideSearch" role="search">
-          <input class="input" id="guideSearchQ" type="search" autocomplete="off" enterkeyhint="search"
-                 aria-label="가이드 검색" placeholder="오류 코드 · 증상 · 부품 검색" />
-        </form>
         <span class="page-head__spacer"></span>
         <button class="btn btn-secondary" data-act="add-model" type="button">＋ 로봇</button>
-        <a class="btn btn-primary" href="#/guides/new">＋ 가이드 작성</a>
+        <a class="btn btn-secondary" href="#/guides/new">＋ 가이드 작성</a>
       </div>
+      ${orphans.length ? `
+        <section class="gh-orphans" role="status">
+          <div class="gh-orphans__text">
+            <b>시트에 없는 가이드 <span class="tnum">${orphans.length}</span>건</b>
+            <span>시트나 다른 기기에서 지운 것으로 보입니다. 이 기기에만 남아 있습니다.</span>
+            <small>${h(orphans.slice(0, 4).map((g) => g.codeOrTitle).join(' · '))}${orphans.length > 4 ? ` 외 ${orphans.length - 4}` : ''}</small>
+          </div>
+          <button class="btn btn-secondary" data-act="orphans-up" type="button">시트에 다시 올리기</button>
+          <button class="btn btn--danger" data-act="orphans-drop" type="button">이 기기에서 지우기</button>
+        </section>` : ''}
+      <!-- 현장에서는 '무엇이 고장났나' 로 찾는다 (v3.35). 로봇별 목록은 그 아래 -->
+      <section class="gh-find" aria-label="가이드 찾기">
+        <h2 class="gh-find__title">무엇을 고치나요?</h2>
+        <form class="page-search gh-search" id="guideSearch" role="search">
+          <input class="input" id="guideSearchQ" type="search" autocomplete="off" enterkeyhint="search"
+                 aria-label="가이드 검색" placeholder="오류 코드 · 증상 · 부품 (E-101, 로더, 패드)" />
+          <button class="btn btn-primary" type="submit">찾기</button>
+        </form>
+        ${recent.length ? `
+          <div class="gh-recent">
+            <span class="gh-recent__label">최근 3달 이력에 나온 코드</span>
+            ${recent.map((r) => `
+              <a class="gh-code" href="#/guides/${h(r.guide.id)}">
+                <b class="tnum">${h(r.code)}</b><span>${h(splitTitle(r.guide).title)}</span><i class="tnum">${r.n}건</i>
+              </a>`).join('')}
+          </div>` : ''}
+      </section>
+      <h2 class="gh-sub">로봇별 가이드</h2>
       <div class="rbands">
         ${keys.map(band).join('')}
         ${unassigned ? `
@@ -294,6 +327,19 @@ export async function guideHubView(view) {
     if (!btn) return;
     if (btn.dataset.act === 'add-model') {
       if (await addModelFlow()) guideHubView(view);
+    }
+    if (btn.dataset.act === 'orphans-drop' || btn.dataset.act === 'orphans-up') {
+      const gs = await import('../guidesheet.js');
+      const drop = btn.dataset.act === 'orphans-drop';
+      const ok = await confirmDialog(drop ? '이 기기에서 지우기' : '시트에 다시 올리기',
+        drop ? `시트에 없는 가이드 ${orphans.length}건을 이 기기에서 지웁니다. 시트와 다른 기기는 그대로입니다.`
+          : `이 기기에만 남은 가이드 ${orphans.length}건을 시트에 다시 올립니다. 팀 전체에 다시 보입니다.`,
+        drop ? '지우기' : '올리기', drop);
+      if (!ok) return;
+      const n = drop ? await gs.dropOrphans() : await gs.reuploadOrphans();
+      toast(drop ? `이 기기에서 ${n}건을 지웠습니다.` : `${n}건을 시트에 다시 올립니다.`, 'ok');
+      guideHubView(view);
+      return;
     }
     if (btn.dataset.act === 'model-menu') {
       openModelMenu(btn.dataset.name, { onDone: () => { closeModal(); guideHubView(view); } });
@@ -513,4 +559,25 @@ export function row(guide, withModel = false) {
       </span>
       <span class="item__chevron" aria-hidden="true">›</span>
     </a>`;
+}
+
+/**
+ * 최근 3달 이력에 나온 오류 코드 중 가이드가 있는 것 — 많이 난 차례 (가이드 첫 화면 바로가기, v3.35).
+ * 받아 둔 이력만 본다 (시트에 묻지 않는다).
+ */
+async function recentCodes(guides) {
+  try {
+    const { cachedEntries, guidesForCode, isCodeShaped, normCode, tally } = await import('../insights.js');
+    const entries = await cachedEntries(3);
+    const out = [];
+    for (const [key, n] of tally(entries.filter((e) => isCodeShaped(e.code)).map((e) => normCode(e.code)))) {
+      const sample = entries.find((e) => normCode(e.code) === key);
+      const guide = guidesForCode(sample.code, guides)[0];
+      if (guide) out.push({ code: sample.code, n, guide });
+      if (out.length >= 6) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }

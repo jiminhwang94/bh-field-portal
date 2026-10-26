@@ -28,7 +28,8 @@ test('지운 가이드를 설정 → 휴지통에서 되살린다', async ({ pag
   // 시트에 올라간 뒤에 지운다 (올라가기 전에 지우면 시트에는 남을 것이 없다 — 그게 맞다)
   await expect.poll(async () => (await rowsOf(sheet, '하드웨어 교체 SOP')).map((r) => r.join(' ')).join('\n'), { timeout: 15000 })
     .toContain('되살릴 가이드');
-  await page.locator('[data-act="delete"]').first().click();
+  await page.locator('[data-act="more"]').click();                      // 수정 · 삭제는 [⋯] 안 (v3.35)
+  await page.locator('#modalRoot [data-act="delete"]').click();
   await page.locator('#modalRoot [data-act="ok"]').click();
   await expect.poll(async () => (await rowsOf(sheet, '휴지통')).length, { timeout: 15000 }).toBe(1);
 

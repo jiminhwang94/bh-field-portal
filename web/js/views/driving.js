@@ -91,23 +91,29 @@ export async function drivingView(view) {
 
   const km = (n) => `${comma(n)} ㎞`;
 
-  function logRow(r) {
+  /**
+   * 운행 기록 한 장 (v3.35) — 표 열 칸 대신 카드. 장갑 낀 손으로 가로 스크롤 없이 읽고 고친다.
+   * 서식 항목 이름(⑤ · ⑥ · ⑦ · ⑧ · ⑨)은 카드에도 남긴다 — 시트 탭과 한 칸씩 맞춰 볼 수 있게.
+   */
+  function logCard(r) {
+    const [, mm, dd] = String(r.date || '').split('-');
     return `
-      <tr data-id="${h(r.id)}">
-        <td data-label="③사용일자">${h(r.date)}${r.weekday ? ` <span class="muted">(${h(r.weekday)})</span>` : ''}</td>
-        <td data-label="부서">${h(r.dept) || '<span class="muted">-</span>'}</td>
-        <td data-label="성명">${h(r.driverName) || '<span class="muted">-</span>'}</td>
-        <td class="tnum" style="text-align:right" data-label="⑤주행 전">${comma(r.odoBefore)}</td>
-        <td class="tnum" style="text-align:right" data-label="⑥주행 후">${comma(r.odoAfter)}</td>
-        <td class="tnum" style="text-align:right" data-label="⑦주행거리"><strong>${comma(r.distance)}</strong></td>
-        <td data-label="⑧출발지">${h(r.fromPlace) || '<span class="muted">-</span>'}</td>
-        <td data-label="⑨도착지">${h(r.toPlace) || '<span class="muted">-</span>'}</td>
-        <td data-label="⑩비고">${h(r.note) || '<span class="muted">-</span>'}</td>
-        <td style="text-align:right;white-space:nowrap">
+      <article class="drv-card" data-id="${h(r.id)}">
+        <div class="drv-card__date">
+          <b class="tnum">${h(mm || '')}.${h(dd || '')}</b>
+          <span>${h(r.weekday || store.weekdayOf(r.date) || '')}</span>
+        </div>
+        <div class="drv-card__main">
+          <span class="drv-card__route">${h(r.fromPlace || '출발지 없음')} <i aria-hidden="true">→</i> ${h(r.toPlace || '도착지 없음')}</span>
+          <span class="drv-card__meta">${[r.dept, r.driverName, r.note].filter(Boolean).map(h).join(' · ') || '<span class="muted">부서 · 성명 없음</span>'}</span>
+          <span class="drv-card__odo tnum">⑤ ${comma(r.odoBefore)} → ⑥ ${comma(r.odoAfter)} ㎞</span>
+        </div>
+        <div class="drv-card__km"><b class="tnum">${comma(r.distance)}</b><span>㎞ 주행</span></div>
+        <div class="drv-card__acts">
           <button class="btn btn-secondary" data-act="edit" data-id="${h(r.id)}" type="button">수정</button>
-          <button class="btn btn-secondary" data-act="del" data-id="${h(r.id)}" type="button">삭제</button>
-        </td>
-      </tr>`;
+          <button class="btn btn-secondary btn--danger-text" data-act="del" data-id="${h(r.id)}" type="button">삭제</button>
+        </div>
+      </article>`;
   }
 
   function bodyHtml() {
@@ -115,42 +121,29 @@ export async function drivingView(view) {
     if (!list.length) {
       return `<div class="empty">${month
         ? `${h(month)} 에 적힌 운행 기록이 없습니다.`
-        : '운행 기록이 없습니다. [＋ 운행 기록]으로 오늘 운행을 적으세요.'}</div>`;
+        : '운행 기록이 없습니다. 위의 [오늘 운행 기록]으로 적으세요.'}</div>`;
     }
-    return `
-      <table class="table table--touch">
-        <thead>
-          <tr>
-            <th>③사용일자 (요일)</th>
-            <th>④부서</th>
-            <th>성명</th>
-            <th style="text-align:right">⑤주행 전(㎞)</th>
-            <th style="text-align:right">⑥주행 후(㎞)</th>
-            <th style="text-align:right">⑦주행거리(㎞)</th>
-            <th>⑧출발지</th>
-            <th>⑨도착지</th>
-            <th>⑩비고</th>
-            <th style="text-align:right">기록</th>
-          </tr>
-        </thead>
-        <tbody>${list.map(logRow).join('')}</tbody>
-      </table>`;
+    return `<div class="drv-list">${list.map(logCard).join('')}</div>`;
   }
 
   function render() {
     const list = visibleRows();
     const total = list.reduce((sum, r) => sum + (Number(r.distance) || 0), 0);
+    const today = store.today();
+    const todays = rows.filter((r) => r.date === today);
+    const thisMonth = rows.filter((r) => String(r.date).startsWith(today.slice(0, 7)));
+    const monthKm = thisMonth.reduce((sum, r) => sum + (Number(r.distance) || 0), 0);
 
     view.innerHTML = `
-      <div id="pageRoot">
+      <div id="pageRoot" class="page-stack drv">
         <div class="page-head">
-          <h1 class="page-head__title">차량 운행 일지</h1>
+          <h1 class="page-head__title">운행일지</h1>
+          <span class="page-head__meta">국세청 법인 차량 운행 일지 서식</span>
           <span class="page-head__spacer"></span>
           ${current ? `
             ${sheetMode ? `
               <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
-            <button class="btn btn-secondary" data-act="manage-options" type="button">항목 관리</button>
-            <button class="btn btn-primary" data-act="add" type="button">＋ 운행 기록</button>` : ''}
+            <button class="btn btn-secondary" data-act="manage-options" type="button">항목 관리</button>` : ''}
         </div>
 
         <div class="veh-tabs">
@@ -162,32 +155,32 @@ export async function drivingView(view) {
         </div>
 
         ${current ? `
-          <div class="panel" style="margin-bottom:var(--space-3)">
-            <div class="row row--between" style="align-items:flex-start">
-              <div>
-                <h2 class="panel__title" style="margin:0 0 6px">${h(current)}</h2>
-                <p class="muted" style="margin:0;line-height:1.7">
-                  ①차종 <strong>${h(info.model) || '<span class="muted">미등록</span>'}</strong> ·
-                  ②자동차등록번호 <strong>${h(info.plate) || '<span class="muted">미등록</span>'}</strong><br />
-                  법인명 ${h(COMPANY.name)} · 사업자등록번호 ${h(COMPANY.bizNo)}
-                </p>
-              </div>
-              <button class="btn btn-secondary" data-act="edit-vehicle" type="button">차량 정보 수정</button>
+          <section class="drv-hero">
+            <div class="drv-hero__id">
+              <h2>${h(current)}</h2>
+              <p>①차종 <b>${h(info.model) || '미등록'}</b> · ②자동차등록번호 <b>${h(info.plate) || '미등록'}</b></p>
+              <p class="muted">법인명 ${h(COMPANY.name)} · 사업자등록번호 ${h(COMPANY.bizNo)}
+                <button class="link-btn" data-act="edit-vehicle" type="button">차량 정보 수정</button></p>
             </div>
-          </div>
+            <div class="drv-hero__stats">
+              <div><span>지난 계기판</span><b class="tnum">${lastOdo === null ? '—' : comma(lastOdo)}</b><small>㎞ · 다음 ⑤에 들어감</small></div>
+              <div><span>이번 달</span><b class="tnum">${comma(monthKm) || 0}</b><small>㎞ · ${thisMonth.length}건</small></div>
+              <div class="${todays.length ? 'is-done' : 'is-todo'}"><span>오늘</span><b>${todays.length ? `${todays.length}건` : '아직 없음'}</b>
+                <small>${todays.length ? `${comma(todays.reduce((s, r) => s + (Number(r.distance) || 0), 0))} ㎞` : '운행했으면 적어 주세요'}</small></div>
+            </div>
+            <button class="btn btn-primary drv-hero__add" data-act="add" type="button">＋ 오늘 운행 기록</button>
+          </section>
 
-          <div class="toolbar" style="margin-bottom:var(--space-3)">
-            <label class="muted" for="drvMonth" style="font-size:.9rem">월</label>
-            <select class="select" id="drvMonth" style="max-width:200px">
-              <option value="">전체</option>
+          <div class="drv-filter">
+            <div class="drv-months" role="group" aria-label="월">
+              <button class="drv-month${month ? '' : ' is-on'}" data-act="month" data-month="" type="button">전체</button>
               ${months().map((m) => `
-                <option value="${h(m)}" ${m === month ? 'selected' : ''}>${h(m)}</option>`).join('')}
-            </select>
-            <span class="page-head__spacer"></span>
+                <button class="drv-month${m === month ? ' is-on' : ''}" data-act="month" data-month="${h(m)}" type="button">${h(m.replace('-', '년 '))}월</button>`).join('')}
+            </div>
             <span class="tag tag-neutral">기록 ${list.length}건 · 합계 ${km(total)}</span>
           </div>
 
-          <div class="scroll" id="drvBody">${bodyHtml()}</div>`
+          <div id="drvBody">${bodyHtml()}</div>`
         : `<div class="empty">
              등록된 차량이 없습니다.<br />
              <button class="btn btn-primary" data-act="go-vehicles" type="button"
@@ -196,10 +189,6 @@ export async function drivingView(view) {
       </div>`;
 
     $('#pageRoot').addEventListener('click', onClick);
-    const picker = $('#drvMonth');
-    if (picker) {
-      picker.addEventListener('change', () => { month = picker.value; render(); });
-    }
   }
 
   async function onClick(ev) {
@@ -214,6 +203,7 @@ export async function drivingView(view) {
       await reload();
       return;
     }
+    if (act === 'month') { month = btn.dataset.month || ''; render(); return; }
     // 차량은 재고 화면에서 만들고 지운다 — 한 곳에서만 관리한다.
     if (act === 'go-vehicles') { location.hash = '#/inventory'; return; }
     if (act === 'add') { openEditor(null); return; }

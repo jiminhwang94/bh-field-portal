@@ -9,84 +9,180 @@ import {
   CAT_SHORT, DONE_KEY, NONE_LABEL, guideMediaEnabled, isVideoFile, modelHref, modelKey, modelLabel, row, splitTitle, stepMediaHtml, uploadGuidePhoto,
 } from './guides.js';
 
-// ---------------------------------------------------------------- 상세 — 한눈에
+// ---------------------------------------------------------------- 상세 — 한 단계씩 · 한눈에
 //
-// 단계 전체 · 진행률 · 준비 공구 · 명령어를 한 화면에 둔다. 단계는 줄 전체가
-// 버튼이라(장갑) 누르면 완료 체크되고, 위 막대가 바로 따라 찬다.
-export async function guideDetailView(view, guideId) {
+// 기본은 **한 단계씩** (v3.35 A안): 사진 · 설명 · 공구가 화면 가득, 다음은 오른쪽 아래 큰 버튼 하나.
+// 작은 체크 칸을 맞힐 필요 없이 [다 했어요 · 다음] 으로 넘어간다. [한눈에 보기] 를 누르면 예전처럼
+// 단계 전체 · 진행률 · 준비 공구 · 명령어를 한 화면에 (줄 전체가 버튼, 누르면 완료 체크).
+//
+// 이력에서 들어오면 주소에 매장 · 시리얼이 붙어 온다 (?store=&serial=&model=). 그러면
+//  · 오른쪽에 '이 로봇 지난번' (같은 로봇의 지난 기록 · 같은 코드 반복 경고)
+//  · [리포트 쓰기] 에 매장 · 시리얼 · 오류 코드 · 마친 단계가 채워져 넘어간다
+const GUIDE_VIEW_KEY = 'bh_guide_view';
+export async function guideDetailView(view, guideId, query = null) {
   loading(view);
   const guide = await api.getGuide(guideId);
   if (!guide) throw new Error('가이드를 찾을 수 없습니다.');
   const tools = (guide.requiredTools || '').split(',').map((t) => t.trim()).filter(Boolean);
   const key = modelKey(guide);
   const { code, title } = splitTitle(guide);
+  const ctx = {
+    store: (query && query.get('store')) || '',
+    serial: (query && query.get('serial')) || '',
+    model: (query && query.get('model')) || '',
+  };
   let done = new Set();
   try {
     done = new Set(JSON.parse(localStorage.getItem(DONE_KEY(guideId)) || '[]'));
   } catch { /* 무시 */ }
   const total = guide.steps.length;
+  // 단계를 다 마친 채 남은 기록(예전 버전 · [완료] 전에 나간 경우)은 새로 시작한다 — 다음 현장에서는 처음부터다
+  if (total && guide.steps.every((_, i) => done.has(String(i)))) {
+    done = new Set();
+    try { localStorage.removeItem(DONE_KEY(guideId)); } catch { /* 이번만 */ }
+  }
+  let viewMode = 'step';
+  try { if (localStorage.getItem(GUIDE_VIEW_KEY) === 'list') viewMode = 'list'; } catch { /* 기본 */ }
+  /** 지금 단계 — 아직 안 한 첫 단계 (다 했으면 마지막) */
+  let at = Math.max(0, guide.steps.findIndex((_, i) => !done.has(String(i))));
+  let pastHtml = '';
 
-  view.innerHTML = `
-    <div id="pageRoot" class="gd">
-      <header class="gd-head">
-        <nav class="gd-crumb" aria-label="위치">
-          <a href="#/guides">가이드</a><span aria-hidden="true">›</span>
-          <a href="${modelHref(key)}">${h(modelLabel(key))}</a><span aria-hidden="true">›</span>
-          <a href="${modelHref(key, guide.categoryType)}">${h(CAT_SHORT[guide.categoryType] || '')}</a>
-        </nav>
-        <div class="gd-title">
-          ${code ? `<span class="gd-code tnum">${h(code)}</span>` : ''}
-          <h1 class="page-head__title">${h(title)}</h1>
-        </div>
-        <div class="gd-actions">
-          <a class="btn btn-secondary" href="#/guides/edit/${guide.id}">수정</a>
-          <button class="btn btn--danger" data-act="delete" type="button">삭제</button>
-          <span class="spacer"></span>
-          <a class="btn btn-primary" href="#/report/new">이 작업으로 리포트 쓰기</a>
-        </div>
-      </header>
+  const saveDone = () => localStorage.setItem(DONE_KEY(guideId), JSON.stringify([...done]));
 
-      <div class="gd-body">
-        <section class="gd-main" aria-label="단계">
-          ${total ? `
-            <div class="gd-progress">
-              <span class="gd-progress__text"><b class="tnum" id="gdDone">${done.size}</b> / <span class="tnum">${total}</span> 단계 완료</span>
-              <span class="gd-progress__bar"><i id="gdBar" style="width:${Math.round(done.size / total * 100)}%"></i></span>
-              <button class="btn btn-secondary btn--sm" data-act="reset-check" type="button">처음부터</button>
+  /** 오른쪽 칸 — 준비 공구 · 명령어 · 지난번 · 이 오류로 쓴 리포트 */
+  const sideHtml = () => `
+    ${pastHtml ? `<div id="gdPast">${pastHtml}</div>` : '<div id="gdPast"></div>'}
+    <section class="gd-box">
+      <h2 class="gd-box__title">준비 공구 · 부품</h2>
+      ${tools.length ? `<div class="tag-list">${tools.map((t) => `<span class="chip">${h(t)}</span>`).join('')}</div>`
+        : '<p class="hint">적힌 공구가 없습니다.</p>'}
+    </section>
+    ${guide.commands.length ? `
+      <section class="gd-box">
+        <h2 class="gd-box__title">명령어 — 누르면 복사</h2>
+        ${guide.commands.map((c, i) => `
+          <div class="cmd">
+            ${c.label ? `<div class="cmd__label">${h(c.label)}</div>` : ''}
+            <div class="cmd__row">
+              <pre class="cmd__code" id="cmd-${i}">${h(c.cmd)}</pre>
+              <button class="btn btn--primary" data-act="copy" data-target="cmd-${i}" type="button">복사</button>
             </div>
-            <div class="steps gd-steps">${guide.steps.map((s, i) => stepHtml(s, i, done)).join('')}</div>`
-          : '<div class="empty">등록된 단계가 없습니다. [수정]에서 단계를 추가하세요.</div>'}
-        </section>
+            ${c.desc ? `<p class="cmd__desc">${h(c.desc)}</p>` : ''}
+          </div>`).join('')}
+        ${guide.commands.length > 1 ? '<button class="btn btn-secondary btn--sm" data-act="copy-all" type="button">전체 복사</button>' : ''}
+      </section>` : ''}
+    <section class="gd-box" id="gdReports" hidden></section>
+    <p class="gd-meta">${h(when(guide.updatedAt))} 수정</p>`;
 
-        <aside class="gd-side">
-          <section class="gd-box">
-            <h2 class="gd-box__title">준비 공구 · 부품</h2>
-            ${tools.length ? `<div class="tag-list">${tools.map((t) => `<span class="chip">${h(t)}</span>`).join('')}</div>`
-              : '<p class="hint">적힌 공구가 없습니다.</p>'}
+  /** 한 단계 — 사진 · 설명 · 공구를 크게 */
+  function stepCardHtml() {
+    const s = guide.steps[at];
+    const metric = (s.expectedMetric || '').split(',').map((t) => t.trim()).filter(Boolean);
+    return `
+      <article class="gs-card${done.has(String(at)) ? ' is-done' : ''}">
+        ${s.imageUrl ? `<div class="gs-media">${stepMediaHtml(s.imageUrl, 'gs-img step__img', `단계 ${at + 1} 참고 자료`)}</div>` : ''}
+        <div class="gs-text">
+          <span class="gs-no tnum">${at + 1} / ${total}${done.has(String(at)) ? ' · 했음' : ''}</span>
+          <p class="gs-instr">${h(s.instruction).replace(/\n/g, '<br />')}</p>
+          ${metric.length ? `<div class="tag-list">${metric.map((t) => `<span class="tag tag-accent">${h(t)}</span>`).join('')}</div>` : ''}
+        </div>
+      </article>`;
+  }
+
+  /** 오른쪽 단계 목록 — 누르면 그 단계로 */
+  const stepListHtml = () => `
+    <ol class="gs-list" aria-label="단계">
+      ${guide.steps.map((s, i) => `
+        <li><button class="gs-item${done.has(String(i)) ? ' is-done' : ''}${i === at ? ' is-cur' : ''}" data-act="go-step"
+                    data-idx="${i}" type="button"${i === at ? ' aria-current="step"' : ''}>
+          <span class="gs-item__n tnum">${done.has(String(i)) ? '✓' : i + 1}</span>
+          <span class="gs-item__t">${h(String(s.instruction || '').split('\n')[0])}</span>
+        </button></li>`).join('')}
+    </ol>`;
+
+  function render() {
+    const stepView = viewMode === 'step' && total > 0;
+    const last = at >= total - 1;
+    view.innerHTML = `
+      <div id="pageRoot" class="gd${stepView ? ' gd--step' : ''}">
+        <header class="gd-head">
+          <nav class="gd-crumb" aria-label="위치">
+            <a href="#/guides">가이드</a><span aria-hidden="true">›</span>
+            <a href="${modelHref(key)}">${h(modelLabel(key))}</a><span aria-hidden="true">›</span>
+            <a href="${modelHref(key, guide.categoryType)}">${h(CAT_SHORT[guide.categoryType] || '')}</a>
+          </nav>
+          <div class="gd-title">
+            ${code ? `<span class="gd-code tnum">${h(code)}</span>` : ''}
+            <h1 class="page-head__title">${h(title)}</h1>
+          </div>
+          ${ctx.store || ctx.serial ? `<p class="gd-ctx">${h([ctx.store, ctx.serial].filter(Boolean).join(' · '))}에서 보는 중</p>` : ''}
+          <div class="gd-actions">
+            ${total ? `<button class="btn btn-secondary" data-act="view-mode" type="button">${stepView ? '한눈에 보기' : '한 단계씩 보기'}</button>` : ''}
+            <span class="spacer"></span>
+            <!-- 고치기 · 지우기는 현장에서 드물다 — [⋯] 안으로 (v3.35). 주 동작은 아래 [다 했어요] 하나 -->
+            <button class="btn btn-secondary btn--icon gd-more" data-act="more" type="button" aria-label="가이드 수정 · 삭제">⋯</button>
+            <button class="btn ${stepView ? 'btn-secondary' : 'btn-primary'}" data-act="write-report" type="button">이 작업으로 리포트 쓰기</button>
+          </div>
+        </header>
+
+        <div class="gd-body">
+          <section class="gd-main" aria-label="단계">
+            ${!total ? '<div class="empty">등록된 단계가 없습니다. [수정]에서 단계를 추가하세요.</div>'
+              : stepView ? stepCardHtml() : `
+              <div class="gd-progress">
+                <span class="gd-progress__text"><b class="tnum" id="gdDone">${done.size}</b> / <span class="tnum">${total}</span> 단계 완료</span>
+                <span class="gd-progress__bar"><i id="gdBar" style="width:${Math.round(done.size / total * 100)}%"></i></span>
+                <button class="btn btn-secondary btn--sm" data-act="reset-check" type="button">처음부터</button>
+              </div>
+              <div class="steps gd-steps">${guide.steps.map((s, i) => stepHtml(s, i, done)).join('')}</div>`}
           </section>
-          ${guide.commands.length ? `
-            <section class="gd-box">
-              <h2 class="gd-box__title">명령어 — 누르면 복사</h2>
-              ${guide.commands.map((c, i) => `
-                <div class="cmd">
-                  ${c.label ? `<div class="cmd__label">${h(c.label)}</div>` : ''}
-                  <div class="cmd__row">
-                    <pre class="cmd__code" id="cmd-${i}">${h(c.cmd)}</pre>
-                    <button class="btn btn--primary" data-act="copy" data-target="cmd-${i}" type="button">복사</button>
-                  </div>
-                  ${c.desc ? `<p class="cmd__desc">${h(c.desc)}</p>` : ''}
-                </div>`).join('')}
-              ${guide.commands.length > 1 ? '<button class="btn btn-secondary btn--sm" data-act="copy-all" type="button">전체 복사</button>' : ''}
-            </section>` : ''}
-          <section class="gd-box" id="gdReports" hidden></section>
-          <p class="gd-meta">${h(when(guide.updatedAt))} 수정</p>
-        </aside>
-      </div>
-    </div>`;
 
-  // 단계 사진은 기기 안에 있다 — 그린 뒤에 채워 넣는다.
-  hydrateMedia(view);
-  paintGuideReports(guide).catch(() => {});      // 이 오류로 쓴 리포트 (기기 사본에서)
+          <aside class="gd-side">
+            ${stepView ? stepListHtml() : ''}
+            ${sideHtml()}
+          </aside>
+        </div>
+        ${stepView ? `
+          <div class="gs-bar">
+            <button class="btn btn-secondary" data-act="prev-step" type="button"${at === 0 ? ' disabled' : ''}>‹ 이전 단계</button>
+            <span class="gs-bar__count tnum">${done.size} / ${total} 단계 했음</span>
+            <button class="btn btn-primary gs-bar__next" data-act="done-next" type="button">${
+              last ? '완료' : '다음 ›'}</button>
+          </div>` : ''}
+      </div>`;
+    $('#pageRoot').addEventListener('click', onClick);   // 그릴 때마다 새 칸이라 한 번씩만 붙는다
+    // 단계 사진은 기기 안에 있다 — 그린 뒤에 채워 넣는다.
+    hydrateMedia(view);
+    paintGuideReports(guide).catch(() => {});      // 이 오류로 쓴 리포트 (기기 사본에서)
+  }
+
+  /** 이 로봇 지난번 — 받아 둔 3달 이력에서 (시리얼을 알 때만) */
+  async function loadPast() {
+    if (!ctx.serial) return;
+    const { cachedEntries, robotPast, normCode } = await import('../insights.js');
+    const { pastMemoHtml } = await import('./report-common.js');
+    const entries = await cachedEntries(3);
+    const past = robotPast(entries, ctx.serial);
+    const same = code ? past.filter((e) => normCode(e.code) === normCode(code)).length : 0;
+    pastHtml = pastMemoHtml(past, { code, nth: same ? same + 1 : 0 });
+    const box = document.getElementById('gdPast');
+    if (box) box.innerHTML = pastHtml;
+  }
+
+  /** 마친 단계로 리포트를 시작한다 — 조치 칸에 단계를 차례대로, 오류 코드 · 매장 · 시리얼까지 */
+  function writeReport() {
+    const finished = guide.steps.map((s, i) => ({ s, i })).filter(({ i }) => done.has(String(i)));
+    const lines = finished.map(({ s, i }) => `${i + 1}) ${String(s.instruction || '').split('\n')[0]}`);
+    sessionStorage.setItem('bh_report_seed', JSON.stringify({
+      store: ctx.store, serial: ctx.serial, model: ctx.model,
+      code: guide.categoryType === 'ERROR_CODE' ? code : '',
+      action: lines.length ? [`가이드 ${guide.codeOrTitle}`, ...lines].join('\n') : '',
+    }));
+    location.hash = '#/report/new';
+  }
+
+  render();
+  loadPast().catch(() => {});
 
   const paintProgress = () => {
     const n = $('#gdDone');
@@ -95,11 +191,42 @@ export async function guideDetailView(view, guideId) {
     if (bar) bar.style.width = `${total ? Math.round(done.size / total * 100) : 0}%`;
   };
 
-  $('#pageRoot').addEventListener('click', async (ev) => {
+  async function onClick(ev) {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
 
+    if (act === 'view-mode') {
+      viewMode = viewMode === 'step' ? 'list' : 'step';
+      try { localStorage.setItem(GUIDE_VIEW_KEY, viewMode); } catch { /* 이번만 */ }
+      render();
+    }
+    if (act === 'go-step') { at = Number(btn.dataset.idx); render(); }
+    if (act === 'prev-step') { at = Math.max(0, at - 1); render(); }
+    if (act === 'done-next') {
+      done.add(String(at));
+      saveDone();
+      // 마지막 단계의 [완료] — 그 로봇의 가이드 목록으로 돌아간다 (리포트는 위 [이 작업으로 리포트 쓰기])
+      if (at >= total - 1) {
+        // 진행 기록을 지운다 — 다음에 이 가이드를 열면 1단계부터 (v3.35)
+        try { localStorage.removeItem(DONE_KEY(guideId)); } catch { /* 이번만 */ }
+        toast('가이드를 마쳤습니다.', 'ok');
+        location.hash = modelHref(key);
+        return;
+      }
+      at += 1;
+      render();
+      window.scrollTo(0, 0);
+    }
+    if (act === 'write-report') writeReport();
+    if (act === 'more') {
+      const box = openSheet('가이드 관리', `
+        <div class="sheet-actions gd-more-menu">
+          <a class="btn btn-secondary btn--block" href="#/guides/edit/${guide.id}">수정</a>
+          <button class="btn btn--danger btn--block" data-act="delete" type="button">삭제</button>
+        </div>`);
+      box.addEventListener('click', onClick);
+    }
     if (act === 'copy' || act === 'copy-all') {
       const text = act === 'copy'
         ? $('#' + btn.dataset.target).textContent
@@ -120,7 +247,7 @@ export async function guideDetailView(view, guideId) {
       if (done.has(idx)) { done.delete(idx); } else { done.add(idx); }
       el.classList.toggle('is-done', done.has(idx));
       el.setAttribute('aria-pressed', String(done.has(idx)));
-      localStorage.setItem(DONE_KEY(guideId), JSON.stringify([...done]));
+      saveDone();
       paintProgress();
     }
     if (act === 'reset-check') {
@@ -142,7 +269,7 @@ export async function guideDetailView(view, guideId) {
       toast('삭제했습니다.', 'ok');
       location.hash = modelHref(key, guide.categoryType);
     }
-  });
+  }
 }
 
 function stepHtml(step, idx, done) {

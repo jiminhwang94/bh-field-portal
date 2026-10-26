@@ -81,11 +81,12 @@ check("단계 · 공구 · 명령어를 한 화면에", "gd-steps" in guides and
 check("단계는 줄 전체가 버튼이다 (장갑)", 'data-act="toggle-step" type="button"' in guides)
 
 print()
-print("== 홈 — 우선순위 차례")
-i_new, i_hist, i_guide = app.find('class="h2-new"'), app.find('h2-hist"'), app.find('h2-guides"')
-check("새 리포트 → 이력(검색) → 가이드(로봇) 차례", 0 < i_new < i_hist < i_guide, str((i_new, i_hist, i_guide)))
-check("이력 검색은 이력 화면으로 넘긴다", "`#/reports?q=${encodeURIComponent(q)}`" in app)
-check("최근 기록을 누르면 그 건이 열린다", "#/reports?open=${encodeURIComponent(e.key)}" in app)
+print("== 홈 — 우선순위 차례 (v3.35 세 개의 문)")
+i_new, i_hist, i_guide = app.find('class="door door--new"'), app.find('class="door door--hist"'), app.find('class="door door--guide"')
+i_more = app.find('class="home3__more"')
+check("새 리포트 → 이력 → 가이드 → (운행일지 · 재고) 차례", 0 < i_new < i_hist < i_guide < i_more, str((i_new, i_hist, i_guide, i_more)))
+check("임시보관한 리포트는 홈에서 바로 이어 쓴다", "#/report/new?draft=${h(draft.id)}" in app)
+check("가이드 문에서 로봇으로 바로 간다", 'class="door__robot" href="${modelHref(m)}"' in app)
 check("홈에 가이드 작성 버튼이 없다", 'href="#/guides/new">' not in app)
 
 print()

@@ -11,9 +11,40 @@ import {
   previewUrl, pullRequestNumbers, thumbUrl,
 } from '../reportsheet.js';
 
-import { ICON, SEED_KEY, trackOf, warnPrivateVideo } from './report-common.js';
+import { ICON, SEED_KEY, pastMemoHtml, trackOf, warnPrivateVideo } from './report-common.js';
 import { showSheetEntry } from './history.js';
-import { guidesForCode, parseParts, partsText, findWorks, splitIssues, sameRobot, isIssueLabel } from '../insights.js';
+import {
+  guidesForCode, parseParts, partsText, findWorks, splitIssues, sameRobot, isIssueLabel,
+  cachedEntries, isCodeShaped, normCode, robotPast, serialOf, valueOf,
+} from '../insights.js';
+
+// ------------------------------------------------------------ 단계식 (v3.35 A안)
+//
+// 장갑 낀 현장에서 긴 입력 화면은 어디까지 썼는지 놓친다. 한 화면에 질문 하나씩 묻는다.
+// 칸은 **항목 설정** 그대로다 — 이름표로 어느 단계에 둘지 정하고, 모르는 칸은 '조치 · 결과' 로 간다.
+// 그래서 항목을 더하거나 이름을 바꿔도 단계가 저절로 따라온다.
+// [한 번에 보기] 를 누르면 예전처럼 한 화면에 전부 (수정할 때는 처음부터 이쪽).
+const MODE_KEY = 'bh_report_mode';
+export const STEPS = [
+  { key: 'visit', short: '접수 건', ask: '어느 접수 건인가요?', hint: '접수를 누르면 매장명이 채워집니다' },
+  { key: 'robot', short: '로봇', ask: '어느 로봇인가요?', hint: '이 매장에서 본 로봇은 위에서 바로 고릅니다' },
+  { key: 'problem', short: '문제', ask: '무엇이 문제인가요?', hint: '이슈 유형을 고르고 오류 코드 · 증상을 적습니다' },
+  { key: 'photo', short: '사진', ask: '현장 사진을 찍으세요', hint: '사진 · 영상은 여러 장 붙일 수 있습니다' },
+  { key: 'fix', short: '조치 · 결과', ask: '무엇을 했나요?', hint: '조치 내용과 처리 결과를 고릅니다' },
+  { key: 'check', short: '확인', ask: '확인하고 올리기', hint: '빈 필수 칸은 [고치기] 로 그 단계로 갑니다' },
+];
+const squashLabel = (t) => String(t || '').replace(/\s/g, '');
+/** 이 칸은 몇 번째 단계에 묻나 — 이름표로 정한다 */
+export function stepOf(field) {
+  const l = squashLabel(field.fieldLabel);
+  if (l.includes('리포트번호') || l.includes('매장') || l.includes('식당')) return 'visit';
+  if (l.includes('시리얼') || l.includes('모델') || l.includes('로봇')) return 'robot';
+  if (isIssueLabel(field.fieldLabel) || l.includes('오류코드') || l.includes('증상')) return 'problem';
+  if (field.fieldType === 'MEDIA') return 'photo';
+  return 'fix';
+}
+/** 고르기 칸은 선택지가 이만큼 이하면 큰 버튼으로, 넘으면 목록(셀렉트)으로 */
+const CHOICE_MAX = 8;
 
 // **작성 중 내용을 되살리지 않는다.**
 //
@@ -35,6 +66,9 @@ const ICON_ALBUM = ICON('<rect x="3" y="4" width="18" height="16" rx="2"/><path 
 export async function reportFormView(view) {
   loading(view);
   const editMode = location.hash.replace(/^#/, '').split('?')[0] === '/report/edit';
+  // 홈의 [이어 쓰기] — 기기에 임시보관된 리포트를 이어서 쓴다 (?draft=아이디)
+  const draftId = editMode ? null
+    : new URLSearchParams(location.hash.split('?')[1] || '').get('draft');
   // 옛 버전이 담아 둔 작성 내용은 여기서 버린다 — 되살릴 일이 없다.
   for (const key of OLD_DRAFT_KEYS) localStorage.removeItem(key);
   const [{ items: fields }, settings] = await Promise.all([
@@ -49,6 +83,23 @@ export async function reportFormView(view) {
     // kept = 이미 시트/드라이브에 올라가 있는 첨부 (수정으로 들어왔을 때)
     if (!Array.isArray(values[f.id].kept)) values[f.id].kept = [];
   });
+
+  let reportId = null;   // 기기에 저장한 리포트 (임시보관 · 저절로 저장 · 올리기가 같은 것을 고친다)
+
+  // [이어 쓰기] — 임시보관 리포트의 값 · 첨부를 그대로 채운다. 칸은 아이디로, 없으면 이름표로 맞춘다.
+  if (draftId) {
+    const draft = await api.getReport(draftId).catch(() => null);
+    if (draft && draft.status === 'DRAFT') {
+      reportId = draft.id;
+      for (const item of draft.payload || []) {
+        const f = fields.find((x) => x.id === item.fieldId) || fields.find((x) => x.fieldLabel === item.label);
+        if (!f) continue;
+        values[f.id].value = item.value || '';
+        values[f.id].media = Array.isArray(item.media) ? item.media : [];
+        values[f.id].kept = Array.isArray(item.kept) ? item.kept : [];
+      }
+    }
+  }
 
   // 이력 [수정] 이나 매장별 이력 [이 매장 새 리포트] 로 왔으면 아는 값을 미리 채운다.
   let seeded = null;
@@ -91,6 +142,10 @@ export async function reportFormView(view) {
           values[f.id].value = seeded.serial;
         } else if (seeded.code && label.includes('오류 코드')) {
           values[f.id].value = seeded.code;
+        } else if (seeded.model && label.replace(/\s/g, '').includes('로봇모델')) {
+          values[f.id].value = seeded.model;
+        } else if (seeded.action && label.includes('조치')) {
+          values[f.id].value = seeded.action;     // 가이드에서 마친 단계 (v3.35)
         }
       }
     }
@@ -116,7 +171,17 @@ export async function reportFormView(view) {
   let manualNumber = false;   // '직접 입력…' 을 고른 뒤에는 목록으로 되돌리지 않는다
 
   const sheetsReady = !!settings.sheetsReady;
-  let reportId = null;   // 저장 후 재업로드 대상
+
+  // 단계식 상태
+  const steps = STEPS.filter((s) => s.key === 'check' || fields.some((f) => stepOf(f) === s.key));
+  let mode = 'step';
+  try { if (editMode || localStorage.getItem(MODE_KEY) === 'all') mode = 'all'; } catch { /* 기본 단계식 */ }
+  let stepAt = 0;
+  let savedAt = '';           // 마지막으로 저절로 저장한 시각
+  const serialField = fields.find((f) => f.fieldLabel.includes('시리얼'));
+  // 같은 로봇의 지난 기록 — 최근 3달 **받아 둔** 이력 (시트에 묻지 않는다 · 뒤에서 한 번 읽는다)
+  let pastEntries = [];
+  cachedEntries(3).then((list) => { pastEntries = list; paintRobotHints(); }).catch(() => {});
 
   function mediaTile(fieldId, media, idx) {
     const isVideo = (media.mime || '').startsWith('video/');
@@ -170,25 +235,6 @@ export async function reportFormView(view) {
   }
 
   /**
-   * 리포트 번호 셀렉트의 선택지.
-   * 접수 목록에 없는 값(직접 적었거나 옛 리포트 수정)은 잃지 않게 위에 끼운다.
-   */
-  function numberOptionsHtml(current) {
-    const cut = (t, n) => (t.length > n ? `${t.slice(0, n)}…` : t);
-    const known = reportNumbers.some((it) => it.number === current);
-    return `
-      <option value="">선택하세요</option>
-      ${current && !known
-        ? `<option value="${h(current)}" selected>${h(current)} (직접 적음)</option>` : ''}
-      ${reportNumbers.map((it) => {
-        const text = [it.number, it.store].filter(Boolean).join(' · ')
-          + (it.problem ? ` — ${cut(it.problem, 24)}` : '');
-        return `<option value="${h(it.number)}" ${current === it.number ? 'selected' : ''}>${h(text)}</option>`;
-      }).join('')}
-      <option value="__manual__">직접 입력…</option>`;
-  }
-
-  /**
    * 목록이 바뀐 뒤 리포트 번호 칸을 다시 그린다 (그 칸 하나만).
    *
    * 목록과 화면이 어긋나면 안 된다. 고를 것이 없어졌는데 셀렉트가 남아 있으면
@@ -197,9 +243,41 @@ export async function reportFormView(view) {
    */
   function repaintNumberField() {
     if (!numberField) return;
-    const el = view.querySelector(`[data-input="${numberField.id}"]`);
-    const box = el && el.closest('.field');
+    const box = view.querySelector(`#reportForm [data-field-id="${numberField.id}"]`);
     if (box) box.outerHTML = fieldHtml(numberField);   // 적어 둔 값은 values 에 있다
+  }
+
+  /**
+   * 리포트 번호 — 접수 건을 큰 카드로 고른다 (매장 · 번호 · 접수 내용).
+   * 예전에는 셀렉트 한 줄이라 장갑으로 펼쳐 고르기 어려웠고, 매장이 잘려 보였다.
+   */
+  function ticketsHtml(field, current) {
+    const cut = (t, n) => (t.length > n ? `${t.slice(0, n)}…` : t);
+    const known = reportNumbers.some((it) => it.number === current);
+    const tile = (number, store, problem) => `
+      <button class="ticket${current === number ? ' is-on' : ''}" data-act="pick-number" data-value="${h(number)}"
+              type="button" role="radio" aria-checked="${current === number}">
+        <b class="ticket__store">${h(store || '(매장 없음)')}</b>
+        <span class="ticket__no tnum">${h(number)}</span>
+        ${problem ? `<span class="ticket__problem">${h(cut(problem, 44))}</span>` : ''}
+      </button>`;
+    return `
+      <div class="ticket-grid" role="radiogroup" aria-label="${h(field.fieldLabel)}">
+        ${current && !known ? tile(current, '직접 적은 번호', '') : ''}
+        ${reportNumbers.map((it) => tile(it.number, it.store, it.problem)).join('')}
+        <button class="ticket ticket--manual" data-act="pick-number" data-value="__manual__" type="button">직접 입력</button>
+      </div>`;
+  }
+
+  /** 고르기 칸 — 큰 버튼 한 줄. 목록에 없는 옛 값은 잃지 않게 끝에 하나 더 둔다. */
+  function choiceHtml(field, opts, current) {
+    const extra = current && !opts.includes(current) ? [current] : [];
+    return `
+      <div class="choice-row" role="radiogroup" aria-label="${h(field.fieldLabel)}">
+        ${[...opts, ...extra].map((o) => `
+          <button class="choice-btn${current === o ? ' is-on' : ''}" data-act="choose" data-field="${field.id}"
+                  data-value="${h(o)}" type="button" role="radio" aria-checked="${current === o}">${h(o)}</button>`).join('')}
+      </div>`;
   }
 
   /** 번호를 고르면 그 접수의 매장명을 (매장명 칸이 비어 있을 때만) 같이 채운다. */
@@ -211,15 +289,18 @@ export async function reportFormView(view) {
     const el = view.querySelector(`[data-input="${storeField.id}"]`);
     if (el) el.value = item.store;
     paintPastVisits();
+    paintRobotHints();
   }
 
   function fieldHtml(field) {
     const state = values[field.id];
     const label = `<label>${h(field.fieldLabel)}${field.isRequired ? '<span class="req">*</span>' : ''}</label>`;
+    // 칸마다 단계 · 아이디를 단다 — 단계식은 지금 단계 칸만 보이고, 칸 찾기는 아이디로 한다
+    const tag = `data-field-id="${field.id}" data-step="${stepOf(field)}"`;
 
     if (field.fieldType === 'MEDIA') {
       return `
-        <div class="field field--wide" data-field-id="${field.id}">
+        <div class="field field--wide field--media" ${tag}>
           ${label}
           ${mediaPickHtml(field.id)}
           <span class="hint">첨부 ${state.kept.length + state.media.length}개 · 영상 최대 20초 · 파일 ${MEDIA_FILE_LIMIT_TEXT}</span>
@@ -232,55 +313,129 @@ export async function reportFormView(view) {
     }
     if (field.fieldType === 'TEXTAREA') {
       // 여러 줄 항목은 두 칸을 다 쓴다 (디자인의 .field--wide)
-      return `<div class="field field--wide field--long">${label}
+      return `<div class="field field--wide field--long" ${tag}>${label}
         <textarea class="input textarea textarea--long" data-input="${field.id}" placeholder="자세히 기록">${h(state.value)}</textarea></div>`;
     }
     // 리포트 번호 — 손으로 적지 않고 접수 목록에서 고른다 (목록이 없으면 입력칸).
     if (numberField && field.id === numberField.id && reportNumbers.length && !manualNumber) {
-      return `<div class="field">${label}
-        <select class="select" data-input="${field.id}">
-          ${numberOptionsHtml(String(state.value || '').trim())}
-        </select>
+      return `<div class="field field--wide field--tickets" ${tag}>${label}
+        ${ticketsHtml(field, String(state.value || '').trim())}
         <span class="hint">고르면 매장명이 채워집니다 · 접수 ${reportNumbers.length}건</span></div>`;
     }
     if (field.fieldType === 'DROPDOWN') {
       const opts = (field.options || '').split(',').map((o) => o.trim()).filter(Boolean);
-      return `<div class="field">${label}
+      if (opts.length && opts.length <= CHOICE_MAX) {
+        return `<div class="field field--choice" ${tag}>${label}${choiceHtml(field, opts, String(state.value || ''))}</div>`;
+      }
+      return `<div class="field" ${tag}>${label}
         <select class="select" data-input="${field.id}">
           <option value="">선택하세요</option>
           ${opts.map((o) => `<option value="${h(o)}" ${state.value === o ? 'selected' : ''}>${h(o)}</option>`).join('')}
         </select></div>`;
     }
     const type = field.fieldType === 'NUMBER' ? 'number' : 'text';
-    return `<div class="field">${label}
+    return `<div class="field" ${tag}>${label}
       <input class="input" type="${type}" ${type === 'number' ? 'inputmode="decimal"' : ''}
              data-input="${field.id}" value="${h(state.value)}" /></div>`;
   }
 
+  const cur = () => steps[Math.min(stepAt, steps.length - 1)];
+  const stepMode = () => mode === 'step' && fields.length > 0;
+
+  /** 단계 머리 — 진행 막대 · 지금까지 고른 것(누르면 그 단계로) · 질문 */
+  function stepperHtml() {
+    const s = cur();
+    const v = (f) => (f ? String(values[f.id].value || '').trim() : '');
+    const model = fields.find((f) => squashLabel(f.fieldLabel).includes('모델'));
+    const ctx = [];
+    if (stepAt > 0) {
+      if (v(storeField)) ctx.push({ step: 'visit', text: v(storeField) });
+      const robot = [v(model), v(serialField)].filter(Boolean).join(' · ');
+      if (robot && stepAt > steps.findIndex((x) => x.key === 'robot')) ctx.push({ step: 'robot', text: robot });
+      if (v(numberField)) ctx.push({ step: 'visit', text: v(numberField) });
+    }
+    return `
+      <div class="wz-head">
+        <ol class="wz-steps" aria-label="단계">
+          ${steps.map((x, i) => `
+            <li class="wz-step${i < stepAt ? ' is-done' : ''}${i === stepAt ? ' is-cur' : ''}">
+              <button data-act="step-go" data-go="${x.key}" type="button"${i === stepAt ? ' aria-current="step"' : ''}>
+                <i></i><span>${i + 1} ${h(x.short)}${i < stepAt ? ' ✓' : ''}</span></button>
+            </li>`).join('')}
+        </ol>
+        ${ctx.length ? `<div class="wz-ctx">
+          ${ctx.map((c) => `<button class="wz-ctx__chip" data-act="step-go" data-go="${c.step}" type="button">${h(c.text)}</button>`).join('')}
+          <span class="hint">누르면 바꿉니다</span></div>` : ''}
+        <div class="wz-ask"><h2>${h(s.ask)}</h2><span>${h(s.hint)}</span>
+          <span class="wz-saved" id="wzSaved">${savedAt ? `저절로 저장됨 · ${h(savedAt)}` : ''}</span></div>
+      </div>`;
+  }
+
+  /** 마지막 단계 — 단계마다 적은 것 · 빈 필수 칸 */
+  function checkHtml() {
+    const shown = (f) => {
+      const st = values[f.id];
+      if (f.fieldType === 'MEDIA') return st.media.length + st.kept.length ? `첨부 ${st.media.length + st.kept.length}개` : '';
+      return String(st.value || '').trim();
+    };
+    return `
+      <div class="wz-check" data-step="check">
+        ${steps.filter((s) => s.key !== 'check').map((s) => {
+          const list = fields.filter((f) => stepOf(f) === s.key);
+          const missing = list.filter((f) => missingRequired().includes(f));
+          return `
+            <section class="wz-check__sec${missing.length ? ' is-missing' : ''}">
+              <h3>${h(s.short)}${missing.length ? ` <em>필수 ${missing.length}칸 비어 있음</em>` : ''}</h3>
+              <dl>${list.map((f) => `<dt>${h(f.fieldLabel)}</dt><dd${!shown(f) && f.isRequired ? ' class="is-empty"' : ''}>${
+                shown(f) ? h(shown(f)) : (f.isRequired ? '비어 있음' : '—')}</dd>`).join('')}</dl>
+              <button class="btn btn-secondary" data-act="step-go" data-go="${s.key}" type="button">고치기</button>
+            </section>`;
+        }).join('')}
+      </div>`;
+  }
+
+  /** 단계식 아래 막대 — 이전 · 몇 번째 · 다음(마지막은 올리기). 올리기 버튼은 늘 하나만 있다 */
+  function stepBarHtml() {
+    const last = stepAt >= steps.length - 1;
+    const next = steps[stepAt + 1];
+    return `
+      <div class="wz-bar">
+        <button class="btn btn-secondary wz-bar__prev" data-act="step-prev" type="button"${stepAt === 0 ? ' disabled' : ''}>‹ 이전</button>
+        <span class="wz-bar__count tnum">${stepAt + 1} / ${steps.length}</span>
+        ${last
+          ? `<button class="btn btn-secondary" data-act="save-draft" type="button">임시보관</button>
+             <button class="btn btn-primary wz-bar__next" type="submit">${editingLink ? '시트에 저장' : '구글 시트로 업로드'}</button>`
+          : `<button class="btn btn-primary wz-bar__next" data-act="step-next" type="button">다음 · ${h(next.short)} ›</button>
+             <button type="submit" hidden>${editingLink ? '시트에 저장' : '구글 시트로 업로드'}</button>`}
+      </div>`;
+  }
+
   function render() {
+    const step = stepMode();
     view.innerHTML = `
-      <div id="pageRoot">
+      <div id="pageRoot" class="rf" data-mode="${step ? 'step' : 'all'}" data-cur="${step ? cur().key : ''}">
         <div class="page-head">
           <h1 class="page-head__title">${editingLink ? '리포트 수정' : '새 현장 리포트'}</h1>
           ${editingLink ? `<span class="page-head__meta">${h(editingLink.sheetName)} 시트 <span class="tnum">${editingLink.row}</span>행 수정</span>` : ''}
+          ${!sheetsReady ? '<span class="page-head__meta rf-warn">구글 시트 연결이 아직 없습니다 — 설정에서 먼저 연결하세요</span>' : ''}
           <span class="page-head__spacer"></span>
+          ${fields.length ? `<button class="btn btn-secondary" data-act="toggle-mode" type="button">${step ? '한 번에 보기' : '단계로 보기'}</button>` : ''}
           <a class="btn btn-secondary" href="#/fields">항목 설정</a>
         </div>
 
-        <div id="pastVisits"></div>
+        ${step ? stepperHtml() : ''}
+        <div id="robotHints" data-step="robot"></div>
+        <div id="pastRobot" data-step="problem"></div>
+        <div id="pastVisits" data-step="visit"></div>
 
         <form id="reportForm" class="report-form" autocomplete="off">
           ${fields.length ? `
             <div class="form-grid">${fields.map(fieldHtml).join('')}</div>
-
+            ${step ? checkHtml() + stepBarHtml() : `
             <div class="form-actions">
-              <span class="page-head__meta" style="margin-right:auto">
-                ${sheetsReady ? ''
-                  : '<span style="color:var(--color-danger);font-weight:600">구글 시트 연결이 아직 없습니다 — 설정에서 먼저 연결하세요</span>'}
-              </span>
               <button class="btn btn-secondary" data-act="save-draft" type="button">임시보관</button>
               <button class="btn btn-primary" type="submit">${editingLink ? '시트에 저장' : '구글 시트로 업로드'}</button>
-            </div>`
+            </div>`}`
             : '<div class="empty">입력 항목이 없습니다. <a class="link" href="#/fields">항목 설정</a>에서 먼저 항목을 만드세요.</div>'}
         </form>
 
@@ -300,8 +455,18 @@ export async function reportFormView(view) {
         clearTimeout(visitTimer);
         visitTimer = setTimeout(paintPastVisits, 350);
       }
-      if (codeField && id === codeField.id) paintCodeHelper();
+      if (codeField && id === codeField.id) { paintCodeHelper(); paintPastRobot(); }
       if (partsField && id === partsField.id) paintPartsHelper();
+      if (serialField && id === serialField.id) {
+        clearTimeout(robotTimer);
+        robotTimer = setTimeout(paintRobotHints, 350);
+      }
+    });
+    // 단계식에서 입력칸의 [Enter](자판의 '다음')는 올리기가 아니라 다음 단계다
+    root.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Enter' || !stepMode() || ev.target.tagName !== 'INPUT' || ev.isComposing) return;
+      ev.preventDefault();
+      goStep(stepAt + 1);
     });
     root.addEventListener('change', (ev) => {
       const id = ev.target.dataset.input;
@@ -321,14 +486,79 @@ export async function reportFormView(view) {
     });
     $('#reportForm').addEventListener('submit', submit);
     paintPastVisits();
+    paintRobotHints();
     mountHelpers();
+  }
+
+  /**
+   * 단계를 옮긴다. 옮길 때마다 적은 것을 기기에 저절로 담는다 — 매장에서 다른 일을 하다
+   * 돌아와도, 앱이 꺼져도 홈의 [이어 쓰기] 로 이어 쓴다.
+   */
+  function goStep(i) {
+    const next = Math.max(0, Math.min(steps.length - 1, i));
+    if (next === stepAt) return;
+    stepAt = next;
+    autosave();
+    render();
+    view.scrollTop = 0;
+    window.scrollTo(0, 0);
+  }
+
+  async function autosave() {
+    if (editingLink) return;      // 수정은 시트 줄을 고치는 일이라 기기 임시보관을 만들지 않는다
+    const any = fields.some((f) => String(values[f.id].value || '').trim() || values[f.id].media.length);
+    if (!any) return;
+    const saved = await persist({ requireComplete: false });
+    if (!saved) return;
+    savedAt = new Date().toTimeString().slice(0, 5);
+    const el = document.getElementById('wzSaved');
+    if (el) el.textContent = `저절로 저장됨 · ${savedAt}`;
+  }
+
+  // ─── 로봇 단계 · 문제 단계의 '지난번' (v3.35) ─────────────────────────────
+  let robotTimer = null;
+  /** 이 매장에서 본 로봇 — 누르면 시리얼 · 모델이 한 번에 채워진다 */
+  async function paintRobotHints() {
+    const box = document.getElementById('robotHints');
+    if (box) {
+      const store = storeField ? String(values[storeField.id].value || '').trim() : '';
+      const visits = store ? await findVisits(store, 12) : [];
+      const seen = new Map();
+      for (const e of visits) {
+        const serial = serialOf(e);
+        if (serial && !seen.has(serial)) seen.set(serial, valueOf(e, '모델'));
+      }
+      const mine = serialField ? String(values[serialField.id].value || '').trim() : '';
+      box.innerHTML = seen.size ? `
+        <div class="robot-hints">
+          <span class="robot-hints__label">${h(store)}에서 본 로봇</span>
+          ${[...seen].map(([serial, model]) => `
+            <button class="robot-hint${mine === serial ? ' is-on' : ''}" data-act="pick-robot" data-serial="${h(serial)}"
+                    data-model="${h(model)}" type="button"><b class="tnum">${h(serial)}</b>${model ? `<span>${h(model)}</span>` : ''}</button>`).join('')}
+        </div>` : '';
+    }
+    paintPastRobot();
+    paintCodeHelper();
+  }
+
+  /** 같은 로봇의 지난 기록 — 문제 단계 위에. 같은 코드가 또 나왔으면 맨 위 한 줄로 */
+  function robotPastNow() {
+    const serial = serialField ? String(values[serialField.id].value || '').trim() : '';
+    return robotPast(pastEntries, serial);
+  }
+  function paintPastRobot() {
+    const box = document.getElementById('pastRobot');
+    if (!box) return;
+    const past = robotPastNow();
+    const code = codeField ? String(values[codeField.id].value || '').trim() : '';
+    const same = isCodeShaped(code) ? past.filter((e) => normCode(e.code) === normCode(code)).length : 0;
+    box.innerHTML = pastMemoHtml(past, { code, nth: same ? same + 1 : 0, link: false, max: 2 });
   }
 
   // ─── 오류 코드 → 가이드 · 사용 부품 ← 차량 재고 ───────────────────────────
   const MY_VEHICLE_KEY = 'bh_my_vehicle';
   function fieldBox(field) {
-    const input = field && document.querySelector(`#reportForm [data-input="${field.id}"]`);
-    return input ? input.closest('.field') : null;
+    return field ? document.querySelector(`#reportForm [data-field-id="${field.id}"]`) : null;
   }
   function mountHelpers() {
     const codeBox = fieldBox(codeField);
@@ -383,8 +613,13 @@ export async function reportFormView(view) {
   function paintCodeHelper() {
     const box = $('#codeHelper');
     if (!box || !codeField) return;
-    const hits = guidesForCode(values[codeField.id].value, allGuides);
-    box.innerHTML = hits.map((g) => `
+    const now = String(values[codeField.id].value || '').trim();
+    const hits = guidesForCode(now, allGuides);
+    // 비어 있으면 이 로봇에서 지난번에 난 코드를 바로 고르게 한다 (자판 없이)
+    const codes = now ? [] : [...new Set(robotPastNow().map((e) => e.code).filter(isCodeShaped))].slice(0, 3);
+    box.innerHTML = codes.map((c) => `
+      <button class="choice-btn choice-btn--hint" data-act="use-code" data-code="${h(c)}" type="button">${h(c)} · 이 로봇 지난번</button>`).join('')
+      + hits.map((g) => `
       <button class="guide-hint" data-act="peek-guide" data-id="${h(g.id)}" type="button">
         <b>가이드</b> ${h(g.codeOrTitle)}${g.robotModel ? ` · ${h(g.robotModel)}` : ''} <span aria-hidden="true">보기 ›</span>
       </button>`).join('');
@@ -698,6 +933,58 @@ export async function reportFormView(view) {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
+    // ── 단계식 · 큰 버튼 고르기 (v3.35)
+    if (act === 'step-next') { goStep(stepAt + 1); return; }
+    if (act === 'step-prev') { goStep(stepAt - 1); return; }
+    if (act === 'step-go') { goStep(steps.findIndex((s) => s.key === btn.dataset.go)); return; }
+    if (act === 'toggle-mode') {
+      mode = stepMode() ? 'all' : 'step';
+      try { localStorage.setItem(MODE_KEY, mode); } catch { /* 이번만 */ }
+      render();
+      return;
+    }
+    if (act === 'pick-number') {
+      const value = btn.dataset.value;
+      if (value === '__manual__') {
+        // 목록에 없는 번호를 적어야 할 때 — 카드 대신 입력칸
+        manualNumber = true;
+        values[numberField.id].value = '';
+        repaintNumberField();
+        const inp = /** @type {HTMLInputElement} */ (view.querySelector(`input[data-input="${numberField.id}"]`));
+        if (inp) inp.focus();
+        return;
+      }
+      values[numberField.id].value = value;
+      repaintNumberField();
+      fillStoreFromNumber(value);
+      return;
+    }
+    if (act === 'choose') {
+      const id = btn.dataset.field;
+      const value = values[id].value === btn.dataset.value ? '' : btn.dataset.value;   // 한 번 더 누르면 뺀다
+      values[id].value = value;
+      btn.parentElement.querySelectorAll('[data-act="choose"]').forEach((b) => {
+        const on = /** @type {HTMLElement} */ (b).dataset.value === value;
+        b.classList.toggle('is-on', on);
+        b.setAttribute('aria-checked', String(on));
+      });
+      if (modelField && id === modelField.id) paintWorkHelper();     // 그 로봇의 가이드로
+      return;
+    }
+    if (act === 'pick-robot') {
+      if (serialField) values[serialField.id].value = btn.dataset.serial;
+      if (modelField && btn.dataset.model) values[modelField.id].value = btn.dataset.model;
+      render();
+      return;
+    }
+    if (act === 'use-code') {
+      values[codeField.id].value = btn.dataset.code;
+      const inp = /** @type {HTMLInputElement} */ (view.querySelector(`[data-input="${codeField.id}"]`));
+      if (inp) inp.value = btn.dataset.code;
+      paintCodeHelper();
+      paintPastRobot();
+      return;
+    }
     if (act === 'peek-guide') { peekGuide(btn.dataset.id); return; }
     if (act === 'open-parts') { openPartsSheet(); return; }
     if (act === 'open-work') {
@@ -741,7 +1028,7 @@ export async function reportFormView(view) {
       btn.disabled = true;
       const saved = await persist({ requireComplete: false });
       if (saved) {
-        toast('기기에 저장했습니다. [이력] 에서 다시 열 수 있습니다.', 'ok');
+        toast('기기에 저장했습니다. 홈의 [이어 쓰기] 로 다시 열 수 있습니다.', 'ok');
       }
       btn.disabled = false;
       return;
@@ -798,6 +1085,8 @@ export async function reportFormView(view) {
     const saved = await persist({ requireComplete: true });
     if (!saved) {
       setSubmitState(idleLabel(), false);
+      // 단계식이면 빈 칸이 어느 단계인지 보이는 [확인] 단계로 데려간다
+      if (stepMode() && missingRequired().length) goStep(steps.length - 1);
       return;
     }
     deductParts(saved.id).catch(() => {});      // 쓴 부품은 올리기 결과와 상관없이 재고에서 뺀다

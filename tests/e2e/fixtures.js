@@ -24,6 +24,9 @@ const test = base.extend({
     await page.addInitScript((url) => {
       localStorage.setItem('bh_test_mode', JSON.stringify({ on: true, url }));
       localStorage.setItem('bh_device_name', '검사봇');
+      // 새 리포트는 기본이 단계식이다 (v3.35). 칸을 한꺼번에 채우는 예전 검사는 [한 번에 보기] 로 연다.
+      // 단계식 검사(v335.spec.js)는 'step' 을 따로 넣는다.
+      if (!localStorage.getItem('bh_report_mode')) localStorage.setItem('bh_report_mode', 'all');
     }, `${SHEET}/exec`);
     const errors = [];
     page.on('pageerror', (err) => errors.push(String(err)));
@@ -40,4 +43,13 @@ async function openApp(page, hash = '#/') {
   await expect(page.locator('#view')).not.toBeEmpty();
 }
 
-module.exports = { test, expect, openApp, SHEET };
+/**
+ * 큰 버튼으로 고르는 칸 (v3.35) — 리포트 번호(접수 카드) · 로봇 모델 · 처리 결과.
+ * 예전 셀렉트의 selectOption 자리에 쓴다.
+ */
+async function pick(page, label, value) {
+  const box = page.locator('#reportForm .field', { has: page.locator('label', { hasText: label }) });
+  await box.locator(`[data-value="${value}"]`).first().click();
+}
+
+module.exports = { test, expect, openApp, pick, SHEET };

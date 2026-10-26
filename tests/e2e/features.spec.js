@@ -1,5 +1,5 @@
 // 이어 보기 — 리포트↔가이드 · 매장별 이력 · 통계 · 사용 부품 → 재고 · 고대비
-const { test, expect, openApp } = require('./fixtures.js');
+const { test, expect, openApp, pick } = require('./fixtures.js');
 const { seed, NOW } = require('./seed.js');
 
 const H = ['작성일시', '작성자', '리포트 번호', '매장명', '로봇 시리얼', '로봇 모델', '사용 부품', '오류 코드',
@@ -21,10 +21,10 @@ test('이력의 오류 코드에서 그 가이드로 · 가이드에서는 그 �
   await seedMore(sheet);
   await warm(page);
   await page.locator('.hist-row', { hasText: '로더 과전류 재발' }).click();
-  const link = page.locator('#histPanel .hd-guide', { hasText: 'E-101 로더 모터 과전류' });
+  const link = page.locator('#modalRoot .hd-guide', { hasText: 'E-101 로더 모터 과전류' });
   await expect(link).toBeVisible();
   await link.click();
-  await expect(page).toHaveURL(/#\/guides\/a1b2c3d4e5f60001$/);
+  await expect(page).toHaveURL(/#\/guides\/a1b2c3d4e5f60001(\?|$)/);   // 이력의 매장 · 로봇이 붙어 온다 (v3.35)
   await expect(page.locator('#gdReports')).toContainText('이 오류로 쓴 리포트');
   await expect(page.locator('#gdReports .gd-report')).toContainText('옥동식 서초점');
 });
@@ -33,7 +33,7 @@ test('매장 이름을 누르면 그 매장의 방문 기록 · 로봇 · 끝나
   await seedMore(sheet);
   await warm(page);
   await page.locator('.hist-row', { hasText: '로더 과전류 재발' }).click();
-  await page.locator('#histPanel .hd-title--link').click();
+  await page.locator('#modalRoot .hd-title--link').click();
   await expect(page).toHaveURL(/#\/store\?name=/);
   await expect(page.locator('.store-visit')).toHaveCount(2);
   await expect(page.locator('.store-sum')).toContainText('SN-0001');
@@ -81,12 +81,12 @@ test('작성 화면: 오류 코드를 적으면 가이드가 · 고른 부품은
   await page.locator('#partsHelper [data-act="part-remove"][data-part="가스게이지"]').click();
   await expect(page.locator('#partsHelper .part-pill')).toHaveCount(1);
   await expect(field('사용 부품')).toHaveValue('그리퍼 실리콘 패드 ×2');
-  await field('리포트 번호').selectOption('P260912-01');
+  await pick(page, '리포트 번호', 'P260912-01');
   await field('로봇 시리얼').fill('SN-PART');
-  await field('로봇 모델').selectOption('Gen.1(D1)');
+  await pick(page, '로봇 모델', 'Gen.1(D1)');
   await field('증상 요약').fill('패드 마모');
   await field('조치 내용').fill('패드 교체');
-  await field('처리 결과').selectOption('완료');
+  await pick(page, '처리 결과', '완료');
   await page.locator('#reportForm button[type=submit]').click();
   // 스타리아 4373 의 패드 5 → 3 (시트 '차량재고' 탭)
   await expect.poll(async () => {

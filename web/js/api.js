@@ -207,6 +207,7 @@ export const api = {
       oldestMin,
       failed: (await store.getMeta('flushFailed', '')) || '',
       conflicts: ((await (await import('./guidesheet.js')).listConflicts()) || []).length,
+      orphans: ((await (await import('./guidesheet.js')).listOrphans()) || []).length,
       errors: await errlog.pendingErrors(),
     };
   },
