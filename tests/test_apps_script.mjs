@@ -86,6 +86,38 @@ if (back) {
         String(back.steps[0].expectedMetric));
 }
 
+// 여러 줄로 쓴 단계는 한 단계로 남는다 (예전: 줄마다 새 단계로 갈라졌다)
+{
+  const multi = [{ id: 'g-multi', categoryType: 'HARDWARE_SOP', robotModel: '', codeOrTitle: '여러 줄 단계',
+    summary: '', requiredTools: '', commands: [], updatedAt: '',
+    steps: [
+      { instruction: '덮개를 연다\n나사 4개를 푼다\n1. 이 줄은 단계 안의 번호다', expectedMetric: '드라이버', imageUrl: '' },
+      { instruction: '새 부품을 끼운다', expectedMetric: '', imageUrl: '' },
+    ] }];
+  call({ guides: 'push', items: multi });
+  const got = call({ guides: 'pull' }).items.find((g) => g.id === 'g-multi');
+  check('여러 줄 단계가 한 단계로 되읽힌다', !!got && got.steps.length === 2,
+        got ? JSON.stringify(got.steps.map((s) => s.instruction)) : '못 찾음');
+  check('여러 줄의 줄바꿈 · 단계 안 번호까지 그대로',
+        !!got && got.steps[0].instruction === '덮개를 연다\n나사 4개를 푼다\n1. 이 줄은 단계 안의 번호다',
+        got ? JSON.stringify(got.steps[0].instruction) : '');
+  check('여러 줄 단계의 공구도 그대로', !!got && got.steps[0].expectedMetric === '드라이버',
+        got ? String(got.steps[0].expectedMetric) : '');
+  // 예전 Apps Script 가 적어 둔 칸('1. 첫 줄' 다음 번호 없는 줄)도 한 단계로 읽는다
+  const prevActive = ss.active;
+  const legacyTab = ss.insertSheet('여러 줄 옛 칸');
+  legacyTab.getRange(1, 1, 3, 4).setValues([
+    ['제목', '', '', ''], ['제목', '요약', '공구', '단계'],
+    ['옛 가이드', '', '', '1. 덮개를 연다\n나사 4개를 푼다\n2. 새 부품을 끼운다'],
+  ]);
+  const legacy = gs.readGuideSheet(legacyTab, 'HARDWARE_SOP')[0];
+  check('예전에 적힌 여러 줄 단계도 한 단계로 읽는다',
+        !!legacy && legacy.steps.length === 2 && legacy.steps[0].instruction === '덮개를 연다\n나사 4개를 푼다',
+        legacy ? JSON.stringify(legacy.steps.map((s) => s.instruction)) : '못 읽음');
+  ss.deleteSheet(legacyTab);          // 아래 탭 순서 검사에 끼지 않게
+  ss.setActiveSheet(prevActive);
+}
+
 // 한 건만 고쳐서 다시 올려도 나머지가 남아 있어야 한다
 const edited = JSON.parse(JSON.stringify(guides));
 edited[0].summary = '고친 요약';
