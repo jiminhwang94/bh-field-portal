@@ -170,8 +170,10 @@ check("칩을 눌러도 화면 전체를 다시 그리지 않는다 (검색칸 �
       "chip = chip === value ? null : value;      // 켜진 칩을 다시 누르면 전체로\n      paintBody();" in inv)
 check("검색칸은 브라우저 기본 지우기(×)를 쓴다", 'id="invQ" type="search"' in inv)
 check("찾은 것이 없으면 무엇을 찾았는지 보여 준다", "에 맞는 부품이 없습니다" in inv)
-check("아래 알약이 '보인 것 / 전체' 를 보여 준다",
-      "function countText()" in inv and 'id="invCount"' in inv)
+# v3.37 — 아래 알약('보인 것 / 전체')은 뺐다. 칩마다 종수가 붙어 있어 같은 말을 두 번 했고,
+# 카드 목록이 화면 전체로 내려가면서 '아래' 자리가 사라졌다.
+check("칩에 종수가 붙는다 (전체 · 부족만 · 분류마다)",
+      "one(null, '전체', items.length)" in inv and "function countText()" not in inv)
 
 print()
 print("== 9. 차량 재고 — [보충 필요] 는 '적을 때만'")

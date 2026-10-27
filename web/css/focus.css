@@ -185,11 +185,6 @@
   display: grid; place-items: center; background: var(--color-badge); color: #fff !important; font-size: 13px;
 }
 .inv-search { width: 220px; flex: none; }
-.inv-split { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; flex: 1; min-height: 0; }
-.inv-list { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
-.inv-list__foot { display: flex; align-items: center; gap: 8px; }
-.inv-table td { height: 64px; padding-top: 0; padding-bottom: 0; }
-.inv-table td.name-cell, .inv-table td.qty-cell { padding: 0; }
 .inv-pick {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 64px;
   padding: 0 16px; background: none; border: 0; font: inherit; color: inherit;
@@ -200,7 +195,6 @@
 .inv-qty { font-size: 24px; font-weight: 850; }
 .inv-min { font-size: 15px; color: var(--color-muted); min-width: 34px; }
 
-.inv-table tbody tr.is-low-row.is-selected td { background: var(--color-accent-tint); border-color: var(--color-accent); }
 .inv-panel {
   display: flex; flex-direction: column; gap: 16px;
   padding: 22px; background: var(--color-bg);
@@ -331,8 +325,8 @@
 }
 /* 패널을 옆에 둘 자리가 없으면 목록만 — 고르면 창으로 연다 (inventory.js · report.js 와 같은 기준) */
 @media (max-width: 999px) {
-  .inv-split, .hist-split { grid-template-columns: minmax(0, 1fr); }
-  .inv-split > .inv-panel, .hist-split > .hist-panel { display: none; }
+  .hist-split { grid-template-columns: minmax(0, 1fr); }
+  .hist-split > .hist-panel { display: none; }
   .inv-filter, .hist-filter { flex-wrap: wrap; }
   .inv-search, .hist-search { width: 100%; }
 }

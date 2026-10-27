@@ -106,8 +106,9 @@ print()
 print("디자인이 정한 구조를 쓴다")
 
 inventory = read("web/js/views/inventory.js")
-check("재고는 카드가 아니라 표다",
-      'class="table table--touch inv-table"' in inventory and '<thead>' in inventory)
+# v3.37 — 가로 태블릿에서 표가 3줄만 보였다. 팀이 '카드 2칸' 을 골랐다 (표 → 카드).
+check("재고는 부품마다 카드 · 폭에 맞춰 여러 칸",
+      'class="inv-grid" id="invRows"' in inventory and 'class="inv-card' in inventory and '<thead>' not in inventory)
 
 # 작성 · 이력 · 공통 세 파일을 함께 본다 (v3.30 에 나눔)
 report = read("web/js/views/report.js") + "\n" + read("web/js/views/history.js") + "\n" + read("web/js/views/report-common.js")
