@@ -458,6 +458,9 @@ export async function reportListView(view, params = null) {
   let overdueOnly = Boolean(params && params.get('old'));
   let localItems = [];
   let selectedKey = openKey;
+  // 시트에서 아직 한 번도 못 받은 동안 (v3.36.2). 이때 목록이 비었다고 '리포트가 없습니다' 라고
+  // 적으면, 막 설치한 태블릿이 시트 답을 기다리는 몇십 초 동안 이력이 없는 것처럼 보였다.
+  let waiting = true;
 
   async function load({ refresh = true } = {}) {
     data = await api.sheetReports(month, refresh);
@@ -507,6 +510,9 @@ export async function reportListView(view, params = null) {
 
   function rowsHtml() {
     const list = visible();
+    if (!list.length && waiting && !query && !filter) {
+      return '<div class="skeleton">시트에서 이력을 받는 중…</div>';
+    }
     if (!list.length) {
       return `<div class="empty">${
         query || filter ? '조건에 맞는 리포트가 없습니다.' : '이 달에 기록된 리포트가 없습니다.'
@@ -590,7 +596,8 @@ export async function reportListView(view, params = null) {
         <div style="margin-top:6px;white-space:pre-wrap;font-weight:400">${h(explainError(data.error))}</div>
       </div>`;
     }
-    if (data.fromCache) {
+    // 받아 둔 것을 먼저 보여 주는 것은 늘 하는 일이다 — 받으려다 **실패했을 때만** 알린다
+    if (data.fromCache && data.error) {
       return '<div class="hist-note">연결이 안 돼 마지막으로 받아 둔 내용을 보여 줍니다.</div>';
     }
     return '';
@@ -686,6 +693,7 @@ export async function reportListView(view, params = null) {
       months = await api.sheetMonths(true);
       if (!months.includes(month)) months = [month, ...months];
       await load({ refresh: true });
+      waiting = false;
       paintMonths();
       paint();
       btn.disabled = false;
@@ -705,6 +713,7 @@ export async function reportListView(view, params = null) {
       const body = document.querySelector('#histBody');
       if (body) body.innerHTML = '<div class="skeleton">불러오는 중…</div>';
       await load({ refresh: true });
+      waiting = false;
       paint();
     }
   }
@@ -714,6 +723,9 @@ export async function reportListView(view, params = null) {
   // 받아 둔 것이 있으면 그것으로 **먼저 보여 준다.** 시트에 다시 물어보는 데는
   // 몇 초가 걸리는데, 그 동안 빈 화면을 보고 기다릴 이유가 없다.
   await load({ refresh: false });
+  // 받아 둔 것이 비었고 오래됐으면 아래에서 다시 받는다 — 그동안은 '받는 중'
+  waiting = !(data.entries || []).length && !data.error
+    && (!data.fetchedAt || Date.now() - new Date(data.fetchedAt).getTime() >= 60000);
   paintMonths();
   paint();
   // 홈 · 가이드에서 한 건을 골라 왔으면 바로 연다.
@@ -732,8 +744,10 @@ export async function reportListView(view, params = null) {
     try { await load({ refresh: true }); } catch { return; }
     // 그 사이 다른 화면으로 넘어갔거나 다른 달을 골랐으면 손대지 않는다.
     if (!view.querySelector('#histQ') || month !== openedAt) return;
+    const wasWaiting = waiting;
+    waiting = false;
     // 시트 내용이 그대로면 다시 그리지 않는다 — 괜히 화면이 깜빡인다.
-    if (listSignature(data.entries) === before) return;
+    if (listSignature(data.entries) === before && !wasWaiting) return;
     paintMonths();
     paint();
   })();

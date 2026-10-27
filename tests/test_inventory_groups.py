@@ -39,13 +39,13 @@ check("품목에 분류 칸이 있다 (모든 차량 공용)",
       "category = String(category || '').trim();" in store
       and "category: nextCat, updatedAt: stamp" in store)
 check("수정 창에 분류 칸 + 기존 분류 태그", 'id="invCat"' in view and "data-cat=" in view)
-check("묶음 머리줄에 종수 · 부족 건수 (접혀 있어도)", "function groupRow(g, open)" in view
-      and "부족 ${low}" in view)
-check("접힘은 기기에 기억한다", "const COLLAPSED_KEY = 'bh_inv_collapsed';" in view)
-# 찾은 것이 접힌 묶음 안에 숨으면 검색이 헛돈다.
-check("검색 중 · 칩으로 거를 때는 전부 펼친다", "const forceOpen = Boolean(query.trim()) || chip !== null;" in view)
+check("묶음 머리줄에 종수 · 부족 건수", "function groupRow(g)" in view and "부족 ${low}" in view)
+# v3.36.2 — 머리줄을 누르면 묶음이 접혀 부품이 사라졌다. 이제 그 분류만 본다 (접기 없음).
+check("머리줄을 누르면 그 분류만 본다 (접지 않는다)",
+      'data-act="chip" data-chip="${h(g.key)}"' in view and "toggle-group" not in view
+      and "collapsed.has" not in view)
 check("분류로도 검색된다", "`${i.partName} ${catOf(i)}`.toLowerCase().includes(q)" in view)
-check("[모두 접기] [모두 펴기]", "act === 'fold-all'" in view and "act === 'unfold-all'" in view)
+check("[모두 접기] [모두 펴기] 는 없다", "fold-all" not in view)
 check("'분류 없음' 은 맨 뒤", "if (!ca) return 1;" in store and "const NONE_LABEL = '분류 없음';" in view)
 
 print()
