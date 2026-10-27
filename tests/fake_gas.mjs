@@ -224,8 +224,9 @@ export function createFakeGas() {
         let at = 0;
         return { hasNext: () => at < list.length, next: () => list[at++] };
       },
+      // 진짜 이름 찾기는 **검색**이라 방금 만든 파일을 한동안 못 본다 (searchLag 로 흉내 낸다)
       getFilesByName(name) {
-        const list = folder.files.filter((f) => f.name === name);
+        const list = folder.files.filter((f) => f.name === name && !(SEARCH_LAG && f.fresh));
         let at = 0;
         return { hasNext: () => at < list.length, next: () => list[at++] };
       },
@@ -273,6 +274,7 @@ export function createFakeGas() {
           isTrashed: () => Boolean(file.trashed),
           setTrashed(value) { file.trashed = value; return file; },
         };
+        file.fresh = SEARCH_LAG;
         folder.files.push(file);
         allFiles.set(file.id, file);
         return file;
@@ -297,6 +299,9 @@ export function createFakeGas() {
 
   // 검사마다 켜고 끈다. true = 공유 드라이브가 링크 공개를 막는 현장.
   let SHARED_DRIVE_BLOCKS_LINK_SHARING = false;
+  // true = 이 동안 만든 파일은 이름 찾기(getFilesByName)에 안 잡힌다 — id 로는 바로 열린다
+  let SEARCH_LAG = false;
+  let sleptMs = 0;
 
   function makeDrive() {
     driveTree = makeFolder('공유 드라이브', '');
@@ -454,6 +459,8 @@ export function createFakeGas() {
         get: (k) => (scriptCache.has(k) ? scriptCache.get(k) : null),
         put: (k, v) => { scriptCache.set(k, String(v)); },
         remove: (k) => { scriptCache.delete(k); },
+        getAll: (keys) => Object.fromEntries(keys.filter((k) => scriptCache.has(k)).map((k) => [k, scriptCache.get(k)])),
+        removeAll: (keys) => { keys.forEach((k) => scriptCache.delete(k)); },
       }),
     },
     ContentService: {
@@ -466,6 +473,7 @@ export function createFakeGas() {
     MimeType: { PLAIN_TEXT: 'text/plain', JSON: 'application/json' },
     Drive: fakeAdvancedDrive,
     Utilities: {
+      sleep: (ms) => { sleptMs += ms; },
       base64Decode: (text) => ({ _b64: text, length: String(text).length }),
       // (조각 이어 붙이기 검사용) 이어 붙인 base64 를 그대로 들고 다닌다
       newBlob: (bytes, mime, name) => makeBlob(bytes, mime, name),
@@ -510,6 +518,8 @@ export function createFakeGas() {
     FakeSheet, FakeSpreadsheet,
     get driveTree() { return driveTree; },
     set blockSharing(v) { SHARED_DRIVE_BLOCKS_LINK_SHARING = v; },
+    set searchLag(v) { SEARCH_LAG = v; },
+    get sleptMs() { return sleptMs; },
     set fetchAnswer(v) { fetchAnswer = v; },
     set driveUpdateFails(v) { driveUpdateFails = v; },
     get updatedAt() { return spreadsheetUpdatedAt; },

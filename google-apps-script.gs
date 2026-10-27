@@ -3028,16 +3028,57 @@ function trashByName(folder, name) {
   }
 }
 
+/*
+ * 조각 파일 id 를 기억한다 (v3.36.1).
+ *
+ * 마무리는 조각을 이름으로 찾았다(getFilesByName). 그런데 드라이브의 이름 찾기는 **검색**이라
+ * 방금 만든 파일이 몇십 초 동안 안 잡힌다. 1분 영상(조각 14개)을 다 보내자마자 마무리하면
+ * 조각이 다 있는데도 '빠진 조각: 0,1,…,13' 이 났고, 시간이 지나 세 번째에야 붙었다.
+ * id 로 여는 것(getFileById)은 바로 된다. 그래서 조각을 만들 때 id 를 적어 두고
+ * (캐시 6시간 + 앱에도 돌려준다) 마무리는 id 로 연다. 이름 찾기는 둘 다 없을 때만.
+ */
+var CHUNK_ID_TTL = 21600;
+function chunkIdKey(id, index) { return 'chunk:' + id + '.' + index; }
+
+function chunkCache() {
+  try { return CacheService.getScriptCache(); } catch (err) { return null; }
+}
+
+/** id 로 조각을 연다 — 이름이 맞고 휴지통에 없어야 한다 (남의 파일을 읽지 않게) */
+function chunkById(fileId, name) {
+  if (!fileId) return null;
+  try {
+    var f = DriveApp.getFileById(String(fileId));
+    return f.getName() === name && !f.isTrashed() ? f : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function chunkByName(folder, name) {
+  var it = folder.getFilesByName(name);
+  var found = null;
+  while (it.hasNext()) {
+    var f = it.next();
+    if (!f.isTrashed()) found = f;
+  }
+  return found;
+}
+
 function handleMediaUpload(ss, body) {
   var id = safeUploadId(body.uploadId);
   var folder = chunkFolder(ss);
+  var cache = chunkCache();
   if (body.media === 'chunk') {
     var index = Math.floor(Number(body.index));
     if (!(index >= 0)) return json({ ok: false, error: '조각 번호가 없습니다.' });
     var name = id + '.' + index;
-    trashByName(folder, name);                 // 같은 조각을 다시 받으면 새것으로
-    folder.createFile(name, String(body.data || ''), MimeType.PLAIN_TEXT);
-    return json({ ok: true, index: index });
+    // 같은 조각을 다시 받으면 새것으로 — 앞의 것은 기억한 id 로 지운다 (이름 찾기는 방금 것을 못 본다)
+    var prev = chunkById(cache ? cache.get(chunkIdKey(id, index)) : null, name);
+    if (prev) prev.setTrashed(true); else trashByName(folder, name);
+    var made = folder.createFile(name, String(body.data || ''), MimeType.PLAIN_TEXT);
+    try { if (cache) cache.put(chunkIdKey(id, index), made.getId(), CHUNK_ID_TTL); } catch (err) { /* 앱이 id 를 들고 온다 */ }
+    return json({ ok: true, index: index, fileId: made.getId() });
   }
   // finish
   var total = Math.floor(Number(body.total) || 0);
@@ -3047,14 +3088,26 @@ function handleMediaUpload(ss, body) {
   var text = '';
   // 조각 하나짜리 작은 파일은 마무리 요청에 실려 온다 (v3.33) — 조각 폴더를 거치지 않는다
   var inline = total === 1 && body.data ? String(body.data) : '';
-  for (var i = 0; !inline && i < total; i++) {
-    var it = folder.getFilesByName(id + '.' + i);
-    var found = null;
-    while (it.hasNext()) {
-      var f = it.next();
-      if (!f.isTrashed()) found = f;
+  if (!inline) {
+    var sent = Array.isArray(body.parts) ? body.parts : [];      // 앱이 받아 둔 조각 id (v3.36.1)
+    var keys = [];
+    for (var k = 0; k < total; k++) keys.push(chunkIdKey(id, k));
+    var known = {};
+    try { known = (cache && cache.getAll(keys)) || {}; } catch (err) { known = {}; }
+    for (var i = 0; i < total; i++) {
+      var partName = id + '.' + i;
+      parts[i] = chunkById(sent[i], partName) || chunkById(known[keys[i]], partName);
     }
-    if (found) parts.push(found); else missing.push(i);
+    // 둘 다 모르는 조각만 이름으로 — 검색이 늦게 따라오니 조금 쉬었다 두 번 더 본다
+    for (var round = 0; round < 3; round++) {
+      missing = [];
+      for (var j = 0; j < total; j++) {
+        if (!parts[j]) parts[j] = chunkByName(folder, id + '.' + j);
+        if (!parts[j]) missing.push(j);
+      }
+      if (!missing.length || round === 2) break;
+      Utilities.sleep(3000);
+    }
   }
   if (missing.length) return json({ ok: false, missing: missing, error: '빠진 조각이 있습니다: ' + missing.join(',') });
   text = inline;
@@ -3065,6 +3118,7 @@ function handleMediaUpload(ss, body) {
   var file = target.createFile(blob);
   var shared = sharePublic(file);
   for (var t = 0; t < parts.length; t++) parts[t].setTrashed(true);
+  try { if (cache && keys) cache.removeAll(keys); } catch (err) { /* 6시간 뒤 저절로 사라진다 */ }
   return json({ ok: true, url: file.getUrl(), id: file.getId(), public: shared });
 }
 

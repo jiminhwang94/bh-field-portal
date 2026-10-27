@@ -13,6 +13,11 @@
 //  - 붙이는 순간 뒤에서 조각을 미리 보낸다 (prefetchChunks). [업로드] 때는 마무리만 한다
 //  - 조각 하나로 끝나는 작은 파일은 마무리 요청에 실어 **한 번에** 보낸다
 //  - 사진 · 영상 조각을 **3개씩 동시에** 보낸다 (LANES)
+//
+// 조각 id (v3.36.1) — 시트는 조각을 이름으로 찾았는데, 드라이브 이름 찾기는 방금 만든 파일을
+// 몇십 초 못 본다. 1분 영상을 다 보내자마자 마무리하면 '빠진 조각: 0,1,…,13' 이 났다.
+//  - 조각마다 시트가 돌려준 파일 id 를 적어 두고 마무리에 함께 보낸다 (parts)
+//  - 그래도 빠진 조각이 있다고 하면 그 조각만 다시 보내고 한 번 더 마무리한다
 import * as store from './local/store.js';
 
 /** 3의 배수 바이트 — base64 를 그대로 이어 붙일 수 있다 */
@@ -72,7 +77,7 @@ function progress(detail) {
 async function loadState(key, blob) {
   const saved = (await store.getMeta(STATE(key), null)) || null;
   return saved && saved.size === blob.size ? saved
-    : { uploadId: newUploadId(), size: blob.size, done: [], url: '', id: '', public: true };
+    : { uploadId: newUploadId(), size: blob.size, done: [], ids: {}, url: '', id: '', public: true };
 }
 
 const totalOf = (blob) => Math.max(1, Math.ceil(blob.size / CHUNK_BYTES));
@@ -89,7 +94,8 @@ async function sendChunks(blob, state, key, call, opts = {}) {
   for (let i = 0; i < total; i += 1) if (!state.done.includes(i)) todo.push(i);
   const results = await Promise.allSettled(todo.map((i) => lane(async () => {
     const data = await blobToBase64(blob.slice(i * CHUNK_BYTES, (i + 1) * CHUNK_BYTES));
-    await retry(() => call({ media: 'chunk', uploadId: state.uploadId, index: i, total, data }, 90000), tries);
+    const res = await retry(() => call({ media: 'chunk', uploadId: state.uploadId, index: i, total, data }, 90000), tries);
+    state.ids = { ...(state.ids || {}), [i]: (res && res.fileId) || '' };
     state.done = [...state.done, i];
     await store.setMeta(STATE(key), { ...state });
     if (label) progress({ label, sent: state.done.length, total });
@@ -142,18 +148,21 @@ export async function uploadResumable(blob, { key, filename, mimeType, storeName
       inlineUnsupported = true;                         // 옛 시트는 data 를 모르고 '빠진 조각' 이라 답한다
     }
   }
-  if (!res) {
+  // 시트가 '빠진 조각' 을 말하면 그 조각만 다시 보내고 한 번 더 마무리한다
+  for (let round = 0; !res; round += 1) {
     await sendChunks(blob, state, key, call, { label });
+    const ids = state.ids || {};
+    const parts = Array.from({ length: total }, (_, i) => ids[i] || '');
     try {
-      res = await lane(() => retry(() => call(finish, 120000)));
+      res = await lane(() => retry(() => call({ ...finish, parts }, 120000)));
     } catch (err) {
-      // 시트가 '빠진 조각' 을 말하면 그 조각만 다시 보내게 표시를 지운다
       const missing = err && err.missing;
-      if (Array.isArray(missing)) {
-        state = { ...state, done: state.done.filter((x) => !missing.includes(x)) };
-        await store.setMeta(STATE(key), state);
-      }
-      throw err;
+      if (!Array.isArray(missing)) throw err;
+      const left = { ...ids };
+      missing.forEach((x) => { delete left[x]; });
+      state = { ...state, done: state.done.filter((x) => !missing.includes(x)), ids: left };
+      await store.setMeta(STATE(key), state);
+      if (round >= 1) throw err;
     }
   }
   state = { ...state, url: res.url, id: res.id, public: res.public !== false };

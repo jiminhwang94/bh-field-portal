@@ -108,6 +108,36 @@ test('붙이는 순간 뒤에서 조각을 미리 보내고, [업로드] 때는 
   expect(finishes[0].data).toBeUndefined();                                      // 마무리에는 파일이 실리지 않는다
 });
 
+// ── 조각 id (v3.36.1) ────────────────────────────────────────────────────────
+
+test('마무리에 조각 id 를 함께 보내고, 시트가 빠진 조각을 말하면 그것만 다시 보내 저절로 끝낸다', async ({ page, sheet }) => {
+  // 실제로 난 일: 1분 영상을 보내자마자 마무리 → 드라이브 검색이 늦어 '빠진 조각: 0,1,…,13'
+  const video = Buffer.alloc(Math.round(3.5 * MB), 4);            // 조각 3개
+  const chunks = [];
+  const finishes = [];
+  await page.route('**/127.0.0.1:8791/exec', async (route) => {
+    const body = route.request().postDataJSON() || {};
+    if (body.media === 'chunk') chunks.push(body.index);
+    if (body.media === 'finish') {
+      finishes.push(body);
+      if (finishes.length === 1) {                                 // 첫 마무리는 시트가 1번 조각을 못 찾았다
+        return route.fulfill({ status: 200, contentType: 'application/json',
+          body: JSON.stringify({ ok: false, missing: [1], error: '빠진 조각이 있습니다: 1' }) });
+      }
+    }
+    return route.continue();
+  });
+  await fillReport(page, video);
+  await page.locator('#reportForm button[type=submit]').click();
+  await expect.poll(() => rowText(sheet), { timeout: 30000 }).toContain('조각 올리기 조치');
+  expect(finishes.length).toBe(2);
+  expect(finishes[0].parts).toHaveLength(3);
+  expect(finishes[0].parts.every((x) => typeof x === 'string' && x.length > 0)).toBe(true);
+  expect(chunks.filter((i) => i === 1).length).toBe(2);           // 빠졌다는 조각만 다시
+  expect(chunks.filter((i) => i === 0).length).toBe(1);
+  await expect(page.locator('body')).not.toContainText('빠진 조각');
+});
+
 test('작은 파일은 조각 없이 마무리 요청 한 번으로 올라간다 (미리 올리기를 못 했을 때)', async ({ page, sheet }) => {
   const small = Buffer.alloc(300 * 1024, 3);                      // 조각 하나짜리
   const calls = [];
