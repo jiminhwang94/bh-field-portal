@@ -1280,6 +1280,40 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
              storeName: '조각점', dateText: '2099-08-01' });
   check('미리 보낸 조각 하나는 data 없는 마무리로 붙는다', r.ok === true
         && again.files.some((f) => f.getBlob()._bytes._b64 === 'EEEE'), JSON.stringify(r));
+
+  console.log('── 조각 id (v3.36.1) — 드라이브 이름 찾기가 방금 만든 조각을 못 봐도 붙는다');
+  // 실제로 난 일: 1분 영상 조각 14개를 다 보내자마자 마무리 → '빠진 조각: 0,1,…,13'
+  fake.searchLag = true;
+  const lagParts = ['GGGG', 'HHHH', 'IIII'];
+  const ids = lagParts.map((data, i) => call({ media: 'chunk', uploadId: 'mzz-lag', index: i, total: 3, data }).fileId);
+  check('조각을 받으면 그 파일 id 를 돌려준다', ids.every((x) => typeof x === 'string' && x.length > 0), JSON.stringify(ids));
+  r = call({ media: 'finish', uploadId: 'mzz-lag', total: 3, filename: '영상.mp4', mimeType: 'video/mp4',
+             storeName: '조각점', dateText: '2099-08-02' });
+  const video = findPath('조각점', '2099-08-02', '동영상');
+  check('이름 찾기가 조각을 못 봐도 기억한 id 로 이어 붙인다', r.ok === true && video
+        && video.files.some((f) => f.getBlob()._bytes._b64 === 'GGGGHHHHIIII'), JSON.stringify(r));
+  check('다 붙인 조각은 지운다 (이름 찾기 없이)', chunkDir.files.filter((f) => f.name.startsWith('mzz-lag.') && !f.trashed).length === 0);
+
+  // 캐시가 날아가도(시트 서버가 바뀜) 앱이 들고 온 id 로 붙는다
+  const appIds = ['JJJJ', 'KKKK'].map((data, i) => call({ media: 'chunk', uploadId: 'mzz-lag2', index: i, total: 2, data }).fileId);
+  env.scriptCache.clear();
+  r = call({ media: 'finish', uploadId: 'mzz-lag2', total: 2, parts: appIds, filename: '영상2.mp4', mimeType: 'video/mp4',
+             storeName: '조각점', dateText: '2099-08-02' });
+  check('캐시가 비어도 앱이 보낸 조각 id 로 이어 붙인다', r.ok === true
+        && video.files.some((f) => f.getBlob()._bytes._b64 === 'JJJJKKKK'), JSON.stringify(r));
+
+  // 다시 보낸 조각 — 앞의 것은 기억한 id 로 지운다 (이름 찾기로는 안 보인다)
+  call({ media: 'chunk', uploadId: 'mzz-lag3', index: 0, total: 1, data: 'LLLL' });
+  call({ media: 'chunk', uploadId: 'mzz-lag3', index: 0, total: 1, data: 'LLLL' });
+  check('같은 조각을 다시 받으면 앞의 것은 지운다 (검색이 늦어도)',
+        chunkDir.files.filter((f) => f.name === 'mzz-lag3.0' && !f.trashed).length === 1);
+
+  // 남의 파일 id 를 들이밀어도 읽지 않는다 — 이름이 그 조각 이름이어야 한다
+  r = call({ media: 'finish', uploadId: 'mzz-lag4', total: 1, parts: [video.files[0].getId()],
+             filename: 'x.mp4', mimeType: 'video/mp4' });
+  check('이름이 다른 파일 id 는 조각으로 쓰지 않는다', r.ok === false && JSON.stringify(r.missing) === '[0]', JSON.stringify(r));
+  check('정말 없는 조각은 조금 기다렸다 다시 찾아본 뒤 알린다', fake.sleptMs >= 6000, `${fake.sleptMs}ms`);
+  fake.searchLag = false;
 }
 
 { // 작업 목록 (v3.31)
