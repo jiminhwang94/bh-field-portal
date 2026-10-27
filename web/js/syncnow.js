@@ -151,29 +151,47 @@ export async function runRefresh(btn, { quiet = false } = {}) {
     problems.push(`대기분 전송: ${err.message}`);
   }
 
-  // 2. 시트에서 받기 — 항목 · 재고 · 가이드 · 리포트 이력
+  // 2. 시트에서 받기 — 항목 · 재고 · 가이드 · 리포트 이력을 **동시에** (v3.36.2)
+  //
+  // 예전에는 하나씩 차례로 받았다. 시트 왕복이 한 번에 5~10초라 이력은 맨 끝에야 다시
+  // 받았고, 이력 사본 비우기가 재고 받기 성공에 묶여 있어 재고가 실패하면 이력은 그대로였다.
+  // 달 목록도 다시 받지 않았다. 그래서 막 설치한 태블릿에서 [새로고침] 을 눌러도 이력이
+  // 안 나오고 이력 화면의 [시트에서 받기] 를 눌러야 나왔다.
   const onSheet = await store.sheetInventoryOn();
   if (onSheet) {
-    try {
-      const fieldsheet = await import('./fieldsheet.js');
-      const got = await fieldsheet.pullFields();
-      done.fields = (got.changed || 0) + (got.added || 0) + (got.removed || 0);
-    } catch (err) { problems.push(`항목 설정 받기: ${err.message}`); }
-
-    try {
-      const invsheet = await import('./invsheet.js');
-      await invsheet.pullInventory();
-      await dropReportCache();
-      done.sheet = true;
-    } catch (err) { problems.push(`시트 받기: ${err.message}`); }
-
-    try {
-      const guidesheet = await import('./guidesheet.js');
-      const got = await guidesheet.pullGuides();
-      done.guides = (got.changed || 0) + (got.added || 0);
-      done.guidesRemoved = got.removed || 0;
-      done.guidesDeleted = got.deleted || 0;
-    } catch (err) { problems.push(`가이드 받기: ${err.message}`); }
+    await Promise.all([
+      (async () => {
+        try {
+          const fieldsheet = await import('./fieldsheet.js');
+          const got = await fieldsheet.pullFields();
+          done.fields = (got.changed || 0) + (got.added || 0) + (got.removed || 0);
+        } catch (err) { problems.push(`항목 설정 받기: ${err.message}`); }
+      })(),
+      (async () => {
+        try {
+          const invsheet = await import('./invsheet.js');
+          await invsheet.pullInventory();
+          done.sheet = true;
+        } catch (err) { problems.push(`시트 받기: ${err.message}`); }
+      })(),
+      (async () => {
+        try {
+          const guidesheet = await import('./guidesheet.js');
+          const got = await guidesheet.pullGuides();
+          done.guides = (got.changed || 0) + (got.added || 0);
+          done.guidesRemoved = got.removed || 0;
+          done.guidesDeleted = got.deleted || 0;
+        } catch (err) { problems.push(`가이드 받기: ${err.message}`); }
+      })(),
+      (async () => {
+        // 이력 — 달 목록을 새로 받고 사본을 비운다. 화면을 다시 그리면 이력이 그 달을 새로 받는다
+        await dropReportCache();
+        try {
+          const reportsheet = await import('./reportsheet.js');
+          await reportsheet.listMonths({ refresh: true });
+        } catch { /* 달 목록은 받아 둔 것으로 */ }
+      })(),
+    ]);
   }
 
   // 새 버전이 나왔는지 (사람이 누른 새로고침이면 4분 규칙을 건너뛴다)

@@ -104,7 +104,7 @@
 .inv-table .drag-handle { width: 44px; min-height: 44px; }
 /* 묶음 안의 품목 줄 — 머리줄보다 한 단 들여 써서 "이 묶음에 속한다" 가 보인다 */
 .inv-table tr.inv-item td.name-cell { padding-left: 26px; }
-/* 묶음 머리줄 — 옅은 코발트 면. 눌러서 접고 편다. */
+/* 묶음 머리줄 — 옅은 코발트 면. 누르면 그 분류만 본다. */
 .grp-row td { background: var(--color-accent-tint); }
 .grp-row:hover td { background: var(--color-accent-tint-2); }
 .grp-toggle {
@@ -112,9 +112,9 @@
   background: none; border: 0; padding: 0; font: inherit; color: var(--color-accent);
   text-align: left; cursor: pointer;
 }
-.grp-chevron { width: 18px; font-size: 16px; }
 .grp-name { font-family: var(--font-heading); font-weight: 700; font-size: 17px; letter-spacing: -0.02em; }
 .grp-count { margin-left: auto; font-size: 15px; font-weight: 600; color: var(--color-text); padding-right: 6px; }
+.grp-go { font-size: 15px; font-weight: 700; color: var(--color-accent); padding-right: 6px; white-space: nowrap; }
 .grp-count .is-low { color: var(--color-danger); }
 /* 끄는 중 · 놓을 자리 */
 .inv-table tr.is-dragging td { background: var(--color-accent-tint); border-color: var(--color-accent); opacity: .95; }

@@ -4,8 +4,9 @@
 // 목록은 **고르기만** 하고, 수량은 오른쪽 패널의 큰 버튼으로 바꾼다. 좁은 화면
 // (세로 태블릿·폰)에서는 패널 대신 같은 내용을 창으로 띄운다.
 //
-// 위쪽 칩으로 거른다 — [전체] [부족만] [분류마다 하나]. 분류 묶음은 그대로 접히고
-// 펴지며, 순서는 손잡이(≡)를 잡고 끌어 바꾼다 (품목 목록과 순서는 차량 공용).
+// 위쪽 칩으로 거른다 — [전체] [부족만] [분류마다 하나]. 분류 머리줄을 눌러도 그 분류만 본다
+// (v3.36.2 — 예전에는 머리줄을 누르면 묶음이 **접혀** 부품이 사라졌다. 보려고 누른 것인데).
+// 순서는 손잡이(≡)를 잡고 끌어 바꾼다 (품목 목록과 순서는 차량 공용).
 import { api } from '../api.js';
 import { isEnabled as sheetInvEnabled, pullInventory } from '../invsheet.js';
 import {
@@ -13,7 +14,6 @@ import {
 } from '../ui.js';
 
 const VEHICLE_KEY = 'bh_last_vehicle';
-const COLLAPSED_KEY = 'bh_inv_collapsed';     // 접어 둔 분류 — 기기에 기억
 const NONE_LABEL = '분류 없음';
 const LOW = '__low';                          // 칩 [부족만]
 /** 패널을 옆에 둘 만큼 넓은가. 좁으면 품목을 누를 때 창으로 띄운다. */
@@ -32,11 +32,8 @@ export async function inventoryView(view) {
   let query = '';          // 부품 이름 검색어. 차량을 바꿔도 그대로 둔다
                            // (같은 부품을 차량별로 견줘 보는 일이 잦다)
   let selectedId = null;
-  let collapsed = new Set();
-  try { collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) || '[]')); } catch { collapsed = new Set(); }
-  const saveCollapsed = () => {
-    try { localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed])); } catch { /* 비공개 창 */ }
-  };
+  // 예전 버전이 기억해 둔 '접어 둔 분류' — 이제 접지 않으니 지운다
+  try { localStorage.removeItem('bh_inv_collapsed'); } catch { /* 비공개 창 */ }
 
   /**
    * 보충이 필요한가.
@@ -150,11 +147,12 @@ export async function inventoryView(view) {
   }
 
   /**
-   * 묶음 머리줄. 종수와 부족 건수는 **접혀 있어도** 보여야 한다 — 안 그러면
-   * 접어 둔 묶음 안의 '보충 필요' 를 놓친다.
+   * 묶음 머리줄 — 누르면 그 분류만 본다 (위 칩과 같다). 그 분류만 보는 중이면 전체로.
+   * 종수와 부족 건수는 늘 보인다.
    */
-  function groupRow(g, open) {
+  function groupRow(g) {
     const low = g.all.filter(isLow).length;
+    const only = chip === g.key;
     return `
       <tr class="grp-row" data-group="${h(g.key)}">
         <td class="drag-td">
@@ -162,11 +160,11 @@ export async function inventoryView(view) {
                   aria-label="${h(g.label)} 묶음 순서 옮기기 (잡고 끌기)">≡</button>
         </td>
         <td colspan="2">
-          <button class="grp-toggle" type="button" data-act="toggle-group" data-group="${h(g.key)}"
-                  aria-expanded="${open}">
-            <span class="grp-chevron" aria-hidden="true">${open ? '▾' : '▸'}</span>
+          <button class="grp-toggle" type="button" data-act="chip" data-chip="${h(g.key)}"
+                  aria-pressed="${only}">
             <span class="grp-name">${h(g.label)}</span>
             <span class="grp-count tnum">${g.all.length}종${low ? ` · <span class="is-low">부족 ${low}</span>` : ''}</span>
+            <span class="grp-go">${only ? '전체 보기 ✕' : '이 분류만 ›'}</span>
           </button>
         </td>
       </tr>`;
@@ -182,12 +180,8 @@ export async function inventoryView(view) {
           : '등록된 품목이 없습니다. [＋ 품목 추가]로 등록하세요.');
       return `<div class="empty">${why}</div>`;
     }
-    // 검색 중이거나 칩으로 거를 때는 전부 펼친다 — 찾은 것이 접힌 묶음 안에 숨으면 안 된다.
-    const forceOpen = Boolean(query.trim()) || chip !== null;
-    const rows = groupsOf(visible).map((g) => {
-      const open = forceOpen || !collapsed.has(g.key);
-      return groupRow(g, open) + (open ? g.items.map((i) => itemRow(i, g.key)).join('') : '');
-    }).join('');
+    const rows = groupsOf(visible)
+      .map((g) => groupRow(g) + g.items.map((i) => itemRow(i, g.key)).join('')).join('');
     return `
       <table class="table table--touch inv-table">
         <thead>
@@ -328,9 +322,6 @@ export async function inventoryView(view) {
               <div class="scroll" id="invBody">${bodyHtml()}</div>
               <div class="inv-list__foot">
                 <span class="tag tag-neutral" id="invCount">${countText()}</span>
-                <span class="spacer"></span>
-                <button class="btn btn-secondary btn--sm" data-act="fold-all" type="button">모두 접기</button>
-                <button class="btn btn-secondary btn--sm" data-act="unfold-all" type="button">모두 펴기</button>
               </div>
             </section>
           </div>`
@@ -541,6 +532,11 @@ export async function inventoryView(view) {
       const value = btn.dataset.all ? null : btn.dataset.chip;
       chip = chip === value ? null : value;      // 켜진 칩을 다시 누르면 전체로
       paintBody();
+      // 고른 분류의 첫 부품부터 보이게 — 목록을 내려 둔 채로 거르면 위쪽이 가려진다
+      const box = $('#invBody');
+      if (box) box.scrollTop = 0;
+      const head = view.querySelector('.inv-filter');
+      if (head && head.getBoundingClientRect().top < 0) head.scrollIntoView({ block: 'start' });
       return;
     }
     if (act === 'select') { select(id); return; }
@@ -560,18 +556,6 @@ export async function inventoryView(view) {
       } catch (err) { toast(err.message, 'err'); }
       return;
     }
-    if (act === 'toggle-group') {
-      const key = btn.dataset.group;
-      if (collapsed.has(key)) collapsed.delete(key); else collapsed.add(key);
-      saveCollapsed();
-      paintBody();
-      return;
-    }
-    if (act === 'fold-all') {
-      for (const g of groupsOf(items)) collapsed.add(g.key);
-      saveCollapsed(); paintBody(); return;
-    }
-    if (act === 'unfold-all') { collapsed.clear(); saveCollapsed(); paintBody(); return; }
     if (act === 'manage-vehicles') { openVehicleManager(); return; }
 
     if (act === 'sheet-refresh') {
@@ -768,9 +752,8 @@ export async function inventoryView(view) {
         } else {
           await api.addInventory({ vehicleName: current, partName, category, quantity, minQuantity });
         }
-        // 새로 만든 분류는 펴져 있어야 방금 넣은 품목이 보인다.
-        collapsed.delete(catKey(category));
-        saveCollapsed();
+        // 다른 분류만 보는 중이면 방금 넣은 품목이 안 보인다 — 거르기를 푼다
+        if (chip !== null && chip !== catKey(category)) chip = null;
         closeModal();
         toast('저장했습니다.', 'ok');
         await reload();
