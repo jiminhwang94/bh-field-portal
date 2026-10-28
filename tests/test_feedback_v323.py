@@ -116,9 +116,9 @@ check("목록 안의 줄에만 테두리·흰 배경",
 print()
 print("== 9-가. 가이드 작성은 홈에서 바로")
 # v3.25 — 가이드 탭(B안)이 생기면서 홈의 작성 버튼은 가이드 탭으로 옮겼다.
-# v3.28 — 로봇 화면 오른쪽 위의 작성은 지금 보는 종류 · 로봇으로 열린다.
+# v3.28 — 로봇 화면 오른쪽 위의 작성은 지금 보는 종류 · 로봇으로 열린다. (v3.40: 로봇별 항목 · 그 형식)
 check("가이드 작성은 가이드 화면 오른쪽 위 (홈에는 없다)",
-      "const newHref = `#/guides/new/${type}" in guides and 'href="${newHref}">＋ 가이드 작성</a>' in guides
+      "const newHref = () => `#/guides/new/${cur().form}" in guides and 'href="${newHref()}">＋ 가이드 작성</a>' in guides
       and 'href="#/guides/new">＋ 가이드 작성</a>' not in app)
 check("종류 없는 작성 주소가 있다",
       "[/^\\/guides\\/new$/, (m, q) => guideEditView(view, null, null, q.get('model'))]" in app)

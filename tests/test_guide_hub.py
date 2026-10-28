@@ -62,14 +62,15 @@ check("기본 로봇 셋", "export const DEFAULT_GUIDE_MODELS = ['Gen.1', 'Gen.2
 check("로봇을 지워도 가이드는 지우지 않는다", "robotModel: ''" in store and "export async function deleteGuideModel(" in store)
 
 print()
-print("== 로봇 하나 — 종류 셋 + 목록")
-check("종류 셋이 큰 버튼으로", "class=\"guide-cat" in guides and "CAT_ORDER.map((t)" in guides)
+print("== 로봇 하나 — 로봇별 항목 + 목록 (v3.40: 항목은 로봇마다 만들고 · 바꾸고 · 지운다)")
+check("항목이 큰 버튼으로 · 로봇마다", "class=\"guide-cat" in guides and "api.listGuideCats(key)" in guides
+      and "export async function addGuideCat(" in store and "export async function deleteGuideCat(" in store)
 check("고른 종류는 기억한다", "localStorage.setItem(LAST_CAT_KEY, type);" in guides)
 check("목록 칸이 스크롤 영역이다", '<div class="rows scroll" id="gList">' in guides)
 check("검색은 목록만 다시 그린다 (커서를 지킨다)",
       "box.addEventListener('input', () => { query = box.value; paint(); });" in guides)
-check("작성은 지금 보는 종류 · 로봇으로 열린다",
-      "const newHref = `#/guides/new/${type}${key === NONE ? '' : `?model=${encodeURIComponent(key)}`}`;" in guides)
+check("작성은 지금 보는 항목 · 로봇으로 열린다",
+      "const newHref = () => `#/guides/new/${cur().form}?${new URLSearchParams({" in guides and "cat: cur().id" in guides)
 check("작성 폼에서 로봇을 고른다", "data-act=\"pick-model\"" in guides and "robotModel: state.robotModel," in guides)
 
 print()

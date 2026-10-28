@@ -1205,6 +1205,58 @@ console.log('── 리포트를 지우면 사진 · 영상도 드라이브 휴�
         logRows().some((r) => r[3] === '리포트 삭제' && String(r[5]).includes('사진 · 영상 2개 드라이브 휴지통')));
 }
 
+console.log('── 가이드: 단계마다 사진 · 영상 여러 개 · 로봇별 항목 (v3.40)');
+{
+  const P1 = 'https://drive.google.com/file/d/AAAAAAAAAAAA1/view';
+  const P2 = 'https://drive.google.com/file/d/AAAAAAAAAAAA2/view';
+  const V1 = 'https://drive.google.com/file/d/AAAAAAAAAAAA3/view#video';
+  const base = {
+    id: 'gm-1', categoryType: 'HARDWARE_SOP', category: 'c-battery', robotModel: 'Gen.1', codeOrTitle: '배터리 교체',
+    summary: '', requiredTools: '', commands: [], updatedAt: '2099-02-01 10:00',
+    steps: [
+      { instruction: '덮개를 연다', expectedMetric: '', imageUrl: P1,
+        media: [{ url: P1, sec: null }, { url: P2, sec: null }, { url: V1, sec: 32 }] },
+      { instruction: '배터리를 뺀다', expectedMetric: '', imageUrl: '', media: [] },
+    ],
+  };
+  let r = call({ guides: 'push', items: [base],
+                 cats: { 'Gen.1': [{ id: 'ERROR_CODE', name: '오류 코드', form: 'ERROR_CODE' },
+                                   { id: 'c-battery', name: '배터리', form: 'HARDWARE_SOP' }] } });
+  check('여러 장 · 항목이 있는 가이드를 올린다', r.ok === true, JSON.stringify(r));
+  const tab = ss.getSheetByName('하드웨어 교체 SOP');
+  const head = tab.getRange(2, 1, 1, tab.getLastColumn()).getValues()[0];
+  const photoCell = String(tab.getRange(3, head.indexOf('단계 사진') + 1).getValue());
+  check('한 단계의 여러 장은 같은 번호로 여러 줄 · 영상 길이가 붙는다',
+        photoCell.split(String.fromCharCode(10)).length === 3 && photoCell.includes(V1 + '  (영상 32초)'), photoCell);
+  check('항목 칸에 항목 id', String(tab.getRange(3, head.indexOf('항목') + 1).getValue()) === 'c-battery');
+  let back = call({ guides: 'pull' });
+  let g = back.items.find((x) => x.id === 'gm-1');
+  check('다시 읽으면 media 셋 · 첫 장은 imageUrl (옛 앱용) · 영상 길이', g && g.steps[0].media.length === 3
+        && g.steps[0].imageUrl === P1 && g.steps[0].media[2].sec === 32 && g.category === 'c-battery',
+        JSON.stringify(g && g.steps[0]));
+  check('가이드 항목 탭을 읽는다 (형식 이름까지)', back.cats && back.cats['Gen.1'] && back.cats['Gen.1'][1].name === '배터리'
+        && back.cats['Gen.1'][1].form === 'HARDWARE_SOP', JSON.stringify(back.cats));
+  const catTab = ss.getSheetByName('가이드 항목');
+  check('가이드 항목 탭에 사람이 읽는 형식 이름', catTab && String(catTab.getRange(4, 3).getValue()) === '교체 절차형');
+
+  // 옛 앱(3.39 이하)이 다른 것을 고쳐 올림 — media · category · cats 없이
+  const old = { ...base, codeOrTitle: '배터리 교체 (고침)', updatedAt: '2099-02-02 10:00',
+    steps: base.steps.map((st) => ({ instruction: st.instruction, expectedMetric: '', imageUrl: st.imageUrl })) };
+  delete old.category;
+  call({ guides: 'push', items: [old] });
+  back = call({ guides: 'pull' });
+  g = back.items.find((x) => x.id === 'gm-1');
+  check('★ 옛 앱이 올려도 여러 장 사진이 지워지지 않는다', g && g.steps[0].media.length === 3, JSON.stringify(g && g.steps[0]));
+  check('★ 옛 앱이 올려도 항목이 지워지지 않는다', g && g.category === 'c-battery');
+  check('★ 옛 앱(cats 없음)은 가이드 항목 탭을 건드리지 않는다', back.cats && back.cats['Gen.1'] && back.cats['Gen.1'].length === 2);
+  // 옛 앱이 첫 장을 바꿨으면 바꾼 것을 따른다 (여러 장은 버린다)
+  const swapped = { ...old, steps: [{ instruction: '덮개를 연다', expectedMetric: '', imageUrl: P2 }, old.steps[1]] };
+  call({ guides: 'push', items: [swapped] });
+  g = call({ guides: 'pull' }).items.find((x) => x.id === 'gm-1');
+  check('옛 앱이 첫 장을 바꿨으면 그 한 장을 따른다', g && g.steps[0].media.length === 1 && g.steps[0].imageUrl === P2,
+        JSON.stringify(g && g.steps[0]));
+}
+
 console.log('── 리포트 번호를 시트가 매긴다 · 고객사 번호와 겹치지 않게 (v3.39)');
 {
   const HN = ['작성일시', '작성자', '리포트 번호', '고객사 리포트', '매장명', '상태'];

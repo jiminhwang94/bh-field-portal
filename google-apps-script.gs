@@ -857,9 +857,11 @@ var GUIDE_PHOTO_HEADER = '단계 사진';
  * 그대로 읽힌다 (그때는 로봇이 비어 있는 것으로 본다).
  */
 var GUIDE_ROBOT_HEADER = '로봇';
+/** 가이드가 속한 로봇별 항목 (v3.40) — 비어 있으면 그 종류의 기본 항목. ID 는 '가이드 항목' 탭에 */
+var GUIDE_CAT_HEADER = '항목';
 var GUIDE_HEADER = [GUIDE_ROBOT_HEADER, '코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일',
-                    GUIDE_PHOTO_HEADER, GUIDE_ID_HEADER];
-var GUIDE_WIDTHS = [110, 160, 260, 160, 300, 420, 130, 260, 200];
+                    GUIDE_PHOTO_HEADER, GUIDE_CAT_HEADER, GUIDE_ID_HEADER];
+var GUIDE_WIDTHS = [110, 160, 260, 160, 300, 420, 130, 260, 110, 200];
 /** 로봇 분류 목록 — 가이드가 하나도 없는 로봇도 팀 전체에 보이도록 따로 둔다. */
 var GUIDE_MODEL_SHEET = '가이드 로봇';
 var GUIDE_MODEL_HEADER = ['로봇 분류 (앱에서 추가·이름 바꾸기·삭제)'];
@@ -1292,7 +1294,7 @@ function handleGuides(ss, body) {
       out = out.concat(readGuideSheet(sh, t));
     }
     // models: 탭이 없으면 null — "아직 아무도 안 만들었다" 와 "비어 있다" 를 가른다.
-    return json({ ok: true, items: out, models: readGuideModels(ss) });
+    return json({ ok: true, items: out, models: readGuideModels(ss), cats: readGuideCats(ss) });
   }
   // 가이드 단계 사진을 드라이브에 저장한다.
   //   { guides: 'media', categoryType, title, files: [{filename, mimeType, data}] }
@@ -1318,12 +1320,15 @@ function handleGuides(ss, body) {
         return String(a.codeOrTitle || '').localeCompare(String(b.codeOrTitle || ''), 'ko');
       });
       var oldTab = ss.getSheetByName(GUIDE_SHEETS[type]);
-      guideDiff(oldTab ? readGuideSheet(oldTab, type) : [], list, diff, function (gone) {
+      var oldList = oldTab ? readGuideSheet(oldTab, type) : [];
+      keepNewGuideFields(oldList, list);
+      guideDiff(oldList, list, diff, function (gone) {
         putInTrash(ss, body, '가이드', GUIDE_SHEETS[type] + ' · ' + gone.codeOrTitle, gone);
       });
       writeGuideSheet(ss, GUIDE_SHEETS[type], list);
       counts[type] = list.length;
     }
+    if (body.cats && typeof body.cats === 'object') writeGuideCats(ss, body.cats);   // v3.40 앱만 보낸다
     if (Object.prototype.toString.call(body.models) === '[object Array]') {
       writeGuideModels(ss, body.models);
       var after = readGuideModels(ss) || [];
@@ -1376,6 +1381,7 @@ function readGuideSheet(sheet, categoryType) {
   var cmdCol = colOf('명령어', 3);
   var stepCol = colOf('단계', 4);
   var updatedCol = colOf('수정일', 5);
+  var catCol = colOf(GUIDE_CAT_HEADER, -1);
 
   var data = sheet.getRange(3, 1, lastRow - 2, lastCol).getDisplayValues();
   var out = [];
@@ -1402,13 +1408,16 @@ function readGuideSheet(sheet, categoryType) {
     for (var pc = 0; pc < header.length; pc++) {
       if (String(header[pc] || '').trim() === GUIDE_PHOTO_HEADER) { photoCol = pc; break; }
     }
+    // 한 단계에 여러 개면 같은 번호로 여러 줄 (v3.40). 영상 길이는 뒤에 '(영상 32초)'
     var photos = {};
     if (photoCol >= 0) {
       String(row[photoCol] || '').split(NEWLINE).forEach(function (line) {
         var text = line.trim();
         if (!text) return;
-        var m = text.match(/^(\d+)\.\s*(.+)$/);
-        if (m) photos[Number(m[1])] = m[2].trim();
+        var m = text.match(/^(\d+)\.\s*(\S+)(.*)$/);
+        if (!m) return;
+        var sec = (m[3] || '').match(/영상\s*(\d+)\s*초/);
+        (photos[Number(m[1])] = photos[Number(m[1])] || []).push({ url: m[2].trim(), sec: sec ? Number(sec[1]) : null });
       });
     }
 
@@ -1436,10 +1445,12 @@ function readGuideSheet(sheet, categoryType) {
       }
       text = text.trim();
       if (!text) return;
+      var media = photos[steps.length + 1] || [];
       steps.push({
         instruction: text,
         expectedMetric: metric || null,
-        imageUrl: photos[steps.length + 1] || null
+        imageUrl: media.length ? media[0].url : null,     // 옛 앱은 첫 하나만 본다
+        media: media
       });
     });
 
@@ -1448,6 +1459,7 @@ function readGuideSheet(sheet, categoryType) {
       categoryType: categoryType,
       robotModel: robotCol >= 0 ? String(row[robotCol] || '').trim() : '',
       codeOrTitle: title,
+      category: catCol >= 0 ? String(row[catCol] || '').trim() : '',
       summary: String(row[summaryCol] || '').trim(),
       requiredTools: String(row[toolsCol] || '').trim(),
       commands: commands,
@@ -1498,8 +1510,12 @@ function writeGuideSheet(ss, name, list) {
       steps.push(text);
       // 드라이브에 올라간 사진만 적는다. 기기 안에만 있는 것(/media/...)은
       // 다른 사람이 열 수 없으므로 시트에 적어 봐야 소용이 없다.
-      var url = String(step.imageUrl || '');
-      if (url.indexOf('http') === 0) photos.push((k + 1) + '. ' + url);
+      var media = guideStepMedia(step);
+      for (var mi = 0; mi < media.length; mi++) {
+        var mu = String(media[mi].url || '');
+        if (mu.indexOf('http') !== 0) continue;
+        photos.push((k + 1) + '. ' + mu + (media[mi].sec ? '  (영상 ' + Math.round(media[mi].sec) + '초)' : ''));
+      }
     }
     // 칸 수는 GUIDE_HEADER 와 반드시 같아야 한다. 다르면 setValues 가 예외를 던지는데,
     // 그 직전에 clearContents() 가 이미 실행돼 탭이 비워진 채로 남는다.
@@ -1509,6 +1525,7 @@ function writeGuideSheet(ss, name, list) {
       commands.join(NEWLINE), steps.join(NEWLINE),
       String(g.updatedAt || '').replace('T', ' '),
       photos.join(NEWLINE),
+      g.category || '',
       g.id || '',
     ]);
   }
@@ -1551,6 +1568,94 @@ function writeGuideModels(ss, models) {
   sheet.setColumnWidth(1, 320);
   if (!names.length) return;
   sheet.getRange(3, 1, names.length, 1).setValues(names.map(function (n) { return [n]; }));
+}
+
+/* ── 가이드 단계 사진 · 영상 여러 개 · 로봇별 항목 (v3.40) ───────────────────── */
+
+/** 단계의 사진 · 영상 목록 — 새 앱은 media, 옛 앱은 imageUrl 하나 */
+function guideStepMedia(step) {
+  if (step && Object.prototype.toString.call(step.media) === '[object Array]') {
+    return step.media.filter(function (m) { return m && m.url; });
+  }
+  return step && step.imageUrl ? [{ url: String(step.imageUrl), sec: null }] : [];
+}
+
+/**
+ * 옛 앱(3.39 이하)이 올린 가이드에는 media · category 가 없다. 그대로 쓰면 시트에 있던
+ * 여러 장 사진과 항목이 사라진다 — 그 가이드의 시트 것을 이어 받는다.
+ * 사진은 첫 장이 같을 때만 (옛 앱이 첫 장을 바꿨으면 바꾼 것을 따른다).
+ */
+function keepNewGuideFields(oldList, list) {
+  var byId = {};
+  for (var i = 0; i < oldList.length; i++) if (oldList[i].id) byId[oldList[i].id] = oldList[i];
+  for (var j = 0; j < list.length; j++) {
+    var g = list[j];
+    var was = g && g.id ? byId[g.id] : null;
+    if (!was) continue;
+    if (g.category === undefined) g.category = was.category || '';
+    var steps = g.steps || [];
+    for (var k = 0; k < steps.length; k++) {
+      var st = steps[k] || {};
+      var old = (was.steps || [])[k];
+      if (st.media !== undefined || !old || !(old.media || []).length) continue;
+      if (String(old.media[0].url) === String(st.imageUrl || '')) st.media = old.media;
+    }
+  }
+}
+
+/**
+ * '가이드 항목' 탭 — 로봇마다 가이드 항목 목록 (v3.40).
+ *   로봇 | 항목 이름 | 형식 | ID     형식 = 오류 코드형 · 교체 절차형 · 명령어형
+ * 로봇이 이 탭에 없으면 앱은 기본 세 항목(오류 코드 · 하드웨어 교체 · SW · 명령어)을 쓴다.
+ * 기본 항목의 ID 는 형식 이름(ERROR_CODE …)과 같다 — 예전 가이드가 그대로 그 항목에 든다.
+ */
+var GUIDE_CATS_SHEET = '가이드 항목';
+var GUIDE_CATS_HEADER = ['로봇', '항목 이름', '형식', 'ID(고치지 마세요)'];
+var GUIDE_FORM_LABEL = { ERROR_CODE: '오류 코드형', HARDWARE_SOP: '교체 절차형', SOFTWARE_CMD: '명령어형' };
+
+function readGuideCats(ss) {
+  var sheet = ss.getSheetByName(GUIDE_CATS_SHEET);
+  if (!sheet) return null;
+  var lastRow = sheet.getLastRow();
+  var out = {};
+  if (lastRow < 3) return out;
+  var data = sheet.getRange(3, 1, lastRow - 2, GUIDE_CATS_HEADER.length).getDisplayValues();
+  for (var r = 0; r < data.length; r++) {
+    var robot = String(data[r][0] || '').trim();
+    var name = String(data[r][1] || '').trim();
+    var id = String(data[r][3] || '').trim();
+    if (!robot || !name || !id) continue;
+    var formText = String(data[r][2] || '').trim();
+    var form = 'HARDWARE_SOP';
+    for (var t in GUIDE_FORM_LABEL) if (GUIDE_FORM_LABEL[t] === formText || t === formText) form = t;
+    (out[robot] = out[robot] || []).push({ id: id, name: name, form: form });
+  }
+  return out;
+}
+
+function writeGuideCats(ss, cats) {
+  var sheet = ss.getSheetByName(GUIDE_CATS_SHEET);
+  if (!sheet) sheet = ss.insertSheet(GUIDE_CATS_SHEET);
+  var rows = [];
+  for (var robot in cats) {
+    var list = cats[robot] || [];
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i] || {};
+      if (!c.id || !String(c.name || '').trim()) continue;
+      rows.push([robot, String(c.name).trim(), GUIDE_FORM_LABEL[c.form] || GUIDE_FORM_LABEL.HARDWARE_SOP, String(c.id)]);
+    }
+  }
+  sheet.clearContents();
+  var header = sheet.getRange(2, 1, 1, GUIDE_CATS_HEADER.length);
+  header.setValues([GUIDE_CATS_HEADER]);
+  header.setFontWeight('bold');
+  header.setBackground('#eef1f5');
+  sheet.setFrozenRows(2);
+  sheet.setColumnWidth(1, 140);
+  sheet.setColumnWidth(2, 200);
+  sheet.setColumnWidth(3, 110);
+  sheet.setColumnWidth(4, 160);
+  if (rows.length) sheet.getRange(3, 1, rows.length, GUIDE_CATS_HEADER.length).setValues(rows);
 }
 
 /* ============================================================ 첨부 파일(드라이브)
