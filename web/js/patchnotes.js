@@ -6,6 +6,13 @@
 //   · 새 버전은 맨 위에 더한다. 버전을 올릴 때(tools/release.py) 여기에 없으면 알려 준다
 export const PATCH_NOTES = [
   {
+    version: '3.38.0',
+    date: '2026-10-28',
+    items: [
+      '앱 아이콘이 앱 안 왼쪽 위와 같은 파란 BH 로 바뀌었어요.',
+    ],
+  },
+  {
     version: '3.37.1',
     date: '2026-10-28',
     items: [
