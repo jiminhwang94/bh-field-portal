@@ -200,6 +200,16 @@ a.door:hover { box-shadow: inset 0 0 0 3px var(--color-accent); }
 .ticket__no { font-size: 15px; font-weight: 700; color: var(--color-muted); }
 .ticket__problem { font-size: 15px; color: var(--color-text-2); line-height: 1.4; }
 .ticket--manual { align-items: center; font-size: 18px; font-weight: 700; color: var(--color-muted); border-style: dashed; }
+/* 고객사 리포트 없음 (v3.39) — 맨 앞 카드. 고르면 리포트 번호만 저절로 붙는다 */
+.ticket--none { background: var(--color-surface); }
+/* 리포트 번호 — 올릴 때 시트가 매긴다 (v3.39). 손으로 적는 칸 대신 한 줄 */
+.field--auto-no { gap: 8px; }
+.auto-no {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 56px; padding: 8px 16px;
+  border: 1.5px dashed var(--color-border-strong); border-radius: 14px; background: var(--color-surface);
+}
+.auto-no__value { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; }
+.auto-no__hint { font-size: 15px; color: var(--color-muted); }
 
 /* 고르기 칸 — 큰 버튼 한 줄 */
 .choice-row { display: flex; flex-wrap: wrap; gap: 10px; }

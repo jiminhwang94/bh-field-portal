@@ -185,9 +185,23 @@ export async function buildPayload(report, fields, deviceName, { chunked = false
 
   row.push(seedStatus(report.payload));
 
+  // 리포트 번호 (v3.39) — '고객사 리포트' 칸이 있는 구성이면 번호는 시트가 매긴다 (P + 작성일 + 차례).
+  // 비어 있을 때만 부탁한다 (고친 리포트 · 손으로 적은 번호는 그대로).
+  const squash = (t) => String(t || '').replace(/\s/g, '');
+  const numberLabel = labels.find((l) => squash(l).includes('리포트번호'));
+  const hasCustomer = labels.some((l) => squash(l).includes('고객사'));
+  const numberItem = numberLabel ? byLabel.get(numberLabel) : null;
+  const created = String(report.createdAt || '');
+  const autoNumber = numberLabel && hasCustomer && !String((numberItem && numberItem.value) || '').trim()
+    && /^\d{4}-\d{2}-\d{2}/.test(created)
+    ? { label: numberLabel, date: created.slice(2, 4) + created.slice(5, 7) + created.slice(8, 10) }
+    : undefined;
+  // 고치며 ✕ 로 뺀 첨부 — 시트가 드라이브 휴지통으로 옮긴다 (v3.39)
+  const dropMedia = (report.payload || []).flatMap((it) => (it.dropped || []).map((l) => l && l.url)).filter(Boolean);
+
   return {
     sheetName: monthSheetName(report.createdAt),
-    headers, row, media, mediaSkipped: skipped, uploaded,
+    headers, row, media, mediaSkipped: skipped, uploaded, autoNumber, dropMedia,
   };
 }
 
@@ -341,6 +355,7 @@ export async function uploadReport(report) {
       headers: payload.headers,
       row_values: payload.row,
       media: payload.media,
+      dropMedia: payload.dropMedia,
     }, 120000)
     : await callAppsScript(payload, 120000);
 
@@ -355,6 +370,8 @@ export async function uploadReport(report) {
     sheetName: result.sheetName || payload.sheetName,
     row: result.row,
     created: Boolean(result.created),
+    reportNumber: result.reportNumber || '',            // 시트가 매긴 번호 (v3.39)
+    mediaTrashed: Number(result.mediaTrashed || 0),     // 고치며 뺀 사진 · 영상
     media: Number(result.media || 0) + (payload.uploaded || []).length,
     mediaSkipped: [...payload.mediaSkipped, ...(result.mediaSkipped || [])],
     // 공유 드라이브에 못 닿으면 개인 드라이브로 간다 — 그대로 두면 안 되므로 알린다.

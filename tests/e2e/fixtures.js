@@ -44,7 +44,7 @@ async function openApp(page, hash = '#/') {
 }
 
 /**
- * 큰 버튼으로 고르는 칸 (v3.35) — 리포트 번호(접수 카드) · 로봇 모델 · 처리 결과.
+ * 큰 버튼으로 고르는 칸 (v3.35) — 고객사 리포트(접수 카드, v3.39 전에는 리포트 번호) · 로봇 모델 · 처리 결과.
  * 예전 셀렉트의 selectOption 자리에 쓴다.
  */
 async function pick(page, label, value) {

@@ -43,6 +43,7 @@ export async function ensureFirstData() {
   // 시트를 안 쓰는 기기는 여기서 바로 '작업' 항목 · 기본 대분류를 갖춘다
   if (!(await store.sheetInventoryOn())) {
     await store.ensureWorkField().catch(() => {});
+    await store.ensureCustomerField().catch(() => {});
     await store.ensureDefaultWork().catch(() => {});
   }
   if (added) toast(`리포트 항목 ${added}개를 준비했습니다.`, 'ok');
@@ -78,8 +79,10 @@ export async function catchUpFromSheet() {
     ]);
     // '작업' 항목 (v3.31) — 시트 항목을 받은 뒤에 없으면 만든다 (팀 공통으로 올라간다)
     const madeWorkField = fields ? await store.ensureWorkField().catch(() => false) : false;
+    // '고객사 리포트' 항목 (v3.39) — 접수 번호는 여기, 리포트 번호는 올릴 때 시트가 매긴다
+    const madeCustomer = fields ? await store.ensureCustomerField().catch(() => false) : false;
     if (changedSomething(fields) || changedSomething(inventory)
-        || changedSomething(guides) || changedSomething(work) || madeWorkField) {
+        || changedSomething(guides) || changedSomething(work) || madeWorkField || madeCustomer) {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     }
     // 새 버전이 있는지도 함께 (띠만 바뀌고 화면은 건드리지 않는다)

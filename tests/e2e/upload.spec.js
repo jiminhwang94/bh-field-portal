@@ -9,7 +9,7 @@ const MB = 1024 * 1024;
 
 async function fillReport(page, video) {
   await openApp(page, '#/report/new');
-  await pick(page, '리포트 번호', 'P260912-01');
+  await pick(page, '고객사 리포트', 'P260912-01');
   await field(page, '로봇 시리얼').fill('SN-UP-1');
   await pick(page, '로봇 모델', 'Gen.1(D1)');
   await field(page, '증상 요약').fill('영상 첨부 검사');
