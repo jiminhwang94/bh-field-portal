@@ -18,7 +18,13 @@ const SHEET_IDS_KEY = 'guideSheetIds';
 async function pendingGuideIds() {
   return new Set((await store.outbox())
     .filter((op) => op.type === 'guidesheet-push')
-    .flatMap((op) => (op.changes || []).filter((c) => c.kind !== 'model').map((c) => c.id)));
+    .flatMap((op) => (op.changes || []).filter((c) => c.kind !== 'model' && c.kind !== 'cat').map((c) => c.id)));
+}
+
+/** 아직 시트에 못 올린 로봇별 항목 변경이 있는가 (v3.40) */
+async function catsPending() {
+  return (await store.outbox()).some((op) => op.type === 'guidesheet-push'
+    && (op.changes || []).some((c) => c.kind === 'cat'));
 }
 
 /** 아직 시트에 못 올린 로봇 분류 변경이 있는가 */
@@ -41,9 +47,11 @@ export async function pushGuides(changes = null) {
   const conflicts = [];
   const guides = mergeWithSheet(await idb.getAll('guides'), changes, sheet, conflicts);
   const models = mergeModels(await store.listGuideModels(), changes, sheet);
+  const cats = mergeCats(await store.allGuideCats(), changes, sheet);
   const items = guides.map((g) => ({
     id: g.id,
     categoryType: g.categoryType,
+    category: g.category || '',              // 로봇별 항목 (v3.40)
     robotModel: g.robotModel || '',
     codeOrTitle: g.codeOrTitle || '',
     summary: g.summary || '',
@@ -57,10 +65,11 @@ export async function pushGuides(changes = null) {
       // 드라이브에 올라간 사진 주소. 기기 안에만 있는 것은 시트에 적지 않는다
       // (다른 사람이 열 수 없다) — .gs 쪽에서 http 로 시작하는 것만 적는다.
       imageUrl: s.imageUrl || '',
+      media: store.stepMedia(s),             // 여러 장 · 영상 길이 (v3.40)
     })),
     updatedAt: g.updatedAt || '',
   }));
-  const result = await callAppsScript({ guides: 'push', items, models }, 60000);
+  const result = await callAppsScript({ guides: 'push', items, models, ...(cats ? { cats } : {}) }, 60000);
   await store.setMeta(SHEET_IDS_KEY, items.map((g) => g.id).filter(Boolean));
   await store.setGuideModels(models);
   if (conflicts.length) await rememberConflicts(conflicts);
@@ -114,6 +123,20 @@ export async function resolveConflict(id, keepMine) {
 }
 
 /**
+ * 로봇별 항목을 시트 것과 합친다 (v3.40) — 내가 바꾼 로봇만 기기 것으로, 나머지는 시트 것.
+ * 내가 바꾼 것이 없으면 보내지 않는다 (null) — 시트 탭을 건드리지 않는다.
+ */
+function mergeCats(local, changes, sheet) {
+  const robots = [...new Set((changes || []).filter((c) => c.kind === 'cat').map((c) => c.id))];
+  if (!robots.length) return null;
+  const out = { ...((sheet && sheet.cats) || {}) };
+  for (const r of robots) {
+    if (local[r]) out[r] = local[r]; else delete out[r];
+  }
+  return out;
+}
+
+/**
  * 로봇 분류 목록을 시트 것과 합친다 — 시트 순서를 지키고, 내가 지운·이름 바꾼 것은
  * 빼고, 내가 만든 것은 뒤에 붙인다. 시트에 탭이 아직 없으면 기기 목록을 그대로 올린다.
  */
@@ -150,7 +173,7 @@ function mergeWithSheet(local, changes, pulled, conflicts = []) {
   if (!sheet.length) return local;
 
   const mine = new Map(local.map((g) => [g.id, g]));
-  const guideChanges = changes.filter((c) => c.kind !== 'model');
+  const guideChanges = changes.filter((c) => c.kind !== 'model' && c.kind !== 'cat');
   const touched = new Set(guideChanges.map((c) => c.id));
   // 고치기 **시작할 때** 모습 (같은 가이드를 여러 번 고쳤으면 맨 처음 것)
   const baseOf = new Map();
@@ -225,6 +248,12 @@ async function pullGuidesNow() {
     const after = (await store.setGuideModels(result.models)).join('|');
     if (before !== after) modelsChanged = 1;
   }
+  // 로봇별 항목 (v3.40) — 탭이 있고 내가 안 올린 변경이 없을 때만 시트를 따른다
+  if (result.cats && typeof result.cats === 'object' && !(await catsPending())) {
+    const before = JSON.stringify(await store.allGuideCats());
+    const after = JSON.stringify(await store.setGuideCats(result.cats));
+    if (before !== after) modelsChanged = 1;
+  }
   if (!rows.length) return { changed: modelsChanged, added: 0, removed: 0, deleted: 0 };
 
   // 받는 사이에 고친 것도 지키도록, 시트를 받은 **뒤에** 내 대기분을 본다.
@@ -264,6 +293,7 @@ async function pullGuidesNow() {
     const next = {
       id,
       categoryType: row.categoryType,
+      category: String(row.category || '').trim(),
       robotModel: String(row.robotModel || '').trim(),
       codeOrTitle: title,
       summary: String(row.summary || '').trim(),
@@ -286,6 +316,9 @@ async function pullGuidesNow() {
           // 없으면 기기에 있던 것을 지키고 지나간다.
           imageUrl: (s.imageUrl || '').trim()
             || (existing && (existing.steps || [])[i] || {}).imageUrl || null,
+          // 여러 장 (v3.40) — 시트에 있으면 시트 것, 없으면 기기에 있던 것
+          media: store.stepMedia(s).length ? store.stepMedia(s)
+            : store.stepMedia((existing && (existing.steps || [])[i]) || {}),
         })),
       createdAt: existing ? existing.createdAt : store.now(),
       updatedAt: store.now(),
@@ -359,9 +392,10 @@ export async function reuploadOrphans() {
   const list = await listOrphans();
   for (const g of list) {
     await store.saveGuide({
-      categoryType: g.categoryType, robotModel: g.robotModel || '', codeOrTitle: g.codeOrTitle,
+      categoryType: g.categoryType, category: g.category || '', robotModel: g.robotModel || '', codeOrTitle: g.codeOrTitle,
       summary: g.summary || '', requiredTools: g.requiredTools || '', commands: g.commands || [],
-      steps: (g.steps || []).map((s) => ({ instruction: s.instruction, expectedMetric: s.expectedMetric || '', imageUrl: s.imageUrl || '' })),
+      steps: (g.steps || []).map((s) => ({ instruction: s.instruction, expectedMetric: s.expectedMetric || '',
+                                          imageUrl: s.imageUrl || '', media: store.stepMedia(s) })),
     }, g.id);
   }
   await store.setMeta(ORPHAN_KEY, []);
@@ -371,11 +405,12 @@ export async function reuploadOrphans() {
 /** 시트에서 온 내용이 기기 것과 같은가 (같으면 건드리지 않는다) */
 function same(a, b) {
   const key = (g) => JSON.stringify([
-    g.categoryType, g.robotModel || '', g.codeOrTitle, g.summary, g.requiredTools,
+    g.categoryType, g.category || '', g.robotModel || '', g.codeOrTitle, g.summary, g.requiredTools,
     (g.commands || []).map((c) => [c.label, c.cmd, c.desc]),
     // 사진 주소도 비교에 넣는다. 빼면 시트에 새 사진이 올라와도
-    // "같다" 고 보고 넘어가 **다른 사람 사진이 영영 안 내려온다.**
-    (g.steps || []).map((s) => [s.instruction, s.expectedMetric || '', s.imageUrl || '']),
+    // "같다" 고 보고 넘어가 **다른 사람 사진이 영영 안 내려온다.** (v3.40 부터 여러 장 · 길이까지)
+    (g.steps || []).map((s) => [s.instruction, s.expectedMetric || '', s.imageUrl || '',
+      store.stepMedia(s).map((m) => `${m.url}|${m.sec || ''}`).join(' ')]),
   ]);
   return key(a) === key(b);
 }

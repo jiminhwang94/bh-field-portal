@@ -40,6 +40,13 @@ export const api = {
     return ok;
   },
 
+  // ------------------------------------------------------- 로봇별 가이드 항목 (v3.40)
+  listGuideCats: (robotKey) => store.listGuideCats(robotKey),
+  addGuideCat: async (robotKey, name, form) => { const r = await store.addGuideCat(robotKey, name, form); flushSoon(); return r; },
+  renameGuideCat: async (robotKey, id, name) => { await store.renameGuideCat(robotKey, id, name); flushSoon(); },
+  deleteGuideCat: async (robotKey, id) => { await store.deleteGuideCat(robotKey, id); flushSoon(); },
+  moveGuideCat: async (robotKey, id, dir) => { await store.moveGuideCat(robotKey, id, dir); flushSoon(); },
+
   // ------------------------------------------------------- 가이드 로봇 분류
   listGuideModels: () => store.listGuideModels(),
   addGuideModel: async (name) => {

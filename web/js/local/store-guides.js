@@ -6,10 +6,25 @@ import { CATEGORY_TYPES, byText, getMeta, newId, now, queueGuideSheetPushIfOn, s
 
 // -------------------------------------------------------------- 가이드
 
+/**
+ * 단계의 사진 · 영상 목록 (v3.40) — [{ url, sec }]. sec 은 영상 길이(초), 모르면 null.
+ * 예전 단계는 imageUrl 하나뿐이었다.
+ */
+export function stepMedia(step) {
+  const list = step && Array.isArray(step.media)
+    ? step.media
+    : (step && step.imageUrl ? [{ url: step.imageUrl, sec: null }] : []);
+  return list
+    .map((m) => (typeof m === 'string' ? { url: m, sec: null } : m))
+    .filter((m) => m && String(m.url || '').trim())
+    .map((m) => ({ url: String(m.url).trim(), sec: Number(m.sec) > 0 ? Math.round(Number(m.sec)) : null }));
+}
+
 const guideOut = (g, withSteps) => {
   const out = {
     id: g.id,
     categoryType: g.categoryType,
+    category: g.category || '',     // 로봇별 항목 id (v3.40) — 비면 categoryType 기본 항목
     robotModel: g.robotModel || '',
     codeOrTitle: g.codeOrTitle,
     summary: g.summary || '',
@@ -68,12 +83,14 @@ export async function saveGuide(payload, guideId = null) {
   for (const step of payload.steps || []) {
     const instruction = (step.instruction || '').trim();
     if (!instruction) continue;              // 빈 단계는 건너뛰고 번호를 다시 매긴다
+    const media = stepMedia(step);
     steps.push({
       id: step.id || newId(),
       stepOrder: steps.length + 1,
       instruction,
       expectedMetric: (step.expectedMetric || '').trim() || null,
-      imageUrl: (step.imageUrl || '').trim() || null,
+      media,
+      imageUrl: media.length ? media[0].url : null,     // 옛 앱 · 옛 코드는 첫 하나만 본다
     });
   }
 
@@ -84,6 +101,8 @@ export async function saveGuide(payload, guideId = null) {
   const row = {
     id: guideId || newId(),
     categoryType: payload.categoryType,
+    // 기본 항목(id = 종류)이면 비워 둔다 — 시트 '항목' 칸이 비면 기본 항목이다
+    category: payload.category && payload.category !== payload.categoryType ? String(payload.category) : '',
     robotModel: String(payload.robotModel ?? (existing ? existing.robotModel : '') ?? '').trim(),
     codeOrTitle: title,
     summary: (payload.summary || '').trim(),
@@ -159,6 +178,14 @@ export async function renameGuideModel(oldName, nextName) {
   }
   await setGuideModels(models.map((m) => (m === oldName ? nextName : m)));
   const changes = [{ kind: 'model', id: nextName, before: oldName }];
+  // 그 로봇의 항목 목록도 새 이름으로 옮긴다 (v3.40)
+  const cats = await allGuideCats();
+  if (cats[oldName]) {
+    cats[nextName] = cats[oldName];
+    delete cats[oldName];
+    await setMeta(GUIDE_CATS_KEY, cats);
+    changes.push({ kind: 'cat', id: nextName, before: null }, { kind: 'cat', id: oldName, before: null });
+  }
   const stamp = now();
   for (const g of await idb.getAll('guides')) {
     if ((g.robotModel || '') !== oldName) continue;
@@ -174,6 +201,13 @@ export async function deleteGuideModel(name) {
   const models = await listGuideModels();
   await setGuideModels(models.filter((m) => m !== name));
   const changes = [{ kind: 'model', id: name, before: name }];
+  // 그 로봇의 항목 목록도 지운다 (v3.40) — 옮겨 간 가이드는 '로봇 미지정' 항목에 든다
+  const cats = await allGuideCats();
+  if (cats[name]) {
+    delete cats[name];
+    await setMeta(GUIDE_CATS_KEY, cats);
+    changes.push({ kind: 'cat', id: name, before: null });
+  }
   const stamp = now();
   let moved = 0;
   for (const g of await idb.getAll('guides')) {
@@ -215,4 +249,96 @@ export async function undoGuideModelChanges(changes) {
     models = models.map((m) => (m === c.id ? c.before : m));                   // 이름 되돌리기
   }
   await setGuideModels(models);
+}
+
+// ------------------------------------------------------- 로봇별 가이드 항목 (v3.40)
+//
+// 예전에는 모든 로봇이 '오류 코드 · 하드웨어 교체 · SW · 명령어' 세 항목으로 고정이었다.
+// 이제 로봇마다 항목을 만들고 · 이름을 바꾸고 · 지운다. 항목마다 **형식** 이 있다 —
+// 오류 코드형(ERROR_CODE) · 교체 절차형(HARDWARE_SOP) · 명령어형(SOFTWARE_CMD).
+// 형식은 가이드가 어느 시트 탭에 들고 오류 코드를 리포트와 잇는지를 정한다.
+// 기본 항목의 id 는 형식 이름과 같다 — 예전 가이드(category 없음)가 그대로 제자리에 든다.
+// 목록은 팀 공통 — 시트 '가이드 항목' 탭과 주고받는다 (대기열 kind:'cat', id = 로봇).
+export const DEFAULT_GUIDE_CATS = [
+  { id: 'ERROR_CODE', name: '오류 코드', form: 'ERROR_CODE' },
+  { id: 'HARDWARE_SOP', name: '하드웨어 교체', form: 'HARDWARE_SOP' },
+  { id: 'SOFTWARE_CMD', name: 'SW · 명령어', form: 'SOFTWARE_CMD' },
+];
+const GUIDE_CATS_KEY = 'guideCats';
+const NONE_KEY = '_none';
+const robotKeyOf = (g) => (g.robotModel || '').trim() || NONE_KEY;
+/** 가이드가 든 항목 id */
+export const guideCatOf = (g) => (g && g.category) || (g && g.categoryType) || '';
+
+/** 로봇마다 항목 { 로봇: [{ id, name, form }] } — 정한 적 없는 로봇은 빠져 있다 */
+export async function allGuideCats() {
+  const saved = await getMeta(GUIDE_CATS_KEY, null);
+  return saved && typeof saved === 'object' ? { ...saved } : {};
+}
+
+/** 그 로봇의 항목 — 정한 적이 없으면 기본 셋 */
+export async function listGuideCats(robotKey) {
+  const list = (await allGuideCats())[robotKey || NONE_KEY];
+  return Array.isArray(list) && list.length ? list.map((c) => ({ ...c })) : DEFAULT_GUIDE_CATS.map((c) => ({ ...c }));
+}
+
+/** 시트에서 받은 목록을 그대로 둔다 (guidesheet 가 부른다) */
+export async function setGuideCats(map) {
+  const clean = {};
+  for (const [robot, list] of Object.entries(map || {})) {
+    const items = (Array.isArray(list) ? list : [])
+      .filter((c) => c && c.id && String(c.name || '').trim())
+      .map((c) => ({ id: String(c.id), name: String(c.name).trim(),
+                     form: CATEGORY_TYPES.includes(c.form) ? c.form : 'HARDWARE_SOP' }));
+    if (items.length) clean[robot] = items;
+  }
+  await setMeta(GUIDE_CATS_KEY, clean);
+  return clean;
+}
+
+async function writeCats(robotKey, list) {
+  const all = await allGuideCats();
+  all[robotKey] = list;
+  await setMeta(GUIDE_CATS_KEY, all);
+  await queueGuideSheetPushIfOn([{ kind: 'cat', id: robotKey, before: null }]);
+}
+
+const sameCatName = (a, b) => String(a || '').replace(/\s/g, '') === String(b || '').replace(/\s/g, '');
+
+export async function addGuideCat(robotKey, name, form) {
+  name = String(name || '').trim();
+  if (!name) throw new Error('항목 이름을 적어 주세요.');
+  if (!CATEGORY_TYPES.includes(form)) throw new Error('형식을 골라 주세요.');
+  const list = await listGuideCats(robotKey);
+  if (list.some((c) => sameCatName(c.name, name))) throw new Error('같은 이름의 항목이 있습니다.');
+  const item = { id: `c-${newId()}`, name, form };
+  await writeCats(robotKey, [...list, item]);
+  return item;
+}
+
+export async function renameGuideCat(robotKey, id, name) {
+  name = String(name || '').trim();
+  if (!name) throw new Error('항목 이름을 적어 주세요.');
+  const list = await listGuideCats(robotKey);
+  if (list.some((c) => c.id !== id && sameCatName(c.name, name))) throw new Error('같은 이름의 항목이 있습니다.');
+  await writeCats(robotKey, list.map((c) => (c.id === id ? { ...c, name } : c)));
+}
+
+/** 가이드가 남아 있는 항목은 지우지 않는다 — 가이드를 옮기거나 지운 뒤에 */
+export async function deleteGuideCat(robotKey, id) {
+  const inside = (await idb.getAll('guides')).filter((g) => robotKeyOf(g) === robotKey && guideCatOf(g) === id);
+  if (inside.length) throw new Error(`안에 가이드 ${inside.length}건이 있어 지울 수 없습니다. 가이드를 다른 항목으로 옮기거나 지운 뒤에 지우세요.`);
+  const list = await listGuideCats(robotKey);
+  const next = list.filter((c) => c.id !== id);
+  if (!next.length) throw new Error('항목이 하나는 있어야 합니다.');
+  await writeCats(robotKey, next);
+}
+
+export async function moveGuideCat(robotKey, id, dir) {
+  const list = await listGuideCats(robotKey);
+  const i = list.findIndex((c) => c.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  await writeCats(robotKey, list);
 }

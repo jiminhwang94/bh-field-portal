@@ -92,8 +92,15 @@ export const isVideoFile = (file) => String((file && file.type) || '').startsWit
 const NONE = '_none';
 export const NONE_LABEL = '로봇 미지정';
 export const CAT_SHORT = { ERROR_CODE: '오류 코드', HARDWARE_SOP: '하드웨어 교체', SOFTWARE_CMD: 'SW · 명령어' };
-const CAT_ORDER = ['ERROR_CODE', 'HARDWARE_SOP', 'SOFTWARE_CMD'];
 const LAST_CAT_KEY = 'bh_guide_cat';
+/** 항목의 형식 (v3.40) — 새 항목을 만들 때 고른다. 가이드 칸과 시트 탭이 형식을 따른다 */
+const CAT_FORM = {
+  ERROR_CODE: { label: '오류 코드형', hint: '제목 맨 앞에 오류 코드(E-101). 리포트의 오류 코드와 이어집니다.' },
+  HARDWARE_SOP: { label: '교체 절차형', hint: '준비 공구와 단계 — 부품 교체 · 점검 · 청소 같은 절차.' },
+  SOFTWARE_CMD: { label: '명령어형', hint: '복사해서 쓰는 명령어와 단계 — 설정 · 펌웨어.' },
+};
+/** 가이드가 든 항목 id — 비면 종류의 기본 항목 (v3.40) */
+export const guideCatOf = (g) => (g && g.category) || (g && g.categoryType) || '';
 const CAT_TINY = { ERROR_CODE: '오류', HARDWARE_SOP: '하드웨어', SOFTWARE_CMD: 'SW' };
 const CAT_ICON = {
   ERROR_CODE: 'M12 8v5M12 16.5v.01M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18',
@@ -237,6 +244,9 @@ export async function guideHubView(view) {
     if (k !== NONE && !keys.includes(k)) keys.push(k);
   }
   const unassigned = all.filter((g) => modelKey(g) === NONE).length;
+  // 로봇마다 항목 (v3.40)
+  const catsBy = {};
+  for (const k of keys) catsBy[k] = await api.listGuideCats(k);
   const recent = await recentCodes(all);
   const orphans = await (await import('../guidesheet.js')).listOrphans().catch(() => []);
 
@@ -256,10 +266,10 @@ export async function guideHubView(view) {
                     aria-label="${h(key)} 이름 바꾸기 · 삭제">⋯</button>` : ''}
         </div>
         <div class="rband__cats">
-          ${CAT_ORDER.map((t) => `
-            <a class="rcat" data-cat="${t}" href="${modelHref(key, t)}">
-              <span class="rcat__name">${catIcon(t)}${h(CAT_SHORT[t])}</span>
-              <span class="rcat__foot"><b class="rcat__n tnum">${list.filter((g) => g.categoryType === t).length}</b><span>보기 ›</span></span>
+          ${(catsBy[key] || []).map((c) => `
+            <a class="rcat" data-cat="${h(c.form)}" data-item="${h(c.id)}" href="${modelHref(key, c.id)}">
+              <span class="rcat__name">${catIcon(c.form)}${h(c.name)}</span>
+              <span class="rcat__foot"><b class="rcat__n tnum">${list.filter((g) => guideCatOf(g) === c.id).length}</b><span>보기 ›</span></span>
             </a>`).join('')}
         </div>
       </section>`;
@@ -462,7 +472,7 @@ export async function guideAssignView(view) {
 }
 
 // ---------------------------------------------------------------- 로봇 하나 — 종류 셋 + 목록
-export async function guideModelView(view, key, categoryType) {
+export async function guideModelView(view, key, catParam) {
   loading(view);
   const all = (await api.listGuides()).items;
   const models = await api.listGuideModels();
@@ -472,15 +482,31 @@ export async function guideModelView(view, key, categoryType) {
       <a class="link" href="#/guides">가이드로 돌아가기</a></div>`;
     return;
   }
-  let type = categoryType || localStorage.getItem(LAST_CAT_KEY);
-  if (!CAT_ORDER.includes(type)) type = CAT_ORDER[0];
+  // 이 로봇의 항목 (v3.40) — 로봇마다 만들고 · 이름 바꾸고 · 지운다. 목록에 없는 항목에 든 가이드도
+  // (시트에서 손으로 고쳤거나 다른 기기가 지운 항목) 잃지 않게 끝에 붙여 보여 준다.
+  let cats = await api.listGuideCats(key);
+  const withOrphans = () => {
+    const out = cats.slice();
+    for (const g of mine) {
+      const id = guideCatOf(g);
+      if (!out.some((c) => c.id === id)) {
+        out.push({ id, name: CAT_SHORT[id] || '목록에 없는 항목', form: g.categoryType, orphan: true });
+      }
+    }
+    return out;
+  };
+  let items = withOrphans();
+  let type = catParam || localStorage.getItem(LAST_CAT_KEY);
+  if (!items.some((c) => c.id === type)) type = items[0].id;
   try { localStorage.setItem(LAST_CAT_KEY, type); } catch { /* 비공개 창 */ }
   let query = '';
+  let editing = false;
 
-  const ofType = (t) => mine.filter((g) => g.categoryType === t);
+  const cur = () => items.find((c) => c.id === type) || items[0];
+  const ofCat = (id) => mine.filter((g) => guideCatOf(g) === id);
   const visible = () => {
     const q = query.trim().toLowerCase();
-    return ofType(type).filter((g) => !q
+    return ofCat(type).filter((g) => !q
       || `${g.codeOrTitle} ${g.summary} ${g.requiredTools}`.toLowerCase().includes(q));
   };
   const listHtml = () => {
@@ -488,9 +514,30 @@ export async function guideModelView(view, key, categoryType) {
     if (list.length) return list.map((g) => row(g, false)).join('');
     return `<div class="empty">${query.trim()
       ? `'${h(query.trim())}' 에 맞는 가이드가 없습니다.`
-      : `${h(modelLabel(key))} · ${h(CAT_SHORT[type])} 가이드가 아직 없습니다.<br />[＋ 가이드 작성] 으로 추가하세요.`}</div>`;
+      : `${h(modelLabel(key))} · ${h(cur().name)} 가이드가 아직 없습니다.<br />[＋ 가이드 작성] 으로 추가하세요.`}</div>`;
   };
-  const newHref = `#/guides/new/${type}${key === NONE ? '' : `?model=${encodeURIComponent(key)}`}`;
+  const newHref = () => `#/guides/new/${cur().form}?${new URLSearchParams({
+    ...(key === NONE ? {} : { model: key }), cat: cur().id })}`;
+
+  const catsHtml = () => `
+    ${items.map((c, i) => `
+      <div class="guide-catwrap">
+        <a class="guide-cat${c.id === type ? ' is-on' : ''}" data-cat="${h(c.form)}" data-item="${h(c.id)}"
+           href="${modelHref(key, c.id)}" ${c.id === type ? 'aria-current="page"' : ''}>
+          <span class="guide-cat__name">${catIcon(c.form)}${h(c.name)}</span>
+          <span class="guide-cat__count tnum">${ofCat(c.id).length}</span>
+        </a>
+        ${editing && !c.orphan ? `
+          <span class="guide-cat__tools">
+            <button class="sx-ico" data-act="cat-move" data-id="${h(c.id)}" data-dir="-1" type="button"
+                    aria-label="${h(c.name)} 위로" ${i === 0 ? 'disabled' : ''}>↑</button>
+            <button class="sx-ico" data-act="cat-move" data-id="${h(c.id)}" data-dir="1" type="button"
+                    aria-label="${h(c.name)} 아래로" ${i >= cats.length - 1 ? 'disabled' : ''}>↓</button>
+            <button class="sx-ico" data-act="cat-ren" data-id="${h(c.id)}" type="button" aria-label="${h(c.name)} 이름 바꾸기">✎</button>
+            <button class="sx-ico" data-act="cat-del" data-id="${h(c.id)}" type="button" aria-label="${h(c.name)} 삭제">🗑</button>
+          </span>` : ''}
+      </div>`).join('')}
+    ${editing ? '<button class="guide-cat guide-cat--add" data-act="cat-add" type="button">＋ 항목</button>' : ''}`;
 
   view.innerHTML = `
     <div id="pageRoot" class="page-stack">
@@ -499,22 +546,16 @@ export async function guideModelView(view, key, categoryType) {
         <h1 class="page-head__title">${h(modelLabel(key))}</h1>
         <span class="page-head__meta"><span class="tnum">${mine.length}</span>건</span>
         <span class="page-head__spacer"></span>
+        <button class="btn btn-secondary" data-act="cat-edit" type="button" aria-pressed="false">항목 편집</button>
         ${models.includes(key) ? '<button class="btn btn-secondary" data-act="model-menu" type="button">로봇 관리</button>' : ''}
-        <a class="btn btn-primary" href="${newHref}">＋ 가이드 작성</a>
+        <a class="btn btn-primary" id="gNew" href="${newHref()}">＋ 가이드 작성</a>
       </div>
       <div class="guide-browse">
-        <nav class="guide-cats" aria-label="가이드 종류">
-          ${CAT_ORDER.map((t) => `
-            <a class="guide-cat${t === type ? ' is-on' : ''}" data-cat="${t}" href="${modelHref(key, t)}"
-               ${t === type ? 'aria-current="page"' : ''}>
-              <span class="guide-cat__name">${catIcon(t)}${h(CAT_SHORT[t])}</span>
-              <span class="guide-cat__count tnum">${ofType(t).length}</span>
-            </a>`).join('')}
-        </nav>
+        <nav class="guide-cats" id="gCats" aria-label="가이드 항목">${catsHtml()}</nav>
         <section class="guide-list">
           <input class="input" id="gq" type="search" autocomplete="off"
-                 aria-label="${h(CAT_SHORT[type])} 검색"
-                 placeholder="${h(modelLabel(key))} · ${h(CAT_SHORT[type])}에서 찾기" />
+                 aria-label="${h(cur().name)} 검색"
+                 placeholder="${h(modelLabel(key))} · ${h(cur().name)}에서 찾기" />
           <div class="rows scroll" id="gList">${listHtml()}</div>
         </section>
       </div>
@@ -522,15 +563,105 @@ export async function guideModelView(view, key, categoryType) {
 
   const box = $('#gq');
   const paint = () => { $('#gList').innerHTML = listHtml(); };
+  const paintCats = async () => {
+    cats = await api.listGuideCats(key);
+    items = withOrphans();
+    if (!items.some((c) => c.id === type)) type = items[0].id;
+    $('#gCats').innerHTML = catsHtml();
+    /** @type {HTMLAnchorElement} */ ($('#gNew')).href = newHref();
+    paint();
+  };
   box.addEventListener('input', () => { query = box.value; paint(); });
   box.addEventListener('compositionend', () => { query = box.value; paint(); });
-  $('#pageRoot').addEventListener('click', (ev) => {
-    if (!ev.target.closest('[data-act="model-menu"]')) return;
-    openModelMenu(key, {
-      onDone: (next) => {
-        closeModal();
-        location.hash = next ? modelHref(next, type) : '#/guides';
-      },
+  $('#pageRoot').addEventListener('click', async (ev) => {
+    const btn = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (ev.target).closest('[data-act]'));
+    if (!btn) return;
+    const act = btn.dataset.act;
+    const item = cats.find((c) => c.id === btn.dataset.id);
+    if (act === 'model-menu') {
+      openModelMenu(key, {
+        onDone: (next) => {
+          closeModal();
+          location.hash = next ? modelHref(next, type) : '#/guides';
+        },
+      });
+    }
+    if (act === 'cat-edit') {
+      editing = !editing;
+      btn.setAttribute('aria-pressed', String(editing));
+      btn.textContent = editing ? '편집 끝' : '항목 편집';
+      btn.classList.toggle('btn-dark', editing);
+      $('#gCats').innerHTML = catsHtml();
+    }
+    try {
+      if (act === 'cat-move' && item) { await api.moveGuideCat(key, item.id, Number(btn.dataset.dir)); await paintCats(); }
+      if (act === 'cat-ren' && item) {
+        const name = await promptDialog('항목 이름 바꾸기', {
+          label: `${modelLabel(key)} 의 '${item.name}' — 가이드 ${ofCat(item.id).length}건은 그대로 이 항목에 남습니다.`,
+          value: item.name, okLabel: '바꾸기',
+        });
+        if (!name || name === item.name) return;
+        await api.renameGuideCat(key, item.id, name);
+        toast(`'${name}' 으로 바꿨습니다.`, 'ok');
+        await paintCats();
+      }
+      if (act === 'cat-del' && item) {
+        const ok = await confirmDialog('항목 삭제', `${modelLabel(key)} 에서 '${item.name}' 항목을 지웁니다.`, '삭제', true);
+        if (!ok) return;
+        await api.deleteGuideCat(key, item.id);
+        toast(`'${item.name}' 항목을 지웠습니다.`, 'ok');
+        await paintCats();
+      }
+      if (act === 'cat-add') {
+        const made = await openCatAdd(key);
+        if (made) {
+          type = made.id;
+          try { localStorage.setItem(LAST_CAT_KEY, type); } catch { /* 비공개 창 */ }
+          await paintCats();
+        }
+      }
+    } catch (err) { toast(err.message, 'err'); }
+  });
+}
+
+/** 항목 만들기 창 — 이름 + 형식 (v3.40) */
+function openCatAdd(key) {
+  return new Promise((resolve) => {
+    let form = 'HARDWARE_SOP';
+    const box = openSheet(`${modelLabel(key)} — 새 항목`, `
+      <div class="cat-add">
+        <label class="cat-add__row"><span>항목 이름</span>
+          <input class="input" id="catName" autocomplete="off" placeholder="예) 배터리 · 청소 · 소모품 교체" /></label>
+        <div class="cat-add__row"><span>형식</span>
+          <div class="type-pick" data-pick="form">
+            ${Object.entries(CAT_FORM).map(([t, f]) => `
+              <button class="btn btn-secondary${t === form ? ' is-on' : ''}" data-form="${t}" type="button"
+                      aria-pressed="${t === form}">${h(f.label)}</button>`).join('')}
+          </div></div>
+        <p class="hint" id="catFormHint">${h(CAT_FORM[form].hint)}</p>
+        <button class="btn btn-primary" data-make type="button">만들기</button>
+      </div>`);
+    const input = /** @type {HTMLInputElement} */ (box.querySelector('#catName'));
+    setTimeout(() => input.focus(), 50);
+    box.addEventListener('click', async (ev) => {
+      const btn = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (ev.target).closest('button'));
+      if (!btn) return;
+      if (btn.dataset.form) {
+        form = btn.dataset.form;
+        box.querySelectorAll('[data-form]').forEach((b) => {
+          b.classList.toggle('is-on', b === btn);
+          b.setAttribute('aria-pressed', String(b === btn));
+        });
+        box.querySelector('#catFormHint').textContent = CAT_FORM[form].hint;
+      }
+      if (btn.hasAttribute('data-make')) {
+        try {
+          const made = await api.addGuideCat(key, input.value, form);
+          closeModal();
+          toast(`'${made.name}' 항목을 만들었습니다.`, 'ok');
+          resolve(made);
+        } catch (err) { toast(err.message, 'err'); }
+      }
     });
   });
 }

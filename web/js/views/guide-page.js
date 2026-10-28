@@ -1,13 +1,42 @@
 // 가이드 상세(한눈에 · 단계 체크) · 작성/수정. 목록 쪽은 views/guides.js
 import { api } from '../api.js';
 import {
-  $, $$, h, CATEGORY, closeModal, confirmDialog, copyText, hydrateMedia, loading,
+  $, $$, h, closeModal, confirmDialog, copyText, hydrateMedia, loading,
   openSheet, promptDialog, toast, when,
 } from '../ui.js';
 
 import {
-  CAT_SHORT, DONE_KEY, NONE_LABEL, guideMediaEnabled, isVideoFile, modelHref, modelKey, modelLabel, row, splitTitle, stepMediaHtml, uploadGuidePhoto,
+  CAT_SHORT, DONE_KEY, NONE_LABEL, guideCatOf, guideMediaEnabled, isStepVideo, isVideoFile, modelHref, modelKey, modelLabel,
+  row, splitTitle, stepMediaHtml, uploadGuidePhoto,
 } from './guides.js';
+
+/** 단계의 사진 · 영상 목록 (v3.40) — 예전 단계는 imageUrl 하나 */
+const mediaOf = (s) => (s && Array.isArray(s.media) && s.media.length ? s.media
+  : (s && s.imageUrl ? [{ url: s.imageUrl, sec: null }] : []));
+/** 한 단계 영상은 모두 합쳐 1분까지 (v3.40) — 길이를 모르는 예전 영상은 1분으로 센다 */
+const STEP_VIDEO_LIMIT = 60;
+const videoTotal = (list) => list.filter((m) => isStepVideo(m.url))
+  .reduce((n, m) => n + (m.sec || STEP_VIDEO_LIMIT), 0);
+/** 영상 파일의 길이(초) — 못 읽으면 null */
+function videoSeconds(file) {
+  return new Promise((resolve) => {
+    const v = document.createElement('video');
+    const url = URL.createObjectURL(file);
+    const done = (sec) => { URL.revokeObjectURL(url); resolve(sec); };
+    v.preload = 'metadata';
+    v.onloadedmetadata = () => done(Number.isFinite(v.duration) ? Math.round(v.duration) : null);
+    v.onerror = () => done(null);
+    setTimeout(() => done(null), 8000);
+    v.src = url;
+  });
+}
+/** 단계 사진 · 영상 모음 — 하나면 크게, 여럿이면 나란히 */
+const stepGalleryHtml = (s, cls, alt) => {
+  const list = mediaOf(s);
+  if (!list.length) return '';
+  return `<div class="gs-gallery${list.length > 1 ? ' gs-gallery--many' : ''}">${list
+    .map((m, j) => stepMediaHtml(m.url, cls, `${alt}${list.length > 1 ? ` ${j + 1}` : ''}`)).join('')}</div>`;
+};
 
 // ---------------------------------------------------------------- 상세 — 한 단계씩 · 한눈에
 //
@@ -26,6 +55,9 @@ export async function guideDetailView(view, guideId, query = null) {
   const tools = (guide.requiredTools || '').split(',').map((t) => t.trim()).filter(Boolean);
   const key = modelKey(guide);
   const { code, title } = splitTitle(guide);
+  // 로봇별 항목 이름 (v3.40)
+  const catName = ((await api.listGuideCats(key)).find((c) => c.id === guideCatOf(guide)) || {}).name
+    || CAT_SHORT[guide.categoryType] || '';
   const ctx = {
     store: (query && query.get('store')) || '',
     serial: (query && query.get('serial')) || '',
@@ -80,7 +112,7 @@ export async function guideDetailView(view, guideId, query = null) {
     const metric = (s.expectedMetric || '').split(',').map((t) => t.trim()).filter(Boolean);
     return `
       <article class="gs-card${done.has(String(at)) ? ' is-done' : ''}">
-        ${s.imageUrl ? `<div class="gs-media">${stepMediaHtml(s.imageUrl, 'gs-img step__img', `단계 ${at + 1} 참고 자료`)}</div>` : ''}
+        ${mediaOf(s).length ? `<div class="gs-media">${stepGalleryHtml(s, 'gs-img step__img', `단계 ${at + 1} 참고 자료`)}</div>` : ''}
         <div class="gs-text">
           <span class="gs-no tnum">${at + 1} / ${total}${done.has(String(at)) ? ' · 했음' : ''}</span>
           <p class="gs-instr">${h(s.instruction).replace(/\n/g, '<br />')}</p>
@@ -109,7 +141,7 @@ export async function guideDetailView(view, guideId, query = null) {
           <nav class="gd-crumb" aria-label="위치">
             <a href="#/guides">가이드</a><span aria-hidden="true">›</span>
             <a href="${modelHref(key)}">${h(modelLabel(key))}</a><span aria-hidden="true">›</span>
-            <a href="${modelHref(key, guide.categoryType)}">${h(CAT_SHORT[guide.categoryType] || '')}</a>
+            <a href="${modelHref(key, guideCatOf(guide))}">${h(catName)}</a>
           </nav>
           <div class="gd-title">
             ${code ? `<span class="gd-code tnum">${h(code)}</span>` : ''}
@@ -267,7 +299,7 @@ export async function guideDetailView(view, guideId, query = null) {
       if (!ok) return;
       await api.deleteGuide(guide.id);
       toast('삭제했습니다.', 'ok');
-      location.hash = modelHref(key, guide.categoryType);
+      location.hash = modelHref(key, guideCatOf(guide));
     }
   }
 }
@@ -286,7 +318,7 @@ function stepHtml(step, idx, done) {
             ${step.expectedMetric.split(',').map((t) => t.trim()).filter(Boolean)
               .map((t) => `<span class="tag tag-accent">${h(t)}</span>`).join('')}
           </span>` : ''}
-        ${stepMediaHtml(step.imageUrl, 'step__img', `단계 ${idx + 1} 참고 자료`)}
+        ${stepGalleryHtml(step, 'step__img', `단계 ${idx + 1} 참고 자료`)}
       </span>
       <span class="step__check" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
@@ -298,15 +330,18 @@ function stepHtml(step, idx, done) {
 }
 
 // ---------------------------------------------------------------- 편집
-export async function guideEditView(view, guideId, categoryType, presetModel = null) {
+export async function guideEditView(view, guideId, categoryType, presetModel = null, presetCat = null) {
   const models = await api.listGuideModels();
   let state;
+  /** 고른 로봇의 항목 (v3.40) — 로봇을 바꾸면 다시 받는다 */
+  let robotCats = [];
   if (guideId) {
     loading(view);
     const guide = await api.getGuide(guideId);
     state = {
       id: guide.id,
       categoryType: guide.categoryType,
+      category: guideCatOf(guide),
       robotModel: guide.robotModel || '',
       codeOrTitle: guide.codeOrTitle,
       summary: guide.summary,
@@ -316,20 +351,39 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
         instruction: s.instruction,
         expectedMetric: s.expectedMetric || '',
         imageUrl: s.imageUrl || '',
+        media: mediaOf(s).map((m) => ({ ...m })),
       })),
     };
   } else {
     state = {
       id: null,
       categoryType: categoryType || 'ERROR_CODE',
+      category: presetCat || categoryType || 'ERROR_CODE',
       robotModel: presetModel || '',
       codeOrTitle: '',
       summary: '',
       requiredTools: '',
       commands: [],
-      steps: [{ instruction: '', expectedMetric: '', imageUrl: '' }],
+      steps: [{ instruction: '', expectedMetric: '', imageUrl: '', media: [] }],
     };
   }
+
+  /** 로봇의 항목을 받아 지금 항목을 맞춘다 — 없는 항목이면 같은 형식의 첫 항목, 그것도 없으면 첫 항목 */
+  async function loadRobotCats() {
+    robotCats = await api.listGuideCats(state.robotModel || '_none');
+    if (!robotCats.some((c) => c.id === state.category)) {
+      const pick = robotCats.find((c) => c.form === state.categoryType) || robotCats[0];
+      if (guideId && state.category && !robotCats.some((c) => c.id === state.category)) {
+        // 고치는 가이드의 항목이 이 로봇에 없으면 잃지 않게 그대로 보여 준다
+        robotCats = [...robotCats, { id: state.category, name: CAT_SHORT[state.category] || '목록에 없는 항목',
+                                     form: state.categoryType }];
+      } else if (pick) {
+        state.category = pick.id;
+        state.categoryType = pick.form;
+      }
+    }
+  }
+  await loadRobotCats();
 
   let cmdOpen = false;     // 명령어 칸 펼침 — 처음엔 접어 둔다 (추가를 누르면 펼친다)
 
@@ -387,6 +441,7 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
     const form = $('#guideForm');
     if (!form) return;
     state.categoryType = $('#gCategory').value;
+    state.category = $('#gCat').value;
     state.robotModel = $('#gModel').value;
     state.codeOrTitle = $('#gTitle').value;
     // 요약 칸은 없앴다. 예전 가이드가 갖고 있던 요약은 그대로 두고 저장한다
@@ -397,11 +452,16 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
       cmd: $('[name=cmdText]', rowEl).value,
       desc: $('[name=cmdDesc]', rowEl).value,
     }));
-    state.steps = $$('[data-step-row]').map((rowEl) => ({
-      instruction: $('[name=stepText]', rowEl).value,
-      expectedMetric: $('[name=stepMetric]', rowEl).value,
-      imageUrl: $('[name=stepImage]', rowEl).value,
-    }));
+    // 사진 · 영상은 화면 칸이 아니라 state 에 있다 (v3.40 여러 장) — 차례는 화면 차례와 같다
+    state.steps = $$('[data-step-row]').map((rowEl, i) => {
+      const media = (state.steps[i] && state.steps[i].media) || [];
+      return {
+        instruction: $('[name=stepText]', rowEl).value,
+        expectedMetric: $('[name=stepMetric]', rowEl).value,
+        media,
+        imageUrl: media.length ? media[0].url : '',
+      };
+    });
   }
 
   function render() {
@@ -423,15 +483,16 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
             </div>
           </div>
           <div class="field">
-            <label>종류<span class="req">*</span></label>
-            <!-- 홈의 [＋ 가이드 작성] 으로 바로 들어오면 여기서 고른다.
-                 작은 선택칸 대신 손가락 크기의 버튼 셋 — 첫 칸에서 헤매지 않게. -->
+            <label>항목<span class="req">*</span></label>
+            <!-- 고른 로봇의 항목 (v3.40) — 로봇마다 [항목 편집] 에서 만들고 · 바꾸고 · 지운다.
+                 작은 선택칸 대신 손가락 크기의 버튼 — 첫 칸에서 헤매지 않게. -->
             <input type="hidden" id="gCategory" value="${h(state.categoryType)}" />
+            <input type="hidden" id="gCat" value="${h(state.category)}" />
             <div class="type-pick" data-pick="type">
-              ${Object.entries(CATEGORY).map(([type, meta]) => `
-                <button class="btn btn-secondary${state.categoryType === type ? ' is-on' : ''}"
-                        data-act="pick-type" data-type="${type}" type="button"
-                        aria-pressed="${state.categoryType === type}">${h(meta.label)}</button>`).join('')}
+              ${robotCats.map((c) => `
+                <button class="btn btn-secondary${state.category === c.id ? ' is-on' : ''}"
+                        data-act="pick-type" data-type="${h(c.form)}" data-cat="${h(c.id)}" type="button"
+                        aria-pressed="${state.category === c.id}">${h(c.name)}</button>`).join('')}
             </div>
           </div>
           <div class="field">
@@ -470,16 +531,21 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
                   <div class="tag-list" data-tool-pick="${i}">${toolChips(s, i)}</div>
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label>참고 사진 · 영상</label>
-                  <input type="hidden" name="stepImage" value="${h(s.imageUrl)}" />
-                  ${stepMediaHtml(s.imageUrl, 'step__img step__img--edit', '참고 자료')}
+                  <label>참고 사진 · 영상 <span class="tnum">${mediaOf(s).length}</span>개</label>
+                  ${mediaOf(s).length ? `<div class="gm-grid">${mediaOf(s).map((m, j) => `
+                    <div class="gm-tile">
+                      ${stepMediaHtml(m.url, 'step__img step__img--edit', `참고 자료 ${j + 1}`)}
+                      ${isStepVideo(m.url) ? `<span class="gm-tile__len tnum">${m.sec ? `${m.sec}초` : '영상'}</span>` : ''}
+                      <button class="gm-tile__del" data-act="del-media" data-idx="${i}" data-m="${j}" type="button"
+                              aria-label="참고 자료 ${j + 1} 빼기">✕</button>
+                    </div>`).join('')}</div>` : ''}
                   <div class="row" style="margin-top:8px">
                     <button class="btn btn--ghost btn--sm" data-act="step-capture" data-idx="${i}" type="button">사진 촬영</button>
                     <button class="btn btn--ghost btn--sm" data-act="step-record" data-idx="${i}" type="button">영상 촬영</button>
                     <button class="btn btn--ghost btn--sm" data-act="step-pick" data-idx="${i}" type="button">앨범 · 파일</button>
-                    ${s.imageUrl ? `<button class="btn btn--danger btn--sm" data-act="clear-image" data-idx="${i}" type="button">첨부 제거</button>` : ''}
                   </div>
-                  <span class="hint">영상 최대 1분 (앱이 720p 로 줄여 올립니다)</span>
+                  <span class="hint">여러 장 붙일 수 있습니다 · 영상은 이 단계에 모두 합쳐 1분까지
+                    (지금 <span class="tnum">${videoTotal(mediaOf(s))}</span>초)</span>
                 </div>
               </div>`).join('')}
           </div>
@@ -517,7 +583,7 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
       </form>
       <input type="file" id="stepCapture" accept="image/*" capture="environment" style="display:none" />
       <input type="file" id="stepRecord" accept="video/*" capture="environment" style="display:none" />
-      <input type="file" id="stepPick" accept="image/*,video/*" style="display:none" />`;
+      <input type="file" id="stepPick" accept="image/*,video/*" multiple style="display:none" />`;
 
     // 리스너는 매 렌더마다 새로 생성되는 form 에만 연결해 중복 등록을 막는다.
     const form = $('#guideForm');
@@ -564,11 +630,11 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
 
     if (act === 'add-cmd') { collect(); cmdOpen = true; state.commands.push({ label: '', cmd: '', desc: '' }); render(); }
     if (act === 'del-cmd') { collect(); state.commands.splice(idx, 1); render(); }
-    if (act === 'add-step') { collect(); state.steps.push({ instruction: '', expectedMetric: '', imageUrl: '' }); render(); }
+    if (act === 'add-step') { collect(); state.steps.push({ instruction: '', expectedMetric: '', imageUrl: '', media: [] }); render(); }
     if (act === 'del-step') {
       collect();
       state.steps.splice(idx, 1);
-      if (!state.steps.length) state.steps.push({ instruction: '', expectedMetric: '', imageUrl: '' });
+      if (!state.steps.length) state.steps.push({ instruction: '', expectedMetric: '', imageUrl: '', media: [] });
       render();
     }
     if (act === 'up' && idx > 0) {
@@ -583,15 +649,14 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
     }
     if (act === 'pick-model') {
       $('#gModel').value = btn.dataset.model;
-      $$('[data-pick="model"] .btn').forEach((b) => {
-        const on = b === btn;
-        b.classList.toggle('is-on', on);
-        b.setAttribute('aria-pressed', String(on));
-      });
+      collect();
+      await loadRobotCats();          // 로봇마다 항목이 다르다 (v3.40)
+      render();
       return;
     }
     if (act === 'pick-type') {
       $('#gCategory').value = btn.dataset.type;
+      $('#gCat').value = btn.dataset.cat || btn.dataset.type;
       $$('[data-pick="type"] .btn').forEach((b) => {
         const on = b === btn;
         b.classList.toggle('is-on', on);
@@ -599,7 +664,11 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
       });
       return;
     }
-    if (act === 'clear-image') { collect(); state.steps[idx].imageUrl = ''; render(); }
+    if (act === 'del-media') {
+      collect();
+      state.steps[idx].media.splice(Number(btn.dataset.m), 1);
+      render();
+    }
     // 리포트와 같은 세 가지 — 찍기(사진) · 찍기(영상) · 앨범에서 고르기.
     // 촬영은 capture 가 붙은 칸을 써야 카메라가 바로 열린다.
     if (act === 'step-capture' || act === 'step-record' || act === 'step-pick') {
@@ -608,48 +677,65 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
       const label = btn.textContent;
       input.value = '';
       input.onchange = async () => {
-        const file = input.files[0];
-        if (!file) return;
-        const kind = isVideoFile(file) ? '영상' : '사진';
-        btn.disabled = true;
-        btn.textContent = '올리는 중…';
-        try {
-          // 1) 기기에 먼저 담는다 — 오프라인에서도 바로 보인다.
-          const media = await api.uploadMedia(file);
-          collect();
-          state.steps[idx].imageUrl = media.url;
-          render();
-
-          // 2) 시트가 연결돼 있으면 드라이브에도 올린다. 그래야 **다른 사람도**
-          //    이걸 볼 수 있다 (기기 안 파일은 그 기기에만 있다).
-          //    제목이 없으면 폴더 이름을 정할 수 없으니 저장할 때 올린다.
-          const title = (state.codeOrTitle || '').trim();
-          if (title && await guideMediaEnabled()) {
-            try {
-              const url = await uploadGuidePhoto(file, state.categoryType, title);
-              collect();
-              state.steps[idx].imageUrl = url;
-              render();
-              toast(`${kind}을 드라이브에 올렸습니다. 팀 전체가 볼 수 있습니다.`, 'ok');
-            } catch (err) {
-              toast(`${kind}은 이 기기에만 저장했습니다 — ${err.message}`, 'err');
-            }
-          } else {
-            toast(title
-              ? `${kind}을 첨부했습니다. (구글 시트 연결 시 팀에 공유됩니다)`
-              : `${kind}을 첨부했습니다. 제목을 넣고 저장하면 팀에 공유됩니다.`, 'ok');
-          }
-        } catch (err) {
-          toast(err.message, 'err');
-          btn.disabled = false;
-          btn.textContent = label;
-        }
+        // 여러 장 (v3.40) — 앨범에서 한꺼번에 골라도 하나씩 붙인다
+        for (const file of Array.from(input.files || [])) await addStepFile(idx, file, btn, label);
       };
       input.click();
     }
     if (act === 'cancel') {
       const ok = await confirmDialog('편집 취소', '저장하지 않은 내용은 사라집니다.', '나가기', true);
       if (ok) history.length > 1 ? history.back() : (location.hash = '#/');
+    }
+  }
+
+  /**
+   * 단계에 사진 · 영상 하나를 붙인다 (v3.40 — 여러 장, 영상은 단계마다 모두 합쳐 1분).
+   * 1) 기기에 먼저 담는다 — 오프라인에서도 바로 보인다.
+   * 2) 시트가 연결돼 있으면 드라이브에도 올린다 — 그래야 **다른 사람도** 본다.
+   *    제목이 없으면 폴더 이름을 정할 수 없으니 저장할 때 올린다.
+   */
+  async function addStepFile(idx, file, btn, label) {
+    const video = isVideoFile(file);
+    const kind = video ? '영상' : '사진';
+    collect();
+    const step = state.steps[idx];
+    let sec = null;
+    if (video) {
+      sec = await videoSeconds(file);
+      const have = videoTotal(step.media);
+      const add = sec || STEP_VIDEO_LIMIT;
+      if (have + add > STEP_VIDEO_LIMIT) {
+        toast(`이 단계 영상은 모두 합쳐 1분까지입니다 — 지금 ${have}초, 새 영상 ${sec ? `${sec}초` : '길이 모름(1분으로 셈)'}. `
+          + '짧게 다시 찍거나 다른 영상을 빼 주세요.', 'err');
+        return;
+      }
+    }
+    btn.disabled = true;
+    btn.textContent = '올리는 중…';
+    try {
+      const media = await api.uploadMedia(file);
+      const item = { url: media.url, sec };
+      step.media.push(item);
+      render();
+      const title = (state.codeOrTitle || '').trim();
+      if (title && await guideMediaEnabled()) {
+        try {
+          item.url = await uploadGuidePhoto(file, state.categoryType, title);
+          collect();
+          render();
+          toast(`${kind}을 드라이브에 올렸습니다. 팀 전체가 볼 수 있습니다.`, 'ok');
+        } catch (err) {
+          toast(`${kind}은 이 기기에만 저장했습니다 — ${err.message}`, 'err');
+        }
+      } else {
+        toast(title
+          ? `${kind}을 첨부했습니다. (구글 시트 연결 시 팀에 공유됩니다)`
+          : `${kind}을 첨부했습니다. 제목을 넣고 저장하면 팀에 공유됩니다.`, 'ok');
+      }
+    } catch (err) {
+      toast(err.message, 'err');
+      btn.disabled = false;
+      btn.textContent = label;
     }
   }
 
@@ -663,14 +749,17 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
     const title = (state.codeOrTitle || '').trim();
     if (!title || !(await guideMediaEnabled())) return;
     for (const step of state.steps) {
-      const url = String(step.imageUrl || '');
-      if (!url.startsWith('/media/')) continue;
-      try {
-        const blob = await (await import('../local/store.js'))
-          .getMediaBlob(url.split('/').pop());
-        if (!blob) continue;
-        step.imageUrl = await uploadGuidePhoto(blob, state.categoryType, title);
-      } catch { /* 못 올려도 기기에는 남는다 — 다음 저장에서 다시 시도한다 */ }
+      for (const m of step.media || []) {
+        const url = String(m.url || '');
+        if (!url.startsWith('/media/')) continue;
+        try {
+          const blob = await (await import('../local/store.js'))
+            .getMediaBlob(url.split('/').pop());
+          if (!blob) continue;
+          m.url = await uploadGuidePhoto(blob, state.categoryType, title);
+        } catch { /* 못 올려도 기기에는 남는다 — 다음 저장에서 다시 시도한다 */ }
+      }
+      step.imageUrl = step.media && step.media.length ? step.media[0].url : '';
     }
   }
 
@@ -685,6 +774,7 @@ export async function guideEditView(view, guideId, categoryType, presetModel = n
     try {
       const payload = {
         categoryType: state.categoryType,
+        category: state.category,
         robotModel: state.robotModel,
         codeOrTitle: state.codeOrTitle,
         summary: '',                    // 요약은 더 쓰지 않는다 (v3.32) — 고치면 시트의 요약 칸도 비운다

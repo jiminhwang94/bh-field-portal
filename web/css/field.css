@@ -691,3 +691,34 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
   .ord-btn { width: 56px; height: 56px; }
   .hd2-head__text { flex-basis: 100%; }
 }
+
+/* ── 가이드 (v3.40) — 로봇별 항목 편집 · 단계 사진 · 영상 여러 장 ───────────── */
+.guide-catwrap { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.guide-catwrap > .guide-cat { min-width: 0; }
+/* 편집 도구는 항목 아래 한 줄 — 왼쪽 칸이 좁아 옆에 두면 이름이 세로로 찌그러진다 */
+.guide-cat__tools { display: flex; justify-content: flex-end; gap: 4px; }
+.guide-cat--add {
+  justify-content: center; border: 2px dashed var(--color-border-strong); background: transparent;
+  color: var(--color-accent); font: inherit; font-size: 18px; font-weight: 800; cursor: pointer;
+}
+.cat-add { display: flex; flex-direction: column; gap: 14px; }
+.cat-add__row { display: flex; flex-direction: column; gap: 8px; }
+.cat-add__row > span { font-weight: 700; color: var(--color-text-2); }
+.gs-gallery { display: grid; gap: 8px; }
+.gs-gallery--many { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.gs-gallery--many .gs-img { max-height: 260px; }
+.gs-gallery--many iframe.gs-img, .gs-gallery--many video.gs-img { height: 220px; }
+.gm-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+.gm-tile { position: relative; display: inline-flex; border-radius: 12px; overflow: hidden; background: var(--color-surface); }
+.gm-tile .step__img--edit { margin: 0; }
+.gm-tile__len {
+  position: absolute; left: 6px; bottom: 6px; padding: 2px 8px; border-radius: 999px;
+  background: var(--color-text); color: var(--color-bg); font-size: 13px; font-weight: 700;
+}
+.gm-tile__del {
+  position: absolute; top: 4px; right: 4px; width: 44px; height: 44px; border: 0; border-radius: 50%;
+  background: var(--color-text); color: var(--color-bg); font-size: 18px; cursor: pointer;
+}
+@media (max-width: 720px) {
+  .gs-gallery--many { grid-template-columns: minmax(0, 1fr); }
+}

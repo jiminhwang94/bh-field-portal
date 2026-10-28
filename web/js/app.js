@@ -37,12 +37,12 @@ const routes = [
   [/^\/work$/, () => workView(view)],                               // 설정 → 작업 목록
   [/^\/guides$/, () => guideHubView(view)],        // 가이드 탭 — 로봇 고르기
   [/^\/guides\/assign$/, () => guideAssignView(view)],  // 로봇 한 번에 지정
-  // 로봇 하나 — 종류(오류 코드 · 하드웨어 · SW) 셋과 그 목록
-  [/^\/guides\/m\/([^/]+)(?:\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD))?$/,
+  // 로봇 하나 — 그 로봇의 항목들과 목록 (v3.40: 항목은 로봇마다 · 기본 셋 + 만든 것)
+  [/^\/guides\/m\/([^/]+)(?:\/([A-Za-z0-9_-]+))?$/,
     (m) => guideModelView(view, decodeURIComponent(m[1]), m[2] || null)],
   [/^\/guides\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD)$/, (m) => guideListView(view, m[1])],
   [/^\/guides\/new\/(ERROR_CODE|HARDWARE_SOP|SOFTWARE_CMD)$/,
-    (m, q) => guideEditView(view, null, m[1], q.get('model'))],
+    (m, q) => guideEditView(view, null, m[1], q.get('model'), q.get('cat'))],
   [/^\/guides\/new$/, (m, q) => guideEditView(view, null, null, q.get('model'))],   // 종류는 폼 안에서 고른다
   [new RegExp(`^/guides/edit/(${HEX})$`), (m) => guideEditView(view, m[1])],
   [new RegExp(`^/guides/(${HEX})$`), (m, q) => guideDetailView(view, m[1], q)],   // ?store=&serial= 이력에서 온 로봇
