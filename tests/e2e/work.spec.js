@@ -32,7 +32,7 @@ test('[이슈 유형 고르기] 창 — 대분류를 고르고 목록에 없는 
   await expect(page.locator('#workHelper .work-pill')).toContainText('로봇 이슈 › 하드웨어 교체 › 로더 교체');
   await expect(field(page, '이슈 유형')).toHaveValue('로봇 이슈 › 하드웨어 교체 › 로더 교체');
 
-  await pick(page, '리포트 번호', 'P260912-01');
+  await pick(page, '고객사 리포트', 'P260912-01');
   await field(page, '로봇 시리얼').fill('SN-WORK');
   await pick(page, '로봇 모델', 'Gen.1(D1)');
   await field(page, '증상 요약').fill('로더 소음');
@@ -101,7 +101,7 @@ test('이슈 유형 여러 개 — 누를 때마다 고르고/빼고 · [선택]
   await page.locator('#modalRoot .wk-item', { hasText: '와이파이 재연결' }).click();
   await page.locator('#modalRoot [data-act="wk-done"]').click();
 
-  await pick(page, '리포트 번호', 'P260912-01');
+  await pick(page, '고객사 리포트', 'P260912-01');
   await field(page, '로봇 시리얼').fill('SN-MULTI');
   await pick(page, '로봇 모델', 'Gen.1(D1)');
   await field(page, '증상 요약').fill('로더 소음 · 와이파이 끊김');

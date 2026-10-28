@@ -34,10 +34,15 @@ export const STEPS = [
   { key: 'check', short: '확인', ask: '확인하고 올리기', hint: '빈 필수 칸은 [고치기] 로 그 단계로 갑니다' },
 ];
 const squashLabel = (t) => String(t || '').replace(/\s/g, '');
+/** 오늘 날짜로 만든 리포트 번호 예시 — 'P261028-01' (실제 번호는 올릴 때 시트가 차례를 매긴다) */
+export function sampleReportNumber(date = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `P${p(date.getFullYear() % 100)}${p(date.getMonth() + 1)}${p(date.getDate())}-01`;
+}
 /** 이 칸은 몇 번째 단계에 묻나 — 이름표로 정한다 */
 export function stepOf(field) {
   const l = squashLabel(field.fieldLabel);
-  if (l.includes('리포트번호') || l.includes('매장') || l.includes('식당')) return 'visit';
+  if (l.includes('리포트번호') || l.includes('고객사') || l.includes('매장') || l.includes('식당')) return 'visit';
   if (l.includes('시리얼') || l.includes('모델') || l.includes('로봇')) return 'robot';
   if (isIssueLabel(field.fieldLabel) || l.includes('오류코드') || l.includes('증상')) return 'problem';
   if (field.fieldType === 'MEDIA') return 'photo';
@@ -82,6 +87,8 @@ export async function reportFormView(view) {
     if (!Array.isArray(values[f.id].media)) values[f.id].media = [];
     // kept = 이미 시트/드라이브에 올라가 있는 첨부 (수정으로 들어왔을 때)
     if (!Array.isArray(values[f.id].kept)) values[f.id].kept = [];
+    // dropped = 고치며 ✕ 로 뺀 첨부 — 올리면 시트가 드라이브 휴지통으로 옮긴다 (v3.39)
+    if (!Array.isArray(values[f.id].dropped)) values[f.id].dropped = [];
   });
 
   let reportId = null;   // 기기에 저장한 리포트 (임시보관 · 저절로 저장 · 올리기가 같은 것을 고친다)
@@ -97,6 +104,7 @@ export async function reportFormView(view) {
         values[f.id].value = item.value || '';
         values[f.id].media = Array.isArray(item.media) ? item.media : [];
         values[f.id].kept = Array.isArray(item.kept) ? item.kept : [];
+        values[f.id].dropped = Array.isArray(item.dropped) ? item.dropped : [];
       }
     }
   }
@@ -159,6 +167,11 @@ export async function reportFormView(view) {
   // 받아 둔 목록으로 먼저 그리고, 최신 목록은 화면을 그린 뒤에 받아 갈아 끼운다.
   const numberField = fields.find(
     (f) => f.fieldLabel.replace(/\s/g, '').includes('리포트번호'));
+  // 고객사 리포트 (v3.39) — 접수 카드는 이 칸에서 고른다. 이 칸이 있으면 리포트 번호는
+  // 올릴 때 시트가 매긴다 (P + 작성일 + 차례). 없으면(옛 항목 구성) 예전처럼 번호 칸에서 고른다.
+  const customerField = fields.find((f) => squashLabel(f.fieldLabel).includes('고객사'));
+  const ticketField = customerField || numberField;
+  const autoNumber = Boolean(customerField && numberField);
   // 오류 코드를 적으면 그 가이드를 바로 보여 준다 · 사용 부품은 차량 재고에서 고른다
   const codeField = fields.find((f) => f.fieldLabel.replace(/\s/g, '').includes('오류코드'));
   const partsField = fields.find((f) => f.fieldLabel.includes('부품'));
@@ -167,7 +180,7 @@ export async function reportFormView(view) {
   const modelField = fields.find((f) => f.fieldLabel.replace(/\s/g, '').includes('로봇모델'));
   const allGuides = codeField || workField ? (await api.listGuides()).items : [];
   const inventory = partsField ? (await api.listInventory()).items : [];
-  let reportNumbers = numberField ? await cachedRequestNumbers() : [];
+  let reportNumbers = ticketField ? await cachedRequestNumbers() : [];
   let manualNumber = false;   // '직접 입력…' 을 고른 뒤에는 목록으로 되돌리지 않는다
 
   const sheetsReady = !!settings.sheetsReady;
@@ -242,9 +255,9 @@ export async function reportFormView(view) {
    * 적어 둔 값은 어느 쪽으로 바뀌든 지킨다.
    */
   function repaintNumberField() {
-    if (!numberField) return;
-    const box = view.querySelector(`#reportForm [data-field-id="${numberField.id}"]`);
-    if (box) box.outerHTML = fieldHtml(numberField);   // 적어 둔 값은 values 에 있다
+    if (!ticketField) return;
+    const box = view.querySelector(`#reportForm [data-field-id="${ticketField.id}"]`);
+    if (box) box.outerHTML = fieldHtml(ticketField);   // 적어 둔 값은 values 에 있다
   }
 
   /**
@@ -263,6 +276,10 @@ export async function reportFormView(view) {
       </button>`;
     return `
       <div class="ticket-grid" role="radiogroup" aria-label="${h(field.fieldLabel)}">
+        ${autoNumber ? `<button class="ticket ticket--none${current ? '' : ' is-on'}" data-act="pick-number" data-value=""
+            type="button" role="radio" aria-checked="${!current}">
+            <b class="ticket__store">고객사 리포트 없음</b>
+            <span class="ticket__problem">리포트 번호만 저절로 붙습니다</span></button>` : ''}
         ${current && !known ? tile(current, '직접 적은 번호', '') : ''}
         ${reportNumbers.map((it) => tile(it.number, it.store, it.problem)).join('')}
         <button class="ticket ticket--manual" data-act="pick-number" data-value="__manual__" type="button">직접 입력</button>
@@ -316,8 +333,16 @@ export async function reportFormView(view) {
       return `<div class="field field--wide field--long" ${tag}>${label}
         <textarea class="input textarea textarea--long" data-input="${field.id}" placeholder="자세히 기록">${h(state.value)}</textarea></div>`;
     }
-    // 리포트 번호 — 손으로 적지 않고 접수 목록에서 고른다 (목록이 없으면 입력칸).
-    if (numberField && field.id === numberField.id && reportNumbers.length && !manualNumber) {
+    // 리포트 번호 — 고객사 리포트 칸이 있으면 손대지 않는다. 올릴 때 시트가 매긴다 (v3.39).
+    // 고치기로 들어왔으면 이미 붙은 번호를 보여 준다.
+    if (autoNumber && field.id === numberField.id) {
+      const now = String(state.value || '').trim();
+      return `<div class="field field--auto-no" ${tag}>${label}
+        <div class="auto-no"><b class="auto-no__value tnum">${h(now || '자동')}</b>
+          <span class="auto-no__hint">${now ? '이미 붙은 번호입니다' : `올릴 때 붙습니다 · 예) ${h(sampleReportNumber())}`}</span></div></div>`;
+    }
+    // 고객사 리포트(옛 구성에서는 리포트 번호) — 손으로 적지 않고 접수 목록에서 고른다 (목록이 없으면 입력칸).
+    if (ticketField && field.id === ticketField.id && reportNumbers.length && !manualNumber) {
       return `<div class="field field--wide field--tickets" ${tag}>${label}
         ${ticketsHtml(field, String(state.value || '').trim())}
         <span class="hint">고르면 매장명이 채워집니다 · 접수 ${reportNumbers.length}건</span></div>`;
@@ -352,7 +377,7 @@ export async function reportFormView(view) {
       if (v(storeField)) ctx.push({ step: 'visit', text: v(storeField) });
       const robot = [v(model), v(serialField)].filter(Boolean).join(' · ');
       if (robot && stepAt > steps.findIndex((x) => x.key === 'robot')) ctx.push({ step: 'robot', text: robot });
-      if (v(numberField)) ctx.push({ step: 'visit', text: v(numberField) });
+      if (v(ticketField)) ctx.push({ step: 'visit', text: v(ticketField) });
     }
     return `
       <div class="wz-head">
@@ -471,7 +496,7 @@ export async function reportFormView(view) {
     root.addEventListener('change', (ev) => {
       const id = ev.target.dataset.input;
       if (!id) return;
-      if (numberField && id === numberField.id && ev.target.value === '__manual__') {
+      if (ticketField && id === ticketField.id && ev.target.value === '__manual__') {
         // 목록에 없는 번호를 적어야 할 때 — 셀렉트를 입력칸으로 바꾼다
         manualNumber = true;
         values[id].value = '';
@@ -481,7 +506,7 @@ export async function reportFormView(view) {
         return;
       }
       values[id].value = ev.target.value;
-      if (numberField && id === numberField.id) fillStoreFromNumber(ev.target.value);
+      if (ticketField && id === ticketField.id) fillStoreFromNumber(ev.target.value);
       if (modelField && id === modelField.id) paintWorkHelper();     // 그 로봇의 가이드로
     });
     $('#reportForm').addEventListener('submit', submit);
@@ -835,12 +860,14 @@ export async function reportFormView(view) {
       value: values[field.id].value,
       media: values[field.id].media,
       kept: values[field.id].kept,
+      dropped: values[field.id].dropped,
     }));
   }
 
   function missingRequired() {
     return fields.filter((f) => {
       if (!f.isRequired) return false;
+      if (autoNumber && f.id === numberField.id) return false;        // 올릴 때 시트가 매긴다
       return f.fieldType === 'MEDIA'
         ? values[f.id].media.length === 0
         : !String(values[f.id].value || '').trim();
@@ -948,13 +975,13 @@ export async function reportFormView(view) {
       if (value === '__manual__') {
         // 목록에 없는 번호를 적어야 할 때 — 카드 대신 입력칸
         manualNumber = true;
-        values[numberField.id].value = '';
+        values[ticketField.id].value = '';
         repaintNumberField();
-        const inp = /** @type {HTMLInputElement} */ (view.querySelector(`input[data-input="${numberField.id}"]`));
+        const inp = /** @type {HTMLInputElement} */ (view.querySelector(`input[data-input="${ticketField.id}"]`));
         if (inp) inp.focus();
         return;
       }
-      values[numberField.id].value = value;
+      values[ticketField.id].value = value;
       repaintNumberField();
       fillStoreFromNumber(value);
       return;
@@ -1015,7 +1042,8 @@ export async function reportFormView(view) {
       return;
     }
     if (act === 'del-kept') {
-      values[btn.dataset.field].kept.splice(Number(btn.dataset.idx), 1);
+      const [gone] = values[btn.dataset.field].kept.splice(Number(btn.dataset.idx), 1);
+      if (gone) values[btn.dataset.field].dropped.push(gone);
       render();
       return;
     }
@@ -1103,8 +1131,10 @@ export async function reportFormView(view) {
         // 오프라인 — 기기에 저장해 두었다가 연결되면 자동으로 올린다.
         toast('기기에 저장했습니다. 인터넷에 연결되면 자동으로 시트에 올립니다.', 'ok');
       } else {
-        toast(`구글 시트 [${result.sheetName}] ${result.row}행에 기록했습니다.`
-          + (result.media ? ` (첨부 ${result.media}개 공유 드라이브 저장)` : ''), 'ok');
+        toast((result.reportNumber ? `리포트 번호 ${result.reportNumber} · ` : '')
+          + `구글 시트 [${result.sheetName}] ${result.row}행에 기록했습니다.`
+          + (result.media ? ` (첨부 ${result.media}개 공유 드라이브 저장)` : '')
+          + (result.mediaTrashed ? ` 뺀 사진·영상 ${result.mediaTrashed}개는 드라이브 휴지통으로 옮겼습니다.` : ''), 'ok');
         if (result.media && result.mediaShared === false) {
           toast('공유 드라이브에 닿지 못해 개인 드라이브에 저장했습니다. '
                 + '설정에서 공유 드라이브 권한을 확인해 주세요.', 'err');
@@ -1125,7 +1155,7 @@ export async function reportFormView(view) {
   render();
 
   // 최신 접수 목록을 뒤에서 받아 그 칸만 갈아 끼운다 — 쓰던 화면은 건드리지 않는다.
-  if (numberField && sheetsReady) {
+  if (ticketField && sheetsReady) {
     pullRequestNumbers().then((items) => {
       if (manualNumber) return;    // 직접 적고 있는 중이면 끼어들지 않는다
       reportNumbers = items;

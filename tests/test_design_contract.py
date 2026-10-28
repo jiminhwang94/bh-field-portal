@@ -252,8 +252,11 @@ check("읽을 때 줄마다 자기 항목을 함께 준다",
       "맨 아래 항목만 믿으면 항목이 바뀌기 전 줄이 어긋난다")
 check("상태는 그 줄이 속한 묶음에서 칸을 찾는다",
       "function blockForRow" in gs and "statusColumn(target, rowIndex, true)" in gs)
-# 리포트 번호는 손으로 적지 않는다 — 소비자 앱 시트의 '필드팀 요청' 건에서 고른다.
-check("리포트 번호는 소비자 시트의 필드팀 요청 건에서 고른다",
+# 고객사 리포트(v3.39 전에는 리포트 번호)는 손으로 적지 않는다 — 소비자 앱 시트의 '필드팀 요청' 건에서 고른다.
+check("고객사 리포트 · 리포트 번호는 시트가 매긴다 (P + 작성일 + 차례, 고객사 번호와 겹치지 않게)",
+      "function nextReportNumber" in gs and "consumerReportSheet()" in gs
+      and "autoNumber" in read("web/js/sheets.js") and "'고객사 리포트'" in read("web/js/local/store-fields.js"))
+check("고객사 리포트는 소비자 시트의 필드팀 요청 건에서 고른다",
       "function handleReportNumbers" in gs and "CONSUMER_REQUEST_MARK" in gs
       and "pullRequestNumbers" in read("web/js/reportsheet.js")
       and "ticketsHtml" in read("web/js/views/report.js"),

@@ -53,7 +53,7 @@ test('새 리포트 단계식 — 접수 카드 → 로봇 → 문제 → 사진
   await expect(page.locator('.wz-ask h2')).toHaveText('어느 접수 건인가요?');
   // 다른 단계 칸은 보이지 않는다
   await expect(field(page, '로봇 시리얼')).toBeHidden();
-  await pick(page, '리포트 번호', 'P260912-01');
+  await pick(page, '고객사 리포트', 'P260912-01');
   await expect(field(page, '매장명')).toHaveValue('홍기와');
 
   await page.locator('[data-act="step-next"]').click();
@@ -86,7 +86,7 @@ test('새 리포트 단계식 — 접수 카드 → 로봇 → 문제 → 사진
 test('빈 필수 칸으로 올리면 [확인] 단계에서 어느 단계가 비었는지 보인다', async ({ page }) => {
   await stepMode(page);
   await openApp(page, '#/report/new');
-  await pick(page, '리포트 번호', 'P260912-01');
+  await pick(page, '고객사 리포트', 'P260912-01');
   await page.locator('#btn-topaction').click();                          // 위의 [구글 시트로 업로드]
   await expect(page.locator('.wz-ask h2')).toHaveText('확인하고 올리기');
   await expect(page.locator('.wz-check__sec.is-missing').first()).toContainText('로봇');
@@ -97,7 +97,7 @@ test('빈 필수 칸으로 올리면 [확인] 단계에서 어느 단계가 비�
 test('쓰다 둔 리포트는 홈의 [이어 쓰기] 로 그대로 다시 연다', async ({ page }) => {
   await stepMode(page);
   await openApp(page, '#/report/new');
-  await pick(page, '리포트 번호', 'P260912-01');
+  await pick(page, '고객사 리포트', 'P260912-01');
   await page.locator('[data-act="step-next"]').click();
   await field(page, '로봇 시리얼').fill('SN-RESUME');
   await page.locator('[data-act="step-next"]').click();

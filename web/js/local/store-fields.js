@@ -104,7 +104,8 @@ export async function reorderFields(orderedIds) {
  *     처리 결과
  */
 export const DEFAULT_FIELDS = [
-  { fieldLabel: '리포트 번호', fieldType: 'TEXT', options: null, isRequired: true },
+  { fieldLabel: '리포트 번호', fieldType: 'TEXT', options: null, isRequired: true },     // 올릴 때 시트가 매긴다 (v3.39)
+  { fieldLabel: '고객사 리포트', fieldType: 'TEXT', options: null, isRequired: false },  // 고른 접수 번호 (v3.39)
   { fieldLabel: '매장명', fieldType: 'TEXT', options: null, isRequired: true },
   { fieldLabel: '로봇 시리얼', fieldType: 'TEXT', options: null, isRequired: true },
   { fieldLabel: '로봇 모델', fieldType: 'DROPDOWN',
@@ -186,6 +187,24 @@ export async function applyDefaultFieldOrderOnce() {
  * 받기 전에 만들면 시트에 아직 없는 항목으로 보여 받기가 지워 버린다.
  * 자리는 '오류 코드' 바로 앞 (순서는 기기마다 따로라 이 기기 순서만 맞춘다).
  */
+/**
+ * '고객사 리포트' 항목 (v3.39) — 없으면 만들어 '리포트 번호' 바로 뒤에 둔다.
+ * 이 칸이 생기면 접수 카드는 여기서 고르고, 리포트 번호는 올릴 때 시트가 매긴다.
+ * 시트를 쓰는 기기는 항목을 받은 뒤에 부른다 — 팀 공통 항목으로 올라간다.
+ */
+export async function ensureCustomerField() {
+  const rows = await idb.getAll('fields');
+  if (rows.some((f) => fieldLabelKey(f.fieldLabel) === '고객사리포트')) return false;
+  const made = await saveField({ fieldLabel: '고객사 리포트', fieldType: 'TEXT', isRequired: false });
+  const sorted = (await idb.getAll('fields')).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  const ids = sorted.map((f) => f.id).filter((id) => id !== made.id);
+  const number = sorted.find((f) => fieldLabelKey(f.fieldLabel) === '리포트번호');
+  const at = number ? ids.indexOf(number.id) + 1 : 0;
+  ids.splice(at, 0, made.id);
+  await reorderFields(ids);
+  return true;
+}
+
 export async function ensureWorkField() {
   const rows = await idb.getAll('fields');
   const issue = rows.find((f) => fieldLabelKey(f.fieldLabel) === '이슈유형');

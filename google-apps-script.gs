@@ -180,6 +180,19 @@ function handleRequest(e) {
         if (toCol >= 1) aligned[toCol - 1] = row[ri];
       }
 
+      // 리포트 번호 (v3.39) — 앱이 autoNumber { label, date: 'YYMMDD' } 를 보내고 그 칸이 비어 있으면
+      // 여기서 매긴다. 잠금 안이라 여러 태블릿이 동시에 올려도 같은 번호가 나오지 않는다.
+      var numbered = '';
+      var auto = body.autoNumber || null;
+      if (auto && /^\d{6}$/.test(String(auto.date || ''))) {
+        var ni = headers.indexOf(String(auto.label || '리포트 번호'));
+        var nc = ni >= 0 ? (placed.map[ni] || 0) : 0;
+        if (nc >= 1 && !String(aligned[nc - 1] || '').trim()) {
+          numbered = nextReportNumber(sheet, String(auto.date), aligned);   // 이 줄에 고른 고객사 번호도 본다
+          aligned[nc - 1] = numbered;
+        }
+      }
+
       // 사진·영상은 드라이브 폴더에 저장하고, 칸에는 링크만 넣는다.
       // (시트에 박아 넣으면 영상이 안 되고 앱이 되읽을 수도 없다)
       // 첨부의 열 번호도 앱 기준이므로 시트 열로 옮긴다.
@@ -213,11 +226,13 @@ function handleRequest(e) {
       relinkDriveCells(sheet, target, aligned);
 
       SpreadsheetApp.flush();
-      logChange(ss, body, '리포트 추가', sheetName + ' ' + target + '행', reportSummary(headers, row));
+      logChange(ss, body, '리포트 추가', sheetName + ' ' + target + '행',
+                (numbered ? numbered + ' · ' : '') + reportSummary(headers, row));
       return json({
         ok: true,
         sheetName: sheetName,
         row: target,
+        reportNumber: numbered,
         created: created,
         images: inserted,
         media: saved.count,
@@ -2209,14 +2224,60 @@ function findConsoleStatusColumn(head) {
   return -1;
 }
 
+/** 소비자 앱 [리포트] 탭 — 못 열면 오류를 던진다 */
+function consumerReportSheet() {
+  var css = SpreadsheetApp.openById(CONSUMER_SS_ID);
+  var all = css.getSheets();
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].getSheetId() === CONSUMER_REPORT_GID) return all[i];
+  }
+  return null;
+}
+
+/* ── 리포트 번호 매기기 (v3.39) ──────────────────────────────────────
+ *
+ * 현장 리포트의 '리포트 번호' 는 앱이 매긴다: P + 작성일(YYMMDD) + '-' + 두 자리 차례.
+ *   예) 2026년 10월 28일 첫 리포트 → P261028-01, 두 번째 → P261028-02
+ * 고객사(소비자 앱) 접수 번호도 같은 꼴이라, 그날 이미 쓰인 번호를 **양쪽 다** 보고 다음 번호를 준다:
+ *   · 이 달 탭에 적힌 번호 ('리포트 번호' · '고객사 리포트' 칸 모두)
+ *   · 소비자 앱 [리포트] 탭의 그날 번호
+ * 고객사 접수는 '고객사 리포트' 칸에 따로 적는다 (번호 안에 접수일이 들어 있다).
+ */
+var REPORT_NO_PREFIX = 'P';
+
+function nextReportNumber(sheet, ymd, extra) {
+  var head = REPORT_NO_PREFIX + ymd + '-';
+  var re = new RegExp(head + '(\\d{1,3})', 'g');
+  var max = 0;
+  var scan = function (text) {
+    var s = String(text || '');
+    if (s.indexOf(head) < 0) return;
+    var m;
+    re.lastIndex = 0;
+    while ((m = re.exec(s)) !== null) max = Math.max(max, Number(m[1]) || 0);
+  };
+  for (var e = 0; extra && e < extra.length; e++) scan(extra[e]);
+  var last = sheet.getLastRow();
+  if (last >= 1 && sheet.getLastColumn() >= 1) {
+    var vals = sheet.getRange(1, 1, last, sheet.getLastColumn()).getDisplayValues();
+    for (var r = 0; r < vals.length; r++) for (var c = 0; c < vals[r].length; c++) scan(vals[r][c]);
+  }
+  try {
+    var cs = consumerReportSheet();
+    if (cs && cs.getLastRow() >= 2) {
+      var cv = cs.getRange(1, 1, cs.getLastRow(), cs.getLastColumn()).getDisplayValues();
+      var iNum = cv[0].map(function (x) { return String(x || '').trim(); }).indexOf('리포트번호');
+      for (var k = 1; iNum >= 0 && k < cv.length; k++) scan(cv[k][iNum]);
+    }
+  } catch (err) { /* 소비자 시트에 못 닿으면 이 달 탭만 보고 매긴다 */ }
+  var n = max + 1;
+  return head + (n < 10 ? '0' + n : String(n));
+}
+
 function handleReportNumbers() {
   var sheet = null;
   try {
-    var css = SpreadsheetApp.openById(CONSUMER_SS_ID);
-    var all = css.getSheets();
-    for (var i = 0; i < all.length; i++) {
-      if (all[i].getSheetId() === CONSUMER_REPORT_GID) { sheet = all[i]; break; }
-    }
+    sheet = consumerReportSheet();
   } catch (err) {
     return json({ ok: false, error: '소비자 리포트 시트를 열 수 없습니다: ' + err });
   }
@@ -2301,6 +2362,8 @@ function handleReports(ss, body) {
       }
       var line = body.row_values || [];
       if (!line.length) return json({ ok: false, error: 'row 가 비어 있습니다.' });
+      // 고치기 전의 줄 — ✕ 로 뺀 첨부를 찾는 데 쓴다 (v3.39)
+      var beforeU = target.getRange(rowIndex, 1, 1, Math.max(target.getLastColumn(), 1)).getDisplayValues()[0];
 
       // **항목 줄은 절대 고쳐 쓰지 않는다.** 그 줄이 속한 묶음의 항목 순서에
       // 맞춰 값을 다시 늘어놓는다. 앱의 항목 순서가 달라도 이름으로 맞춘다.
@@ -2338,9 +2401,15 @@ function handleReports(ss, body) {
       // setValues 는 글자로만 적으므로, 첨부 칸을 다시 파란 링크로 살린다.
       relinkDriveCells(target, rowIndex, line);
       SpreadsheetApp.flush();
-      logChange(ss, body, '리포트 수정', body.sheetName + ' ' + rowIndex + '행', reportSummary(body.headers || [], body.row_values || []));
+      // 고치며 ✕ 로 뺀 사진 · 영상은 드라이브 휴지통으로 (v3.39)
+      var dropU = droppedMediaIds(body.dropMedia || [], beforeU, line);
+      var movedU = setMediaTrashed(dropU, true);
+      logChange(ss, body, '리포트 수정', body.sheetName + ' ' + rowIndex + '행',
+                reportSummary(body.headers || [], body.row_values || [])
+                + (dropU.length ? ' · 뺀 사진 · 영상 ' + movedU.done + '개 드라이브 휴지통' : ''));
       return json({ ok: true, sheetName: body.sheetName, row: rowIndex,
                     media: savedU.count, mediaSkipped: savedU.skipped,
+                    mediaTrashed: movedU.done, mediaFailed: movedU.failed,
                     spreadsheetUrl: ss.getUrl() });
     } finally {
       lockU.releaseLock();
@@ -2786,6 +2855,23 @@ function reportMediaIds(line) {
     }
   }
   return ids;
+}
+
+/**
+ * 고치며 ✕ 로 뺀 첨부 (v3.39). 앱이 **뺐다고 적어 보낸 것만** 본다 — 옛 앱이 칸을 비워 보내도
+ * 아무것도 휴지통에 넣지 않는다. 그중 고치기 전 줄에 있었고, 고친 줄에는 없고,
+ * 사진 · 동영상 폴더에 든 파일만.
+ */
+function droppedMediaIds(urls, before, after) {
+  if (!urls || !urls.length) return [];
+  var was = before.join(NEWLINE);
+  var now = after.join(NEWLINE);
+  var picked = reportMediaIds([urls.join(NEWLINE)]);
+  var out = [];
+  for (var i = 0; i < picked.length; i++) {
+    if (was.indexOf(picked[i]) >= 0 && now.indexOf(picked[i]) < 0) out.push(picked[i]);
+  }
+  return out;
 }
 
 function inMediaFolder(file) {

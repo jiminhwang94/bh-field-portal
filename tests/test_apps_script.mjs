@@ -1205,6 +1205,55 @@ console.log('── 리포트를 지우면 사진 · 영상도 드라이브 휴�
         logRows().some((r) => r[3] === '리포트 삭제' && String(r[5]).includes('사진 · 영상 2개 드라이브 휴지통')));
 }
 
+console.log('── 리포트 번호를 시트가 매긴다 · 고객사 번호와 겹치지 않게 (v3.39)');
+{
+  const HN = ['작성일시', '작성자', '리포트 번호', '고객사 리포트', '매장명', '상태'];
+  const add = (date, store, number, customer, auto = true) => call({ sheetName: '2099-10', headers: HN,
+    row: [`2099-10-${date.slice(4)} 09:00`, '가', number, customer, store, '조치 진행 중'],
+    autoNumber: auto ? { label: '리포트 번호', date } : undefined });
+  const tab = () => ss.getSheetByName('2099-10');
+  let r = add('991001', '번호점1', '', '');
+  check('비어 있으면 P + 작성일 + 01', r.ok && r.reportNumber === 'P991001-01' && tab().getRange(r.row, 3).getValue() === 'P991001-01',
+        JSON.stringify(r));
+  r = add('991001', '번호점2', '', 'P990930-03');
+  check('같은 날 두 번째는 02 · 고른 고객사 번호는 고객사 리포트 칸에', r.reportNumber === 'P991001-02'
+        && tab().getRange(r.row, 4).getValue() === 'P990930-03', JSON.stringify(r));
+  r = add('991002', '번호점3', '', 'P991002-05');
+  check('★ 그날 고객사 번호가 이 달 탭에 있으면 그 뒤로 (05 → 06)', r.reportNumber === 'P991002-06', JSON.stringify(r));
+  r = add('260915', '번호점4', '', '');
+  check('★ 소비자 앱에 그날 번호가 있으면 겹치지 않게 그 뒤로 (07 · 09 → 10)', r.reportNumber === 'P260915-10', JSON.stringify(r));
+  r = add('991001', '번호점5', 'P991001-77', '');
+  check('번호가 이미 적혀 있으면 (고친 리포트 · 손으로 적은 번호) 건드리지 않는다', r.reportNumber === ''
+        && tab().getRange(r.row, 3).getValue() === 'P991001-77');
+  r = add('991003', '번호점6', '', '', false);
+  check('옛 앱(autoNumber 없음)은 예전처럼 비운 채로 적는다', r.reportNumber === '' && tab().getRange(r.row, 3).getValue() === '');
+}
+
+console.log('── 고치며 ✕ 로 뺀 사진 · 영상은 드라이브 휴지통으로 (v3.39)');
+{
+  const up = (name) => call({ media: 'finish', uploadId: `medit-${name}`, total: 1, data: 'QUJD', filename: name,
+                              mimeType: 'image/jpeg', storeName: '고침점', dateText: '2099-11-01' });
+  const a = up('남길.jpg');
+  const b = up('뺄.jpg');
+  const c = up('옛앱.jpg');
+  const fileOf = (url) => env.allFiles.get(/\/file\/d\/([^/]+)/.exec(url)[1]);
+  const HE = ['작성일시', '작성자', '매장명', '현장 사진', '상태'];
+  const nl = String.fromCharCode(10);
+  call({ sheetName: '2099-11', headers: HE, row: ['2099-11-01 09:00', '가', '고침점', [a.url, b.url].join(nl), '조치 완료'] });
+  let r = call({ reports: 'update', sheetName: '2099-11', row: 3, expect: { createdAt: '2099-11-01 09:00', store: '고침점' },
+                 headers: HE, row_values: ['2099-11-01 09:00', '가', '고침점', a.url, '조치 완료'], dropMedia: [b.url] });
+  check('✕ 로 뺀 사진은 드라이브 휴지통으로 · 남긴 사진은 그대로', r.ok && r.mediaTrashed === 1
+        && fileOf(b.url).isTrashed() && !fileOf(a.url).isTrashed(), JSON.stringify(r));
+  call({ sheetName: '2099-11', headers: HE, row: ['2099-11-02 09:00', '가', '옛앱점', c.url, '조치 완료'] });
+  r = call({ reports: 'update', sheetName: '2099-11', row: 4, expect: { createdAt: '2099-11-02 09:00', store: '옛앱점' },
+             headers: HE, row_values: ['2099-11-02 09:00', '가', '옛앱점', '', '조치 완료'] });
+  check('★ 옛 앱이 칸을 비워 보내도(dropMedia 없음) 아무것도 휴지통에 넣지 않는다', r.ok && !r.mediaTrashed && !fileOf(c.url).isTrashed(),
+        JSON.stringify(r));
+  r = call({ reports: 'update', sheetName: '2099-11', row: 3, expect: { createdAt: '2099-11-01 09:00', store: '고침점' },
+             headers: HE, row_values: ['2099-11-01 09:00', '가', '고침점', a.url, '조치 완료'], dropMedia: [a.url] });
+  check('뺐다고 와도 고친 줄에 그대로 있으면 휴지통에 넣지 않는다', r.ok && !r.mediaTrashed && !fileOf(a.url).isTrashed());
+}
+
 console.log('── 운영: 가이드 지우기 → 휴지통');
 const keep = { id: 'g-keep', categoryType: 'HARDWARE_SOP', codeOrTitle: '남는 가이드', summary: '', requiredTools: '',
                commands: [], steps: [{ instruction: '하나', expectedMetric: '' }], updatedAt: '' };

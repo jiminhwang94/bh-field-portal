@@ -81,7 +81,7 @@ test('작성 화면: 오류 코드를 적으면 가이드가 · 고른 부품은
   await page.locator('#partsHelper [data-act="part-remove"][data-part="가스게이지"]').click();
   await expect(page.locator('#partsHelper .part-pill')).toHaveCount(1);
   await expect(field('사용 부품')).toHaveValue('그리퍼 실리콘 패드 ×2');
-  await pick(page, '리포트 번호', 'P260912-01');
+  await pick(page, '고객사 리포트', 'P260912-01');
   await field('로봇 시리얼').fill('SN-PART');
   await pick(page, '로봇 모델', 'Gen.1(D1)');
   await field('증상 요약').fill('패드 마모');

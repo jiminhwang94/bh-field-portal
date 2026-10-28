@@ -14,7 +14,7 @@ function monthRows(dump) {
 
 async function writeReport(page, { number = 'P260912-01', symptom = '바퀴 소음', action = '베어링 교체' } = {}) {
   await openApp(page, '#/report/new');
-  await pick(page, '리포트 번호', number);
+  await pick(page, '고객사 리포트', number);
   await expect(field(page, '매장명')).not.toHaveValue('');
   await field(page, '로봇 시리얼').fill('SN-E2E-001');
   await pick(page, '로봇 모델', 'Gen.1(D1)');
