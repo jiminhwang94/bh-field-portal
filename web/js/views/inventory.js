@@ -1,12 +1,16 @@
-// 차량 재고 (C-1 집중형) — 왼쪽 목록에서 고르고, 오른쪽 큰 패널에서 수량을 바꾼다.
+// 차량 재고 — 부품마다 카드 한 장, 카드에서 바로 −/+ (v3.37).
 //
-// 장갑 낀 손으로 줄마다 붙은 작은 [−][+] 를 겨냥하면 옆 줄을 누르기 쉽다. 그래서
-// 목록은 **고르기만** 하고, 수량은 오른쪽 패널의 큰 버튼으로 바꾼다. 좁은 화면
-// (세로 태블릿·폰)에서는 패널 대신 같은 내용을 창으로 띄운다.
+// 가로 태블릿에서 한 줄짜리 표가 안쪽 스크롤 칸에 갇혀 부품이 **3개만** 보였다. 이제
+// 카드를 화면 폭에 맞춰 2칸(아주 넓으면 3칸 · 세로 태블릿과 폰은 1칸)으로 놓고, 목록은
+// 화면 전체로 내려간다. 차량 탭은 제목 줄로 올렸고, 거르기 줄은 내려도 위에 붙어 있다.
+// 카드 이름을 누르면 상세(다른 차량 수량 · 숫자로 입력 · 수정 · 삭제)를 창으로 띄운다.
 //
 // 위쪽 칩으로 거른다 — [전체] [부족만] [분류마다 하나]. 분류 머리줄을 눌러도 그 분류만 본다
 // (v3.36.2 — 예전에는 머리줄을 누르면 묶음이 **접혀** 부품이 사라졌다. 보려고 누른 것인데).
-// 순서는 손잡이(≡)를 잡고 끌어 바꾼다 (품목 목록과 순서는 차량 공용).
+//
+// 순서는 [순서 바꾸기] 를 눌렀을 때만 바꾼다 (v3.37). 예전에는 줄마다 손잡이(≡)가 있어
+// 목록을 손으로 밀어 내리다 손잡이를 잡으면 순서가 바뀌었다. 이제 평소 목록에는 손잡이가
+// 없고, 순서 모드에서 큰 ↑↓ 로 옮긴 뒤 [완료] 를 한 번 누른다 (품목 목록과 순서는 차량 공용).
 import { api } from '../api.js';
 import { isEnabled as sheetInvEnabled, pullInventory } from '../invsheet.js';
 import {
@@ -32,6 +36,8 @@ export async function inventoryView(view) {
   let query = '';          // 부품 이름 검색어. 차량을 바꿔도 그대로 둔다
                            // (같은 부품을 차량별로 견줘 보는 일이 잦다)
   let selectedId = null;
+  /** 순서 모드 — null 이면 평소. { cats: [분류 키], parts: {분류 키: [부품명]}, moved: 방금 옮긴 것 } */
+  let ordering = null;
   // 예전 버전이 기억해 둔 '접어 둔 분류' — 이제 접지 않으니 지운다
   try { localStorage.removeItem('bh_inv_collapsed'); } catch { /* 비공개 창 */ }
 
@@ -113,65 +119,50 @@ export async function inventoryView(view) {
     ].join('');
   }
 
-  /** 목록의 한 줄 — 손잡이 · 이름 · 수량/최소. 누르면 오른쪽 패널에 연다. */
-  function itemRow(item, groupKey) {
+  /** 부품 카드 — 이름(누르면 상세 창) · 부족 표시 · 바로 −/+ */
+  function itemCard(item, groupKey) {
     const low = isLow(item);
     const name = h(item.partName);
     const on = item.id === selectedId;
     return `
-      <tr data-id="${item.id}" data-group="${h(groupKey)}" data-part="${name}"
-          class="inv-item ${low ? 'is-low-row' : ''} ${on ? 'is-selected' : ''}">
-        <td class="drag-td">
-          <button class="drag-handle" type="button" data-drag="item"
-                  aria-label="${name} 순서 옮기기 (잡고 끌기)">≡</button>
-        </td>
-        <td class="name-cell">
-          <button class="inv-pick" data-act="select" data-id="${item.id}" type="button"
-                  aria-pressed="${on}">
-            <span class="inv-pick__name">${name}</span>
-            ${low ? `<span class="tag tag--low">${item.minQuantity - item.quantity}개 부족</span>` : ''}
-            ${item.pending ? '<span class="tag tag-neutral">반영 대기</span>' : ''}
-          </button>
-        </td>
-        <td class="qty-cell">
-          <!-- 줄에서 바로 −/+ (v3.35) — 장갑 낀 손으로 품목을 열지 않고 수량을 바꾼다 -->
-          <div class="inv-step" role="group" aria-label="${name} 수량">
-            <button class="inv-step__btn" data-act="dec" data-id="${item.id}" type="button"
-                    aria-label="${name} 하나 빼기"${item.quantity <= 0 ? ' disabled' : ''}>−</button>
-            <span class="inv-step__val"><b class="inv-qty tnum ${low ? 'is-low' : ''}" data-qty="${item.id}">${item.quantity}</b><small class="inv-min tnum">/ ${item.minQuantity}</small></span>
-            <button class="inv-step__btn inv-step__btn--plus" data-act="inc" data-id="${item.id}" type="button"
-                    aria-label="${name} 하나 넣기">+</button>
-          </div>
-        </td>
-      </tr>`;
+      <div class="inv-card${low ? ' is-low' : ''}${on ? ' is-selected' : ''}" data-id="${item.id}"
+           data-group="${h(groupKey)}" data-part="${name}">
+        <button class="inv-pick" data-act="select" data-id="${item.id}" type="button" aria-pressed="${on}">
+          <span class="inv-pick__name">${name}</span>
+          ${low ? `<span class="tag tag--low">${item.minQuantity - item.quantity}개 부족</span>` : ''}
+          ${item.pending ? '<span class="tag tag-neutral">반영 대기</span>' : ''}
+        </button>
+        <div class="inv-step" role="group" aria-label="${name} 수량">
+          <button class="inv-step__btn" data-act="dec" data-id="${item.id}" type="button"
+                  aria-label="${name} 하나 빼기"${item.quantity <= 0 ? ' disabled' : ''}>−</button>
+          <span class="inv-step__val"><b class="inv-qty tnum ${low ? 'is-low' : ''}" data-qty="${item.id}">${item.quantity}</b><small class="inv-min tnum">/ ${item.minQuantity}</small></span>
+          <button class="inv-step__btn inv-step__btn--plus" data-act="inc" data-id="${item.id}" type="button"
+                  aria-label="${name} 하나 넣기">+</button>
+        </div>
+      </div>`;
   }
 
   /**
-   * 묶음 머리줄 — 누르면 그 분류만 본다 (위 칩과 같다). 그 분류만 보는 중이면 전체로.
-   * 종수와 부족 건수는 늘 보인다.
+   * 분류 머리줄 — 카드 칸을 가로질러 한 줄. 누르면 그 분류만 본다 (위 칩과 같다).
+   * 그 분류만 보는 중이면 전체로. 종수와 부족 건수는 늘 보인다.
    */
-  function groupRow(g) {
+  function groupHead(g) {
     const low = g.all.filter(isLow).length;
     const only = chip === g.key;
     return `
-      <tr class="grp-row" data-group="${h(g.key)}">
-        <td class="drag-td">
-          <button class="drag-handle" type="button" data-drag="group"
-                  aria-label="${h(g.label)} 묶음 순서 옮기기 (잡고 끌기)">≡</button>
-        </td>
-        <td colspan="2">
-          <button class="grp-toggle" type="button" data-act="chip" data-chip="${h(g.key)}"
-                  aria-pressed="${only}">
-            <span class="grp-name">${h(g.label)}</span>
-            <span class="grp-count tnum">${g.all.length}종${low ? ` · <span class="is-low">부족 ${low}</span>` : ''}</span>
-            <span class="grp-go">${only ? '전체 보기 ✕' : '이 분류만 ›'}</span>
-          </button>
-        </td>
-      </tr>`;
+      <div class="grp-row" data-group="${h(g.key)}">
+        <button class="grp-toggle" type="button" data-act="chip" data-chip="${h(g.key)}"
+                aria-pressed="${only}">
+          <span class="grp-name">${h(g.label)}</span>
+          <span class="grp-count tnum">${g.all.length}종${low ? ` · <span class="is-low">부족 ${low}</span>` : ''}</span>
+          <span class="grp-go">${only ? '전체 보기 ✕' : '이 분류만 ›'}</span>
+        </button>
+      </div>`;
   }
 
   /** 목록 자리만 만드는 조각. 검색·칩을 바꿀 때 이 부분만 다시 그린다. */
   function bodyHtml() {
+    if (ordering) return orderHtml();
     const visible = visibleItems();
     if (!visible.length) {
       const why = query.trim()
@@ -180,19 +171,86 @@ export async function inventoryView(view) {
           : '등록된 품목이 없습니다. [＋ 품목 추가]로 등록하세요.');
       return `<div class="empty">${why}</div>`;
     }
-    const rows = groupsOf(visible)
-      .map((g) => groupRow(g) + g.items.map((i) => itemRow(i, g.key)).join('')).join('');
-    return `
-      <table class="table table--touch inv-table">
-        <thead>
-          <tr>
-            <th class="drag-td"></th>
-            <th>부품</th>
-            <th style="text-align:right">보유 / 최소 · 바로 바꾸기</th>
-          </tr>
-        </thead>
-        <tbody id="invRows">${rows}</tbody>
-      </table>`;
+    const cards = groupsOf(visible)
+      .map((g) => groupHead(g) + g.items.map((i) => itemCard(i, g.key)).join('')).join('');
+    return `<div class="inv-grid" id="invRows">${cards}</div>`;
+  }
+
+  // ------------------------------------------------------------ 순서 바꾸기 (v3.37)
+  //
+  // 분류도 품목도 큰 ↑↓ 로 한 칸씩. 품목은 자기 분류 안에서만 움직인다 (분류를 바꾸는 것은
+  // [수정] 창의 분류 칸으로). '분류 없음' 은 늘 맨 뒤다 (저장소 규칙). [완료] 때 한 번 저장한다.
+  function startOrdering() {
+    const cats = [];
+    const parts = {};
+    for (const i of items) {
+      const k = catKey(catOf(i));
+      if (!parts[k]) { parts[k] = []; if (k) cats.push(k); }
+      parts[k].push(i.partName);
+    }
+    ordering = { cats, parts, moved: null };
+    chip = null;
+    query = '';
+    render();
+  }
+
+  function orderHtml() {
+    const arrows = (kind, key, i, last, label) => `
+      <span class="ord-btns">
+        <button class="ord-btn" data-act="ord-move" data-kind="${kind}" data-key="${h(key)}" data-i="${i}" data-dir="-1"
+                type="button" aria-label="${h(label)} 위로"${i === 0 ? ' disabled' : ''}>↑</button>
+        <button class="ord-btn" data-act="ord-move" data-kind="${kind}" data-key="${h(key)}" data-i="${i}" data-dir="1"
+                type="button" aria-label="${h(label)} 아래로"${i === last ? ' disabled' : ''}>↓</button>
+      </span>`;
+    const moved = (kind, key, name) => {
+      const m = ordering.moved;
+      return m && m.kind === kind && m.key === key && (kind === 'cat' || m.name === name) ? ' is-moved' : '';
+    };
+    const group = (k, ci) => {
+      const names = ordering.parts[k] || [];
+      const label = k || NONE_LABEL;
+      return `
+        <div class="ord-group">
+          <div class="ord-row ord-row--cat${moved('cat', k)}">
+            <b class="ord-name">${h(label)} <small class="tnum">${names.length}종</small></b>
+            ${k ? arrows('cat', k, ci, ordering.cats.length - 1, label) : '<small class="ord-fixed">늘 맨 뒤</small>'}
+          </div>
+          ${names.map((n, i) => `
+            <div class="ord-row${moved('part', k, n)}">
+              <span class="ord-name">${h(n)}</span>
+              ${arrows('part', k, i, names.length - 1, n)}
+            </div>`).join('')}
+        </div>`;
+    };
+    const keys = [...ordering.cats, ...(ordering.parts[''] ? [''] : [])];
+    return `<div class="ord-list" id="invRows">${keys.map((k, ci) => group(k, ci)).join('')}</div>`;
+  }
+
+  function moveInOrder(btn) {
+    const { kind, key } = btn.dataset;
+    const i = Number(btn.dataset.i);
+    const j = i + Number(btn.dataset.dir);
+    const list = kind === 'cat' ? ordering.cats : ordering.parts[key];
+    if (!list || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    ordering.moved = { kind, key, name: kind === 'part' ? list[j] : '' };
+    const row = btn.closest('.ord-row');
+    const before = row ? row.getBoundingClientRect().top : 0;
+    paintBody();
+    // 옮긴 줄을 손가락 밑 같은 높이에 둔다 — 누를 때마다 화면이 튀면 다음 ↑↓ 를 다시 찾아야 한다
+    const again = view.querySelector('.ord-row.is-moved');
+    if (row && again) view.scrollTop += again.getBoundingClientRect().top - before;
+  }
+
+  async function finishOrdering(save) {
+    const next = save ? [...ordering.cats, ''].flatMap((k) => ordering.parts[k] || []) : null;
+    ordering = null;
+    if (!next || next.join('|') === items.map((i) => i.partName).join('|')) { render(); return; }
+    try {
+      await api.reorderInventory(next);
+      await reload();
+      toast('순서를 바꿨습니다.', 'ok');
+    } catch (err) { toast(err.message, 'err'); await reload(); }
   }
 
   /** 오른쪽 패널 — 고른 품목 하나를 크게. */
@@ -241,24 +299,15 @@ export async function inventoryView(view) {
       </button>`;
   }
 
-  /** 오른쪽 아래 알약에 적을 글자. 거르는 중이면 '보인 것 / 전체' 로 적는다. */
-  function countText() {
-    const shown = visibleItems().length;
-    const filtering = Boolean(query.trim()) || chip !== null;
-    return `품목 ${filtering ? `${shown} / ${items.length}종` : `${items.length}종`}`;
-  }
-
   /**
    * 검색 중에는 화면 전체를 다시 그리지 않는다.
    * 다시 그리면 검색칸이 새로 만들어져 **글자를 한 자 칠 때마다 커서가 빠진다.**
    */
   function paintBody() {
     const body = $('#invBody');
-    if (body) { body.innerHTML = bodyHtml(); bindDrag(); }
+    if (body) body.innerHTML = bodyHtml();
     const chips = $('#invChips');
     if (chips) chips.innerHTML = chipsHtml();
-    const count = $('#invCount');
-    if (count) count.textContent = countText();
     const alert = $('#invAlert');
     if (alert) alert.innerHTML = alertHtml();
   }
@@ -290,24 +339,44 @@ export async function inventoryView(view) {
     // 보충이 필요한 것은 맨 위 '보충 필요' 띠가 알려 준다.
     if (!items.some((i) => i.id === selectedId)) selectedId = null;
 
+    const vehicleTabs = `
+      <div class="veh-tabs inv-vehicles" role="tablist" aria-label="차량">
+        ${vehicles.map((v) => `
+          <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
+                  role="tab" aria-selected="${v.name === current}"
+                  data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
+        <button class="veh-tab veh-tab--manage" data-act="manage-vehicles"
+                type="button" aria-label="차량 추가 · 삭제">＋ 차량</button>
+      </div>`;
+
+    // 순서 모드 — 거르기 · 수량 버튼 · 차량 탭을 치우고 ↑↓ 와 [취소] [완료] 만 둔다
+    if (ordering) {
+      view.innerHTML = `
+        <div id="pageRoot" class="page-stack inv is-ordering">
+          <div class="page-head inv-head">
+            <h1 class="page-head__title">순서 바꾸기</h1>
+            <span class="page-head__meta">↑ ↓ 로 옮기고 [완료] 를 누르세요 · 모든 차량에 같은 순서</span>
+            <span class="page-head__spacer"></span>
+            <button class="btn btn-secondary" data-act="order-cancel" type="button">취소</button>
+            <button class="btn btn-primary" data-act="order-done" type="button">완료</button>
+          </div>
+          <section class="inv-list" id="invBody">${bodyHtml()}</section>
+        </div>`;
+      $('#pageRoot').addEventListener('click', onClick);
+      return;
+    }
+
     view.innerHTML = `
       <div id="pageRoot" class="page-stack inv">
-        <div class="page-head">
+        <div class="page-head inv-head">
           <h1 class="page-head__title">차량 재고</h1>
+          ${vehicleTabs}
           <span class="page-head__spacer"></span>
           ${current ? `
             ${sheetMode ? `
               <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
-            <button class="btn btn-secondary" data-act="cat-order" type="button">분류 순서</button>
+            ${items.length > 1 ? '<button class="btn btn-secondary" data-act="order-start" type="button">순서 바꾸기</button>' : ''}
             <button class="btn btn-secondary" data-act="add-item" type="button">＋ 품목 추가</button>` : ''}
-        </div>
-        <div class="veh-tabs inv-vehicles" role="tablist" aria-label="차량">
-          ${vehicles.map((v) => `
-            <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
-                    role="tab" aria-selected="${v.name === current}"
-                    data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
-          <button class="veh-tab veh-tab--manage" data-act="manage-vehicles"
-                  type="button" aria-label="차량 추가 · 삭제">＋ 차량</button>
         </div>
         ${current ? `<div id="invAlert">${alertHtml()}</div>` : ''}
 
@@ -317,14 +386,7 @@ export async function inventoryView(view) {
             <input class="input inv-search" id="invQ" type="search"
                    placeholder="부품 찾기" aria-label="${h(current)} 부품 검색" />
           </div>
-          <div class="inv-split inv-split--full">
-            <section class="inv-list">
-              <div class="scroll" id="invBody">${bodyHtml()}</div>
-              <div class="inv-list__foot">
-                <span class="tag tag-neutral" id="invCount">${countText()}</span>
-              </div>
-            </section>
-          </div>`
+          <section class="inv-list" id="invBody">${bodyHtml()}</section>`
         : `<div class="empty">
              등록된 차량이 없습니다.<br />
              <button class="btn btn-primary" data-act="manage-vehicles" type="button"
@@ -333,7 +395,6 @@ export async function inventoryView(view) {
       </div>`;
 
     $('#pageRoot').addEventListener('click', onClick);
-    bindDrag();
 
     const box = $('#invQ');
     if (box) {
@@ -365,156 +426,6 @@ export async function inventoryView(view) {
     });
   }
 
-  // ------------------------------------------------------------ 분류 순서 (v3.32)
-  //
-  // 묶음 머리줄의 손잡이(≡)로 끌어도 되지만, 장갑을 끼면 끌기가 어렵다. 그래서 창에서
-  // 큰 ↑ ↓ 로 옮기고 [저장] 을 한 번 누른다. 순서는 모든 차량 공용 · 시트 줄 순서로 올라간다.
-  // '분류 없음' 은 늘 맨 뒤다 (저장소 규칙).
-  function openCatOrder() {
-    let order = groupsOf(items).map((g) => g.key).filter((k) => k);
-    const hasNone = items.some((i) => !catOf(i));
-    if (order.length < 2) { toast('분류가 2개 이상일 때 순서를 바꿀 수 있습니다.'); return; }
-    openSheet('분류 순서', '<div id="catOrder" class="cat-order"></div>');
-    const body = $('#catOrder');
-    const paint = () => {
-      body.innerHTML = `
-        <p class="muted">위에서부터 이 차례로 보입니다. 모든 차량에 같이 적용됩니다.</p>
-        <ol class="cat-order__list">
-          ${order.map((k, i) => `
-            <li class="cat-order__row">
-              <span class="cat-order__name">${h(k)} <small class="muted tnum">${items.filter((x) => catOf(x) === k).length}종</small></span>
-              <button class="cat-order__btn" data-move="${i}" data-dir="-1" type="button" ${i === 0 ? 'disabled' : ''}
-                      aria-label="${h(k)} 위로">↑</button>
-              <button class="cat-order__btn" data-move="${i}" data-dir="1" type="button" ${i === order.length - 1 ? 'disabled' : ''}
-                      aria-label="${h(k)} 아래로">↓</button>
-            </li>`).join('')}
-          ${hasNone ? `<li class="cat-order__row is-fixed"><span class="cat-order__name">${h(NONE_LABEL)} <small class="muted">늘 맨 뒤</small></span></li>` : ''}
-        </ol>
-        <button class="btn btn-primary btn--block" data-save="1" type="button">저장</button>`;
-    };
-    paint();
-    body.addEventListener('click', async (ev) => {
-      const b = ev.target.closest('button');
-      if (!b) return;
-      if (b.dataset.move !== undefined) {
-        const i = Number(b.dataset.move);
-        const j = i + Number(b.dataset.dir);
-        if (j < 0 || j >= order.length) return;
-        [order[i], order[j]] = [order[j], order[i]];
-        paint();
-        return;
-      }
-      if (b.dataset.save) {
-        // 분류 차례대로 그 분류의 품목을 지금 순서 그대로 이어 붙인다
-        const parts = [];
-        for (const k of [...order, '']) {
-          for (const i of items) if (catKey(catOf(i)) === k && !parts.includes(i.partName)) parts.push(i.partName);
-        }
-        const before = items.map((i) => i.partName).join('|');
-        closeModal();
-        if (parts.join('|') === before) return;
-        try {
-          await api.reorderInventory(parts);
-          await reload();
-          toast('분류 순서를 바꿨습니다.', 'ok');
-        } catch (err) { toast(err.message, 'err'); }
-      }
-    });
-  }
-
-  // ------------------------------------------------------------ 끌어 옮기기
-  //
-  // 리포트 항목 설정과 같은 방식 — **손잡이(≡)만** 잡힌다. 줄 어디서나 끌리면
-  // 표를 넘기려던 손가락이 품목을 옮겨 버린다. 끄는 동안은 화면(DOM)만 옮기고,
-  // 놓았을 때 새 순서를 한 번 저장한다. 품목은 자기 묶음 안에서만 움직인다
-  // (묶음을 바꾸는 것은 [수정] 창의 분류 칸으로).
-  function bindDrag() {
-    const tbody = $('#invRows');
-    if (!tbody || tbody.dataset.dragBound) return;
-    tbody.dataset.dragBound = '1';
-    let dragging = null;      // { kind: 'item'|'group', rows: [tr...], group }
-    let pointerId = null;
-
-    const itemRowsOf = (group) => Array.from(tbody.querySelectorAll(`tr.inv-item[data-group="${CSS.escape(group)}"]`));
-    const groupHeads = () => Array.from(tbody.querySelectorAll('tr.grp-row'));
-    const blockOf = (head) => [head, ...itemRowsOf(head.dataset.group)];
-    const clearMarks = () => tbody.querySelectorAll('.is-drop-before, .is-drop-after')
-      .forEach((r) => r.classList.remove('is-drop-before', 'is-drop-after'));
-
-    tbody.addEventListener('pointerdown', (ev) => {
-      const handle = ev.target.closest('[data-drag]');
-      if (!handle) return;
-      const tr = handle.closest('tr');
-      if (handle.dataset.drag === 'item') {
-        dragging = { kind: 'item', rows: [tr], group: tr.dataset.group };
-      } else {
-        dragging = { kind: 'group', rows: blockOf(tr), group: tr.dataset.group };
-      }
-      pointerId = ev.pointerId;
-      dragging.rows.forEach((r) => r.classList.add('is-dragging'));
-      try { handle.setPointerCapture(pointerId); } catch { /* 일부 기기 */ }
-      ev.preventDefault();
-    });
-
-    tbody.addEventListener('pointermove', (ev) => {
-      if (!dragging || ev.pointerId !== pointerId) return;
-      clearMarks();
-      if (dragging.kind === 'item') {
-        const others = itemRowsOf(dragging.group).filter((r) => r !== dragging.rows[0]);
-        const next = others.find((r) => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
-        if (next) { next.classList.add('is-drop-before'); tbody.insertBefore(dragging.rows[0], next); }
-        else if (others.length) {
-          const last = others[others.length - 1];
-          last.classList.add('is-drop-after');
-          last.after(dragging.rows[0]);
-        }
-      } else {
-        const heads = groupHeads().filter((r) => r !== dragging.rows[0]);
-        const next = heads.find((r) => {
-          const block = blockOf(r);
-          const top = r.getBoundingClientRect().top;
-          const bottom = block[block.length - 1].getBoundingClientRect().bottom;
-          return ev.clientY < top + (bottom - top) / 2;
-        });
-        const frag = document.createDocumentFragment();
-        dragging.rows.forEach((r) => frag.appendChild(r));
-        if (next) { next.classList.add('is-drop-before'); tbody.insertBefore(frag, next); }
-        else if (heads.length) {
-          const lastBlock = blockOf(heads[heads.length - 1]);
-          lastBlock[lastBlock.length - 1].classList.add('is-drop-after');
-          lastBlock[lastBlock.length - 1].after(frag);
-        }
-      }
-    });
-
-    const finish = async (ev) => {
-      if (!dragging || ev.pointerId !== pointerId) return;
-      dragging.rows.forEach((r) => r.classList.remove('is-dragging'));
-      clearMarks();
-      dragging = null; pointerId = null;
-
-      // 화면에 보이는 순서로 새 품목 순서를 만든다. 접힌 묶음(줄이 안 보이는 것)은
-      // 저장소의 순서를 그대로 이어 붙인다 — 보이지 않는 것을 잃으면 안 된다.
-      const domOrder = [];
-      for (const head of groupHeads()) {
-        const shown = itemRowsOf(head.dataset.group).map((r) => r.dataset.part);
-        const all = items.filter((i) => catKey(catOf(i)) === head.dataset.group).map((i) => i.partName);
-        for (const p of shown) if (!domOrder.includes(p)) domOrder.push(p);
-        for (const p of all) if (!domOrder.includes(p)) domOrder.push(p);
-      }
-      for (const i of items) if (!domOrder.includes(i.partName)) domOrder.push(i.partName);
-      const before = items.map((i) => i.partName).join('|');
-      if (domOrder.join('|') === before) return;          // 제자리에 놓았다
-      try {
-        await api.reorderInventory(domOrder);
-        await reload();
-        toast('순서를 바꿨습니다.', 'ok');
-      } catch (err) { toast(err.message, 'err'); await reload(); }
-    };
-    tbody.addEventListener('pointerup', finish);
-    tbody.addEventListener('pointercancel', finish);
-  }
-
   async function onClick(ev) {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
@@ -527,16 +438,22 @@ export async function inventoryView(view) {
       await reload();
       return;
     }
-    if (act === 'cat-order') { openCatOrder(); return; }
+    if (act === 'order-start') { startOrdering(); return; }
+    if (act === 'ord-move') { moveInOrder(btn); return; }
+    if (act === 'order-done') { await finishOrdering(true); return; }
+    if (act === 'order-cancel') { await finishOrdering(false); return; }
     if (act === 'chip') {
       const value = btn.dataset.all ? null : btn.dataset.chip;
       chip = chip === value ? null : value;      // 켜진 칩을 다시 누르면 전체로
       paintBody();
-      // 고른 분류의 첫 부품부터 보이게 — 목록을 내려 둔 채로 거르면 위쪽이 가려진다
-      const box = $('#invBody');
-      if (box) box.scrollTop = 0;
-      const head = view.querySelector('.inv-filter');
-      if (head && head.getBoundingClientRect().top < 0) head.scrollIntoView({ block: 'start' });
+      // 고른 분류의 첫 부품부터 보이게 — 목록을 내려 둔 채로 거르면 위쪽이 가려진다.
+      // 거르기 줄은 위에 붙어 있으니 목록 첫머리가 그 아래로 오게 화면을 올린다.
+      const list = $('#invBody');
+      const bar = view.querySelector('.inv-filter');
+      if (list && bar) {
+        const gap = list.getBoundingClientRect().top - bar.getBoundingClientRect().bottom;
+        if (gap < 0) view.scrollTop += gap - 8;
+      }
       return;
     }
     if (act === 'select') { select(id); return; }

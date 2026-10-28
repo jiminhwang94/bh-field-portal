@@ -523,7 +523,6 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .inv-alert span { font-size: 16px; font-weight: 600; color: var(--color-text-2); }
 .inv-alert i { margin-left: auto; font-style: normal; font-weight: 800; font-size: 17px; }
 .inv-alert.is-on { background: var(--color-bg); }
-.inv-split--full { grid-template-columns: minmax(0, 1fr); }
 /* 품목 창 — 창 안에 카드 테두리가 한 겹 더 생겨 어긋나 보였다. 창이 곧 카드다 */
 .inv-panel.inv-sheet { border: 0; border-radius: 0; box-shadow: none; padding: 0; background: none; }
 .inv-sheet .inv-panel__name { display: none; }        /* 창 제목과 같은 이름이 두 번 나왔다 */
@@ -550,8 +549,66 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .inv-step__btn:disabled { opacity: .35; cursor: not-allowed; }
 .inv-step__val { min-width: 88px; display: inline-flex; align-items: baseline; justify-content: center; gap: 4px; }
 .inv-step__val .inv-qty { font-size: 30px; }
-.inv-table tr.inv-item td { height: 80px; }
-.inv-table td.qty-cell { text-align: right; width: 1%; white-space: nowrap; }
+
+/* ══ 10. 차량 재고 — 카드 2칸 · 순서 모드 (v3.37) ═════════════════════════════
+   가로 태블릿에서 표가 안쪽 스크롤 칸에 갇혀 부품이 3개만 보였다. 이제 목록은 화면 전체로
+   내려가고(안쪽 스크롤 없음), 카드는 폭에 맞춰 2칸 · 넓으면 3칸 · 좁으면 1칸이 된다.
+   차량 탭은 제목 줄에, 거르기 줄은 내려도 위에 붙어 있다. */
+.inv { gap: 10px; }
+#invAlert:empty { display: none; }
+.inv-head { flex-wrap: wrap; row-gap: 10px; }
+.inv-head .page-head__title { margin-right: 8px; }
+.inv-alert { min-height: 60px; }
+.inv-filter {
+  /* 화면 위쪽 여백(.screen 24px)까지 덮고 붙는다 — 안 그러면 그 틈으로 지나가는 카드가 비친다 */
+  position: sticky; top: -24px; z-index: 5; align-items: center;
+  margin: -24px -4px 0; padding: 32px 4px 8px; background: var(--color-page);
+}
+
+.inv-filter .inv-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.inv-filter .inv-chips::-webkit-scrollbar { display: none; }
+.inv-filter .inv-chip { flex: none; }
+.inv-list { min-width: 0; }
+.inv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 8px; }
+.grp-row {
+  grid-column: 1 / -1; border-radius: 14px; padding: 0 16px; margin-top: 4px;
+  background: var(--color-accent-tint);
+}
+.grp-row:first-child { margin-top: 0; }
+.grp-row:hover { background: var(--color-accent-tint-2); }
+.grp-row .grp-toggle { min-height: 44px; }
+.inv-card {
+  display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 76px; padding: 4px 8px 4px 0;
+  background: var(--color-bg); border: 2px solid var(--color-hairline); border-radius: 18px;
+}
+.inv-card.is-low { background: var(--color-danger-tint); border-color: var(--color-danger-border); }
+.inv-card.is-selected { border-color: var(--color-accent); }
+.inv-card .inv-pick { flex: 1; min-width: 0; min-height: 64px; flex-wrap: wrap; align-content: center; row-gap: 4px; }
+.inv-card .inv-pick__name { line-height: 1.3; overflow-wrap: anywhere; }
+.inv-card .inv-step { padding: 0; flex: none; }
+/* 순서 모드 — 한 줄에 하나, 큰 ▲▼ */
+.ord-list { display: grid; gap: 14px; max-width: 760px; }
+.ord-group { display: grid; gap: 6px; }
+.ord-row {
+  display: flex; align-items: center; gap: 12px; min-height: 76px; padding: 0 10px 0 18px;
+  background: var(--color-bg); border: 2px solid var(--color-hairline); border-radius: 16px;
+  transition: border-color .2s, background-color .2s;
+}
+.ord-row--cat { background: var(--color-accent-tint); border-color: transparent; color: var(--color-accent); }
+.ord-row.is-moved { border-color: var(--color-accent); background: var(--color-accent-tint); }
+.ord-name { flex: 1; min-width: 0; font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+.ord-row--cat .ord-name { font-family: var(--font-heading); font-size: 19px; }
+.ord-name small { font-size: 15px; font-weight: 600; color: var(--color-text-2); margin-left: 6px; }
+.ord-fixed { font-size: 15px; font-weight: 600; color: var(--color-muted); padding-right: 8px; }
+.ord-btns { display: flex; gap: 8px; flex: none; }
+.ord-btn {
+  width: 64px; height: 60px; border-radius: 14px; cursor: pointer; font: inherit; font-size: 22px; line-height: 1;
+  background: var(--color-bg); border: 2px solid var(--color-border); color: var(--color-text);
+  display: grid; place-items: center;
+}
+.ord-btn:hover { border-color: var(--color-accent); }
+.ord-btn:disabled { opacity: .3; cursor: default; }
+.is-ordering .page-head__meta { flex-basis: 100%; order: 9; }
 
 /* ══ 7. 좁은 화면 ═══════════════════════════════════════════════════════ */
 @media (max-width: 999px) {
@@ -562,8 +619,6 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
   .wz-check { grid-template-columns: minmax(0, 1fr); }
   .gd--step .gd-side { order: 0; }       /* 좁으면 지금 단계가 먼저, 목록은 아래 */
   .hist-rows { grid-template-columns: minmax(0, 1fr); }
-  /* 좁으면 재고 목록이 안쪽 스크롤 칸에 갇혀 0 줄이 됐다 — 화면 전체로 내린다 */
-  .inv .inv-split, .inv .inv-list > .scroll { flex: none; overflow: visible; min-height: auto; }
   .drv-card { grid-template-columns: 64px minmax(0, 1fr) auto; }
   .drv-card__acts { grid-column: 1 / -1; justify-content: flex-end; }
 }
@@ -612,17 +667,17 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
   .inv-step { gap: 6px; padding-right: 6px; }
   .inv-step__btn { width: 52px; height: 52px; font-size: 26px; }
   .inv-step__val { min-width: 56px; }
-  /* 폰 — 재고 줄: 손잡이 · 이름 한 줄, 아래에 −/+ (칸마다 한 줄씩 쌓이던 것을 묶는다) */
-  .inv-table tr.inv-item {
-    display: grid; grid-template-columns: 40px minmax(0, 1fr); grid-template-areas: "h n" "q q";
-    align-items: center; gap: 2px 6px; padding: 8px 10px;
-  }
-  .inv-table tr.inv-item td { display: block; height: auto; width: auto; padding: 0; border: 0; background: none; }
-  .inv-table tr.inv-item td.drag-td { grid-area: h; }
-  .inv-table tr.inv-item td.name-cell { grid-area: n; padding-left: 0; }
-  .inv-table tr.inv-item td.qty-cell { grid-area: q; text-align: right; }
-  .inv-table tr.inv-item.is-low-row { background: var(--color-danger-tint); }
-  .inv-table tr.grp-row { display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; padding: 4px 10px; }
-  .inv-table tr.grp-row td { display: block; height: auto; width: auto; padding: 0; border: 0; background: none; }
+  /* 폰 — 차량 탭은 제목 아래 한 줄 (옆으로 밀어 본다) · 거르기 줄은 붙이지 않는다 (두 줄이라 화면을 가린다) */
+  .inv-head .inv-vehicles { order: 5; flex-basis: 100%; overflow-x: auto; }
+  .inv-head .inv-vehicles .veh-tab { flex: none; }
+  .inv-filter { position: static; margin-top: 0; padding-top: 0; }
+  /* 폰 — 카드 한 칸: 이름 한 줄, 아래에 −/+ */
+  .inv-grid { grid-template-columns: minmax(0, 1fr); }
+  .inv-card { flex-wrap: wrap; padding: 6px 8px 10px; }
+  .inv-card .inv-pick { flex-basis: 100%; min-height: 52px; padding: 0 8px; }
+  .inv-card .inv-step { margin-left: auto; }
+  .grp-go { display: none; }
+  .ord-row { padding-left: 12px; }
+  .ord-btn { width: 56px; height: 56px; }
   .hd2-head__text { flex-basis: 100%; }
 }

@@ -39,7 +39,7 @@ check("품목에 분류 칸이 있다 (모든 차량 공용)",
       "category = String(category || '').trim();" in store
       and "category: nextCat, updatedAt: stamp" in store)
 check("수정 창에 분류 칸 + 기존 분류 태그", 'id="invCat"' in view and "data-cat=" in view)
-check("묶음 머리줄에 종수 · 부족 건수", "function groupRow(g)" in view and "부족 ${low}" in view)
+check("묶음 머리줄에 종수 · 부족 건수", "function groupHead(g)" in view and "부족 ${low}" in view)
 # v3.36.2 — 머리줄을 누르면 묶음이 접혀 부품이 사라졌다. 이제 그 분류만 본다 (접기 없음).
 check("머리줄을 누르면 그 분류만 본다 (접지 않는다)",
       'data-act="chip" data-chip="${h(g.key)}"' in view and "toggle-group" not in view
@@ -49,15 +49,16 @@ check("[모두 접기] [모두 펴기] 는 없다", "fold-all" not in view)
 check("'분류 없음' 은 맨 뒤", "if (!ca) return 1;" in store and "const NONE_LABEL = '분류 없음';" in view)
 
 print()
-print("== 손잡이로 끌어 옮긴다")
-check("손잡이만 잡힌다", "const handle = ev.target.closest('[data-drag]');" in view)
-check("품목은 자기 묶음 안에서만", "itemRowsOf(dragging.group).filter((r) => r !== dragging.rows[0])" in view)
-check("묶음은 묶음끼리 (머리줄 + 그 품목 줄을 한 덩이로)", "const blockOf = (head) => [head, ...itemRowsOf(head.dataset.group)];" in view)
-check("놓았을 때 한 번 저장", "await api.reorderInventory(domOrder);" in view
+print("== 순서는 [순서 바꾸기] 모드에서만 (v3.37)")
+# 줄마다 손잡이가 있으면 목록을 손으로 밀다 잡혀 순서가 바뀌었다.
+check("평소 목록에는 손잡이가 없다", "data-drag" not in view and "function bindDrag" not in view)
+check("[순서 바꾸기] → ▲▼ → [완료] 한 번 저장", "data-act=\"order-start\"" in view
+      and "data-act=\"ord-move\"" in view and "await api.reorderInventory(next);" in view
       and "export async function reorderParts(order)" in store)
-# 접힌 묶음의 줄은 화면에 없다 — 저장소 순서를 이어 붙여야 잃지 않는다.
-check("접힌 묶음의 품목을 잃지 않는다", "for (const p of all) if (!domOrder.includes(p)) domOrder.push(p);" in view)
-check("제자리에 놓으면 저장하지 않는다", "if (domOrder.join('|') === before) return;" in view)
+check("품목은 자기 분류 안에서만 · 분류는 분류끼리",
+      "const list = kind === 'cat' ? ordering.cats : ordering.parts[key];" in view)
+check("'분류 없음' 은 늘 맨 뒤", "[...ordering.cats, ''].flatMap" in view)
+check("그대로면 저장하지 않는다", "next.join('|') === items.map((i) => i.partName).join('|')" in view)
 check("순서는 차량 공용 — 부품명 배열 하나(partOrder)", "const PART_ORDER_KEY = 'partOrder';" in store)
 # 이름순 정렬이 남아 있으면 끌어 놓은 순서가 다음 화면에서 도로 흩어진다.
 check("이름순으로 다시 정렬하지 않는다", "rows.sort((a, b) => byText(a.partName, b.partName));" not in store)
@@ -80,14 +81,12 @@ check("수량 고치기가 배치를 보고 차량 열을 찾는다", "for (var 
 
 print()
 print("== 모양")
-check("묶음 머리줄 · 손잡이 · 놓을 자리 스타일", ".grp-row td {" in css and ".inv-table .drag-handle" in css
-      and ".inv-table tr.is-drop-before td" in css)
-# 칸 자체를 flex 로 바꾸면 표에서 빠져나와 테두리가 어긋난다 (운행일지 사건) — 가로 배치는 칸 안 버튼이 맡는다.
-check("이름 칸은 표 칸 그대로, 가로 배치는 칸 안 버튼이", ".inv-table td.name-cell { vertical-align: middle; }" in css
-      and ".table--touch td:first-child { display: flex" not in css and 'class="inv-pick"' in view)
+check("카드 칸 · 분류 머리줄 · 순서 줄 스타일", ".inv-grid {" in css and ".inv-card {" in css
+      and ".grp-row {" in css and ".ord-btn {" in css)
+check("목록은 안쪽 스크롤 칸에 갇히지 않는다", 'class="scroll" id="invBody"' not in view)
 
 print()
 if fails:
     print("실패 %d건: %s" % (len(fails), ", ".join(fails)))
     sys.exit(1)
-print("전부 통과 — 재고가 묶이고 끌린다.")
+print("전부 통과 — 재고가 분류로 묶이고, 순서는 순서 모드에서만 바뀐다.")

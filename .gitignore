@@ -20,3 +20,6 @@ playwright-report/
 test-results/
 fake-sheet*.json
 tests/e2e/.style-baseline.json
+
+# 화면 캡처를 경로 없이 찍으면 생기는 폴더 (v3.35 때 실수로 들어갔다)
+undefined/

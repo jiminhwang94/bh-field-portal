@@ -1,4 +1,4 @@
-// v3.32 — 고르기 창 편집 · 재고 분류 순서 · 가이드 요약 줄 없음 · [패치 내용]
+// v3.32 — 고르기 창 편집 · 재고 분류 순서(v3.37 부터 [순서 바꾸기]) · 가이드 요약 줄 없음 · [패치 내용]
 const { test, expect, openApp } = require('./fixtures.js');
 const { seed, GUIDES } = require('./seed.js');
 
@@ -38,16 +38,17 @@ test('[이슈 유형 고르기] 창의 [편집] — 대분류 만들기 · 항�
   expect((await rowsOf(sheet, '이슈 유형 목록')).some((r) => r[1] === '청소' || /패널/.test(r[2]))).toBe(false);
 });
 
-test('차량 재고 [분류 순서] — ↓ 로 내리고 저장하면 시트 줄 순서도 바뀐다', async ({ page, sheet }) => {
+test('차량 재고 [순서 바꾸기] — 분류를 ▼ 로 내리고 [완료] 하면 시트 줄 순서도 바뀐다', async ({ page, sheet }) => {
+  // v3.37 — [분류 순서] 창은 [순서 바꾸기] 모드로 합쳤다
   await seed(sheet);                                       // 소모품(2) · 케이블(1)
   await openApp(page, '#/inventory');
   await expect(page.locator('.inv-pick').first()).toBeVisible({ timeout: 15000 });
-  await page.locator('[data-act="cat-order"]').click();
-  const box = page.locator('#catOrder');
-  await expect(box.locator('.cat-order__name').first()).toContainText('소모품');
-  await box.locator('[data-move="0"][data-dir="1"]').click();
-  await expect(box.locator('.cat-order__name').first()).toContainText('케이블');
-  await box.locator('[data-save]').click();
+  await page.locator('[data-act="order-start"]').click();
+  const cats = page.locator('.ord-row--cat .ord-name');
+  await expect(cats.first()).toContainText('소모품');
+  await page.locator('.ord-row--cat', { hasText: '소모품' }).locator('[data-dir="1"]').click();
+  await expect(cats.first()).toContainText('케이블');
+  await page.locator('[data-act="order-done"]').click();
   await expect(page.locator('.grp-row .grp-name').first()).toHaveText('케이블');
   await expect.poll(async () => (await rowsOf(sheet, '차량재고'))[0][0], { timeout: 15000 }).toBe('C to C 2m');
 });

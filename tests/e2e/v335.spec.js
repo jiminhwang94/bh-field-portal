@@ -182,19 +182,19 @@ test('시트에서 한꺼번에 지운 가이드가 기기에 남으면 — 가�
 test('재고 — 줄에서 바로 +/− · 맨 위 보충 필요 띠를 누르면 부족한 것만', async ({ page, sheet }) => {
   await seed(sheet);
   await openApp(page, '#/inventory');
-  const row = page.locator('tr.inv-item', { hasText: '그리퍼 실리콘 패드' });
+  const row = page.locator('.inv-card', { hasText: '그리퍼 실리콘 패드' });
   await expect(row).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.inv-alert')).toContainText('보충 필요');
   await row.locator('.inv-step__btn--plus').click();                        // 창을 열지 않고 줄에서
   await expect(row.locator('.inv-qty')).toHaveText('2');
   await page.locator('.inv-alert').click();
-  await expect(page.locator('tr.inv-item')).toHaveCount(1);
+  await expect(page.locator('.inv-card')).toHaveCount(1);
 });
 
 test('운행일지 — 맨 위 [오늘 운행 기록] · 기록은 카드로 (출발 → 도착 · 주행거리)', async ({ page, sheet }) => {
   await seed(sheet);                                                         // 차량은 재고에서 온다
   await openApp(page, '#/inventory');
-  await expect(page.locator('tr.inv-item').first()).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.inv-card').first()).toBeVisible({ timeout: 15000 });
   await openApp(page, '#/driving');
   await expect(page.locator('.drv-hero')).toBeVisible();
   await page.locator('.drv-hero__add').click();

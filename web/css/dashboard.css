@@ -245,10 +245,6 @@
 .inv-chip { border-width: 0; box-shadow: var(--shadow-sm); }
 .inv-chip--low { box-shadow: inset 0 0 0 2px var(--color-danger-border); }
 .inv-panel { border: 0; border-radius: 22px; box-shadow: var(--shadow-sm); }
-.inv-table td { border-color: transparent; }
-.inv-table tbody tr.is-low-row td { background: var(--st-swap-soft); border-color: transparent; }
-.inv-table tr.is-selected td { background: var(--color-accent-tint); border-color: var(--color-accent); }
-.grp-row td { border-color: transparent; }
 .table td { border-color: transparent; box-shadow: none; }
 .table tbody tr td { background: var(--color-bg); }
 .settings-list .panel { border: 0; }
@@ -566,19 +562,6 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 4px var(--test-amber); }
   .topbar__brand { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .btn-update { flex: none; padding: 0 14px; font-size: 16px; }
 }
-
-/* 차량 재고 — 분류 순서 창 (v3.32) */
-.cat-order { display: flex; flex-direction: column; gap: 12px; }
-.cat-order__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.cat-order__row { display: flex; align-items: center; gap: 8px; min-height: 64px; border-top: 1px solid var(--color-hairline); }
-.cat-order__row:first-child { border-top: 0; }
-.cat-order__row.is-fixed { color: var(--color-muted); }
-.cat-order__name { flex: 1; min-width: 0; font-size: 18px; font-weight: 700; }
-.cat-order__btn {
-  width: 56px; height: 52px; border: 1.5px solid var(--color-border-strong); border-radius: 12px;
-  background: var(--color-bg); color: var(--color-text); font-size: 20px; cursor: pointer;
-}
-.cat-order__btn:disabled { color: var(--color-border-strong); cursor: default; }
 
 /* 이슈 유형 고르기 — 편집 (v3.32) */
 .wk-tools { display: flex; gap: 8px; }

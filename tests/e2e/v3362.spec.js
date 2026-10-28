@@ -56,14 +56,14 @@ test('재고 — 분류 머리줄을 누르면 접히지 않고 그 분류 부�
   await sheet.call({ inventory: 'push', ...INV });
   await openApp(page, '#/inventory');
   await page.locator('#btn-update').click();
-  await expect(page.locator('tr.inv-item')).toHaveCount(9);
+  await expect(page.locator('.inv-card')).toHaveCount(9);
   await page.locator('.grp-toggle', { hasText: '페리페럴' }).click();
-  await expect(page.locator('tr.inv-item')).toHaveCount(4);
-  await expect(page.locator('tr.inv-item', { hasText: 'LiDAR 센서' })).toBeVisible();
+  await expect(page.locator('.inv-card')).toHaveCount(4);
+  await expect(page.locator('.inv-card', { hasText: 'LiDAR 센서' })).toBeVisible();
   await expect(page.locator('#invChips .inv-chip.is-on')).toContainText('페리페럴');
   await expect(page.locator('.grp-toggle', { hasText: '페리페럴' })).toContainText('전체 보기');
   await page.locator('.grp-toggle', { hasText: '페리페럴' }).click();
-  await expect(page.locator('tr.inv-item')).toHaveCount(9);
+  await expect(page.locator('.inv-card')).toHaveCount(9);
 });
 
 test('재고 — 예전 버전이 접어 둔 분류가 있어도 부품이 다 보인다', async ({ page, sheet }) => {
@@ -71,5 +71,5 @@ test('재고 — 예전 버전이 접어 둔 분류가 있어도 부품이 다 �
   await page.addInitScript(() => localStorage.setItem('bh_inv_collapsed', JSON.stringify(['페리페럴', '소모품'])));
   await openApp(page, '#/inventory');
   await page.locator('#btn-update').click();
-  await expect(page.locator('tr.inv-item')).toHaveCount(9);
+  await expect(page.locator('.inv-card')).toHaveCount(9);
 });

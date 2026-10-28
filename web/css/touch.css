@@ -95,18 +95,7 @@
 .home-stats .stat[data-track="watch"] .stat__n { color: var(--color-accent); }
 .home-stats .stat[data-track="done"]  .stat__n { color: var(--color-ok); }
 
-/* 차량 재고 — 분류 묶음 · 손잡이 끌기.
-   손잡이 칸이 첫 칸이 되므로, 부품명 칸의 가로 배치(.table--touch td:first-child)는
-   이름 칸(.name-cell)으로 옮긴다. */
-.inv-table td.drag-td, .inv-table th.drag-td { width: 52px; padding-left: 10px; padding-right: 0; }
-.inv-table td:first-child.drag-td { display: table-cell; }
-.inv-table td.name-cell { vertical-align: middle; }
-.inv-table .drag-handle { width: 44px; min-height: 44px; }
-/* 묶음 안의 품목 줄 — 머리줄보다 한 단 들여 써서 "이 묶음에 속한다" 가 보인다 */
-.inv-table tr.inv-item td.name-cell { padding-left: 26px; }
-/* 묶음 머리줄 — 옅은 코발트 면. 누르면 그 분류만 본다. */
-.grp-row td { background: var(--color-accent-tint); }
-.grp-row:hover td { background: var(--color-accent-tint-2); }
+/* 차량 재고 — 분류 머리줄. 누르면 그 분류만 본다 (모양은 field.css 10) */
 .grp-toggle {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px;
   background: none; border: 0; padding: 0; font: inherit; color: var(--color-accent);
@@ -116,11 +105,6 @@
 .grp-count { margin-left: auto; font-size: 15px; font-weight: 600; color: var(--color-text); padding-right: 6px; }
 .grp-go { font-size: 15px; font-weight: 700; color: var(--color-accent); padding-right: 6px; white-space: nowrap; }
 .grp-count .is-low { color: var(--color-danger); }
-/* 끄는 중 · 놓을 자리 */
-.inv-table tr.is-dragging td { background: var(--color-accent-tint); border-color: var(--color-accent); opacity: .95; }
-.inv-table tr.is-drop-before td { box-shadow: inset 0 3px 0 var(--color-accent); }
-.inv-table tr.is-drop-after td { box-shadow: inset 0 -3px 0 var(--color-accent); }
-
 /* 남이 올린 새 내용이 있다 — [새로고침] 에 점. 누를 때까지 화면은 그대로다. */
 .btn-update.has-new::before {
   content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
