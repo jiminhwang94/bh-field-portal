@@ -264,18 +264,24 @@ function bindEntry(box, getEntry, { onStatus, inModal = false } = {}) {
           `${entry.store || '이 리포트'} · ${entry.date}`,
           '',
           '구글 시트에서 이 줄을 지웁니다. 팀 전체에서 사라집니다.',
-          '되돌릴 수 없습니다.',
+          '사진·영상은 드라이브 휴지통으로 옮깁니다 (30일 보관).',
           '',
-          '드라이브에 저장된 사진·영상은 지워지지 않습니다.',
+          '설정 → 휴지통에서 사진·영상과 함께 되살릴 수 있습니다.',
         ].join(String.fromCharCode(10)),
         '시트에서 삭제', true);
       if (!ok) return;
       btn.disabled = true;
       btn.textContent = '지우는 중…';
       try {
-        await api.deleteSheetReport(entry.sheetName, entry.row);
+        const done = await api.deleteSheetReport(entry.sheetName, entry.row);
         closeModal();
-        toast('구글 시트에서 지웠습니다.', 'ok');
+        // 사진 · 영상도 드라이브 휴지통으로 (v3.38). 권한이 없어 못 옮긴 것은 그대로 남는다
+        const moved = Number((done && done.mediaTrashed) || 0);
+        const stuck = Number((done && done.mediaFailed) || 0);
+        toast(['구글 시트에서 지웠습니다.',
+          moved ? `사진·영상 ${moved}개는 드라이브 휴지통으로 옮겼습니다.` : '',
+          stuck ? `${stuck}개는 권한이 없어 드라이브에 그대로 두었습니다.` : ''].filter(Boolean).join(' '),
+        stuck ? 'err' : 'ok');
         window.dispatchEvent(new HashChangeEvent('hashchange'));
       } catch (err) {
         toast(err.message, 'err');

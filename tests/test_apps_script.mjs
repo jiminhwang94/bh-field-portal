@@ -1181,6 +1181,30 @@ check('휴지통에서 되살리면 그 달 탭에 다시 들어간다', res.ok 
 check('되살린 것은 되살림 칸에 적혀 다시 되살릴 수 없다',
       call({ trash: 'restore', row: trash.items[0].row }).ok === false && call({ trash: 'list' }).items[0].restored !== '');
 
+console.log('── 리포트를 지우면 사진 · 영상도 드라이브 휴지통으로 · 되살리면 같이 (v3.38)');
+{
+  const up = (name, mime) => call({ media: 'finish', uploadId: `mdel-${name}`, total: 1, data: 'QUJD', filename: name,
+                                    mimeType: mime, storeName: '삭제점', dateText: '2099-07-05' });
+  const photo = up('지울사진.jpg', 'image/jpeg');
+  const video = up('지울영상.mp4', 'video/mp4');
+  const doc = env.driveTree.createFolder('문서').createFile('설명서.pdf', '내용', 'application/pdf');   // 사진 폴더 밖 파일
+  const idOf = (url) => /\/file\/d\/([^/]+)/.exec(url)[1];
+  const fileOf = (url) => env.allFiles.get(idOf(url));
+  const HM = ['작성일시', '작성자', '매장명', '현장 사진', '상태'];
+  call({ sheetName: '2099-08', headers: HM, row: ['2099-08-05 09:00', '가', '삭제점',
+    [photo.url, video.url, doc.getUrl()].join(String.fromCharCode(10)), '조치 완료'] });
+  const del = call({ reports: 'delete', sheetName: '2099-08', row: 3, expect: { createdAt: '2099-08-05 09:00', store: '삭제점' } });
+  check('리포트를 지우면 그 사진 · 영상이 드라이브 휴지통으로 간다', del.ok && del.mediaTrashed === 2
+        && fileOf(photo.url).isTrashed() && fileOf(video.url).isTrashed(), JSON.stringify(del));
+  check('사진 · 동영상 폴더 밖의 파일(칸에 붙인 다른 문서)은 건드리지 않는다', !doc.isTrashed());
+  const item = call({ trash: 'list' }).items.find((t) => t.kind === '리포트' && t.name.includes('삭제점'));
+  const back = call({ trash: 'restore', row: item.row });
+  check('휴지통에서 리포트를 되살리면 사진 · 영상도 꺼낸다 (링크가 산다)', back.ok && back.result.mediaRestored === 2
+        && !fileOf(photo.url).isTrashed() && !fileOf(video.url).isTrashed(), JSON.stringify(back));
+  check('변경기록에 몇 개를 드라이브 휴지통에 넣었는지 남는다',
+        logRows().some((r) => r[3] === '리포트 삭제' && String(r[5]).includes('사진 · 영상 2개 드라이브 휴지통')));
+}
+
 console.log('── 운영: 가이드 지우기 → 휴지통');
 const keep = { id: 'g-keep', categoryType: 'HARDWARE_SOP', codeOrTitle: '남는 가이드', summary: '', requiredTools: '',
                commands: [], steps: [{ instruction: '하나', expectedMetric: '' }], updatedAt: '' };

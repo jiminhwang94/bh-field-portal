@@ -2365,12 +2365,17 @@ function handleReports(ss, body) {
       var widthD = blockD ? blockD.headers.length : sheetD.getLastColumn();
       var valuesD = sheetD.getRange(rowD, 1, 1, Math.max(widthD, 1)).getDisplayValues()[0];
       var headersD = blockD ? blockD.headers : [];
+      // 이 리포트의 사진 · 영상 — 휴지통 기록에 함께 적어 두었다가, 되살릴 때 같이 꺼낸다 (v3.38)
+      var mediaD = reportMediaIds(valuesD);
       putInTrash(ss, body, '리포트', String(body.sheetName) + ' · ' + reportName(headersD, valuesD),
-                 { sheetName: String(body.sheetName), headers: headersD, row: valuesD });
+                 { sheetName: String(body.sheetName), headers: headersD, row: valuesD, media: mediaD });
       sheetD.deleteRow(rowD);
       SpreadsheetApp.flush();
-      logChange(ss, body, '리포트 삭제', body.sheetName + ' ' + rowD + '행', reportSummary(headersD, valuesD));
-      return json({ ok: true, sheetName: body.sheetName, row: rowD });
+      var movedD = setMediaTrashed(mediaD, true);
+      logChange(ss, body, '리포트 삭제', body.sheetName + ' ' + rowD + '행',
+                reportSummary(headersD, valuesD) + (mediaD.length ? ' · 사진 · 영상 ' + movedD.done + '개 드라이브 휴지통' : ''));
+      return json({ ok: true, sheetName: body.sheetName, row: rowD,
+                    mediaTrashed: movedD.done, mediaFailed: movedD.failed });
     } finally {
       lockD.releaseLock();
     }
@@ -2750,7 +2755,65 @@ function restoreReport(ss, data) {
   }
   sheet.getRange(placed.target, 1, 1, aligned.length).setValues([aligned]);
   relinkDriveCells(sheet, placed.target, aligned);
-  return { sheetName: data.sheetName, row: placed.target };
+  // 지울 때 드라이브 휴지통에 넣은 사진 · 영상을 꺼낸다 — 링크가 그대로 산다 (v3.38)
+  var back = setMediaTrashed(data.media || [], false);
+  return { sheetName: data.sheetName, row: placed.target, mediaRestored: back.done, mediaFailed: back.failed };
+}
+
+/* ── 리포트의 사진 · 영상 (v3.38) ──────────────────────────────────────
+ *
+ * 리포트를 지우면 그 줄에 걸린 첨부를 **드라이브 휴지통**으로 옮긴다 (드라이브에서 30일 동안 되살릴 수
+ * 있다). 예전에는 줄만 지워서, 주인 없는 사진 · 영상이 공유 드라이브에 쌓였다.
+ * 앱 휴지통에서 리포트를 되살리면 같은 파일을 휴지통에서 꺼낸다.
+ *
+ * 지키는 것: 사진 · 동영상 폴더에 든 파일만 옮긴다. 칸에 붙여 넣은 다른 문서 링크는 건드리지 않는다.
+ * 매장 · 날짜 폴더는 다른 리포트와 같이 쓰므로 지우지 않는다.
+ */
+function reportMediaIds(line) {
+  var ids = [];
+  for (var c = 0; c < line.length; c++) {
+    var text = String(line[c] || '');
+    if (text.indexOf('drive.google.com') < 0) continue;
+    var re = /\/file\/d\/([A-Za-z0-9_-]{10,})|[?&]id=([A-Za-z0-9_-]{10,})/g;
+    var m;
+    while ((m = re.exec(text)) !== null) {
+      var id = m[1] || m[2];
+      if (ids.indexOf(id) >= 0) continue;
+      try {
+        var file = DriveApp.getFileById(id);
+        if (!file.isTrashed() && inMediaFolder(file)) ids.push(id);
+      } catch (err) { /* 없는 파일 · 권한 없음 — 건드리지 않는다 */ }
+    }
+  }
+  return ids;
+}
+
+function inMediaFolder(file) {
+  var parents = file.getParents();
+  while (parents.hasNext()) {
+    var name = parents.next().getName();
+    if (name === PHOTO_FOLDER_NAME || name === VIDEO_FOLDER_NAME) return true;
+  }
+  return false;
+}
+
+/** 휴지통에 넣거나(true) 꺼낸다(false). 공유 드라이브에서 막히면 고급 드라이브 서비스로 한 번 더 */
+function setMediaTrashed(ids, trashed) {
+  var done = 0;
+  var failed = 0;
+  for (var i = 0; i < ids.length; i++) {
+    try {
+      DriveApp.getFileById(ids[i]).setTrashed(trashed);
+      done++;
+    } catch (err) {
+      try {
+        if (typeof Drive === 'undefined' || !Drive.Files) throw err;
+        Drive.Files.update({ trashed: trashed }, ids[i], null, { supportsAllDrives: true });
+        done++;
+      } catch (err2) { failed++; }
+    }
+  }
+  return { done: done, failed: failed };
 }
 
 /* ----------------------------------------------------------- 기기 · 최소 버전 */

@@ -268,7 +268,8 @@ export function createFakeGas() {
             getBytes: () => [1, 2, 3, 4],
             getContentType: () => 'image/png',
           }),
-          getParents: () => ({ hasNext: () => false }),
+          // 들어 있는 폴더 — 리포트를 지울 때 '사진 · 동영상 폴더의 파일인가' 를 본다 (v3.38)
+          getParents: () => { let handed = false; return { hasNext: () => !handed, next: () => { handed = true; return folder; } }; },
           // 설치용 APK 는 같은 파일의 **내용만** 갈아 끼운다. 그 길에 쓰인다.
           setName(value) { file.name = value; blob.name = value; return file; },
           isTrashed: () => Boolean(file.trashed),

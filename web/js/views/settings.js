@@ -339,8 +339,10 @@ export async function settingsView(view) {
       if (!okGo) return;
       btn.disabled = true;
       try {
-        await api.restoreTrash(Number(btn.dataset.row));
-        toast('되살렸습니다. [새로고침] 하면 이 기기에도 보입니다.', 'ok');
+        const back = await api.restoreTrash(Number(btn.dataset.row));
+        const media = Number((back && back.result && back.result.mediaRestored) || 0);
+        toast(`되살렸습니다.${media ? ` 사진·영상 ${media}개도 드라이브 휴지통에서 꺼냈습니다.` : ''}`
+          + ' [새로고침] 하면 이 기기에도 보입니다.', 'ok');
         loadTrash();
       } catch (err) { btn.disabled = false; toast(err.message, 'err'); }
       return;
