@@ -17,6 +17,7 @@ async function openInventory(page, sheet) {
   await openApp(page, '#/inventory');
   await page.locator('#btn-update').click();
   await expect(page.locator('.inv-card')).toHaveCount(13);
+  await expect(page.locator('#btn-update')).toBeEnabled();      // 받기가 끝나 목록을 다시 그린 뒤
 }
 
 const names = (page) => page.locator('.ord-row:not(.ord-row--cat) .ord-name').allTextContents();
@@ -41,7 +42,9 @@ test('평소 목록에는 끌기 손잡이가 없다 — 손으로 밀어도 순
   await expect(page.locator('[data-drag]')).toHaveCount(0);
   const first = await page.locator('.inv-card .inv-pick__name').first().textContent();
   const card = page.locator('.inv-card').first();
-  const box = await card.boundingBox();
+  // 받기 뒤 목록을 다시 그리는 사이에는 카드가 잠깐 없다 — 자리를 잡을 때까지 다시 잰다 (CI 에서만 났다)
+  let box = null;
+  await expect.poll(async () => (box = await card.boundingBox()) !== null).toBe(true);
   await page.mouse.move(box.x + 20, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x + 20, box.y + 400, { steps: 8 });
