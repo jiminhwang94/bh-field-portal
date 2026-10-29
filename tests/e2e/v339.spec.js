@@ -23,23 +23,33 @@ async function finish(page, store, action) {
   await page.locator('#reportForm button[type=submit]').click();
 }
 
-test('리포트 번호는 자동 — 고객사 리포트를 고르면 그 칸에 · 안 고르면 번호만 · 같은 날은 차례대로', async ({ page, sheet }) => {
+test('리포트 번호 — 고객사 리포트를 고르면 그 번호 그대로 · 안 고르면 그날 번호를 확인해 차례대로 (v3.41)', async ({ page, sheet }) => {
   await page.clock.setFixedTime(NOW);                                         // 2026-10-22
   await openApp(page, '#/report/new');
   await expect(page.locator('.auto-no__value')).toHaveText('자동');
   await expect(page.locator('.auto-no__hint')).toContainText('P261022-01');
   await expect(page.locator('.ticket--none')).toHaveClass(/is-on/);            // 처음엔 '고객사 리포트 없음'
   await pick(page, '고객사 리포트', 'P260912-01');
+  await expect(page.locator('.auto-no__value')).toHaveText('P260912-01');     // 고객사 번호가 리포트 번호로
+  await expect(page.locator('.auto-no__hint')).toContainText('고객사 리포트 번호를 그대로');
   await expect(field(page, '매장명')).toHaveValue('홍기와');                    // 고르면 매장이 채워진다
+  await page.locator('.ticket--none').click();                                // 되돌리면 번호도 자동으로
+  await expect(page.locator('.auto-no__value')).toHaveText('자동');
+  await pick(page, '고객사 리포트', 'P260912-01');
   await finish(page, '홍기와', '고객사 건 조치');
   await expect.poll(async () => cellOf(monthRows(await sheet.dump()), '리포트 번호', '고객사 건 조치'), { timeout: 15000 })
-    .toBe('P261022-01');
+    .toBe('P260912-01');
   expect(cellOf(monthRows(await sheet.dump()), '고객사 리포트', '고객사 건 조치')).toBe('P260912-01');
 
   await openApp(page, '#/report/new');
   await field(page, '매장명').fill('자체점');                                  // 고객사 리포트 없음 — 매장은 직접
   await finish(page, '자체점', '자체 건 조치');
   await expect.poll(async () => cellOf(monthRows(await sheet.dump()), '리포트 번호', '자체 건 조치'), { timeout: 15000 })
+    .toBe('P261022-01');                                                      // 그날 번호를 확인해 차례대로
+  await openApp(page, '#/report/new');
+  await field(page, '매장명').fill('자체점2');
+  await finish(page, '자체점2', '두번째 자체 건');
+  await expect.poll(async () => cellOf(monthRows(await sheet.dump()), '리포트 번호', '두번째 자체 건'), { timeout: 15000 })
     .toBe('P261022-02');
   expect(cellOf(monthRows(await sheet.dump()), '고객사 리포트', '자체 건 조치') || '').toBe('');
 });

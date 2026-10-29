@@ -184,6 +184,86 @@ export function findWorks(text, list) {
   return splitIssues(text).map((t) => findWork(t, list)).filter((it) => it && !seen.has(it.id) && seen.add(it.id));
 }
 
+// ─── 이슈 유형 → 증상 요약 → 조치 내용 (v3.41) ─────────────────────────────
+//
+// 이슈 유형을 고르면 그 이름이 증상 요약 첫 줄들로 들어가고, 조치 내용에는 증상마다
+// '• 증상 → ' 줄을 깔아 화살표 뒤만 채우게 한다. 사람이 직접 쓴 글은 절대 지우지 않는다.
+
+/** 이슈 유형 칸의 줄들을 세부 항목 이름만으로 — '로봇 이슈 › 하드웨어 › 로더 교체' → '로더 교체' */
+export const issueNames = (text) => [...new Set(splitIssues(text).map((t) => t.split('›').pop().trim()).filter(Boolean))];
+
+/**
+ * 증상 요약 맞추기 — 앞서 자동으로 넣은 이름 줄(before)은 빼고, 지금 이름 줄(after)을 맨 위에.
+ * 그 밖의 줄(사람이 쓴 글)은 그대로 아래에 둔다.
+ */
+export function mergeSymptom(current, before, after) {
+  const auto = new Set((before || []).map((x) => x.trim()));
+  const mine = String(current || '').replace(/\r/g, '').split('\n').filter((l) => !auto.has(l.trim()));
+  while (mine.length && !mine[0].trim()) mine.shift();
+  return [...(after || []), ...mine].join('\n').replace(/\s+$/, '');
+}
+
+const ACTION_MARK = '• ';
+const ACTION_ARROW = ' → ';
+/** 조치 내용의 '• 증상 → 조치' 줄에서 증상 쪽 */
+const actionRoot = (line) => {
+  const t = String(line || '').trim();
+  if (!t.startsWith(ACTION_MARK.trim())) return '';
+  const i = t.indexOf('→');
+  return (i < 0 ? t.slice(1) : t.slice(1, i)).trim();
+};
+
+/** 조치 내용에 아직 없는 증상만 '• 증상 → ' 줄로 맨 위에 더한다 (있는 줄 · 사람이 쓴 글은 그대로) */
+export function scaffoldAction(current, roots) {
+  const text = String(current || '').replace(/\r/g, '');
+  const have = new Set(text.split('\n').map(actionRoot).filter(Boolean));
+  const add = (roots || []).filter((r) => r && !have.has(r)).map((r) => `${ACTION_MARK}${r}${ACTION_ARROW}`);
+  if (!add.length) return text;
+  const lines = text.split('\n');
+  // 이미 깐 줄 바로 뒤에 붙인다 — 없으면 맨 위에
+  let at = 0;
+  lines.forEach((l, i) => { if (actionRoot(l)) at = i + 1; });
+  const out = text.trim() ? [...lines.slice(0, at), ...add, ...lines.slice(at)] : add;
+  return out.join('\n');
+}
+
+/** 조치 하나를 넣는다 — 그 증상 줄의 화살표 뒤가 비었으면 거기, 아니면 맨 아래 새 줄 */
+export function fillAction(current, root, action) {
+  const lines = String(current || '').replace(/\r/g, '').split('\n');
+  const i = lines.findIndex((l) => actionRoot(l) === root && /→\s*$/.test(l));
+  if (i >= 0) { lines[i] = `${lines[i].replace(/\s+$/, '')} ${action}`; return lines.join('\n'); }
+  const j = lines.findIndex((l) => /→\s*$/.test(l));
+  if (!root && j >= 0) { lines[j] = `${lines[j].replace(/\s+$/, '')} ${action}`; return lines.join('\n'); }
+  return [...lines.filter((l, k) => k < lines.length - 1 || l.trim()), action].join('\n');
+}
+
+/**
+ * 같은 이슈 유형으로 지난번에 적은 조치 — 최근 것부터, 같은 글은 한 번.
+ * '• 증상 → 조치' 로 쓴 줄이면 그 증상의 조치만 꺼낸다.
+ * @returns {{ root: string, action: string }[]}
+ */
+export function pastActions(entries, names, max = 3) {
+  const out = [];
+  const seen = new Set();
+  for (const e of entries || []) {
+    const mine = issuesOf(e).map((t) => t.split('›').pop().trim());
+    const hits = (names || []).filter((n) => mine.includes(n));
+    if (!hits.length) continue;
+    for (const line of valueOf(e, '조치').replace(/\r/g, '').split('\n')) {
+      const root = actionRoot(line);
+      const action = (root ? line.slice(line.indexOf('→') + 1) : line).trim();
+      if (!action || action.length > 60) continue;
+      const forRoot = root ? (hits.includes(root) ? root : '') : (hits.length === 1 ? hits[0] : '');
+      if (root && !forRoot) continue;
+      if (seen.has(action)) continue;
+      seen.add(action);
+      out.push({ root: forRoot, action });
+      if (out.length >= max) return out;
+    }
+  }
+  return out;
+}
+
 /** 오류 코드처럼 생겼나 — E-101 · W204 · ERR12. '유지 보수' 같은 분류 글자는 아니다 */
 export const isCodeShaped = (v) => /^[A-Za-z]{1,4}[-\s]?\d{1,5}[A-Za-z]?$/.test(String(v || '').trim());
 
