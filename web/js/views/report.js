@@ -16,6 +16,7 @@ import { showSheetEntry } from './history.js';
 import {
   guidesForCode, parseParts, partsText, findWorks, splitIssues, sameRobot, isIssueLabel,
   cachedEntries, isCodeShaped, normCode, robotPast, serialOf, valueOf,
+  issueNames, mergeSymptom, scaffoldAction, fillAction, pastActions,
 } from '../insights.js';
 
 // ------------------------------------------------------------ 단계식 (v3.35 A안)
@@ -178,6 +179,10 @@ export async function reportFormView(view) {
   // 이슈 유형 — 이슈 유형 목록에서 고른다 (v3.31~). 칸 이름 '이슈 유형' (예전 '작업')
   const workField = fields.find((f) => isIssueLabel(f.fieldLabel));
   const modelField = fields.find((f) => f.fieldLabel.replace(/\s/g, '').includes('로봇모델'));
+  // 이슈 유형 → 증상 요약 → 조치 내용 (v3.41)
+  const symptomField = fields.find((f) => f.fieldLabel.includes('증상'));
+  const actionField = fields.find((f) => f.fieldLabel.includes('조치') && !squashLabel(f.fieldLabel).includes('처리'));
+  const resultField = fields.find((f) => squashLabel(f.fieldLabel).includes('처리결과'));
   const allGuides = codeField || workField ? (await api.listGuides()).items : [];
   const inventory = partsField ? (await api.listInventory()).items : [];
   let reportNumbers = ticketField ? await cachedRequestNumbers() : [];
@@ -194,7 +199,7 @@ export async function reportFormView(view) {
   const serialField = fields.find((f) => f.fieldLabel.includes('시리얼'));
   // 같은 로봇의 지난 기록 — 최근 3달 **받아 둔** 이력 (시트에 묻지 않는다 · 뒤에서 한 번 읽는다)
   let pastEntries = [];
-  cachedEntries(3).then((list) => { pastEntries = list; paintRobotHints(); }).catch(() => {});
+  cachedEntries(3).then((list) => { pastEntries = list; paintRobotHints(); paintActionHelper(); }).catch(() => {});
 
   function mediaTile(fieldId, media, idx) {
     const isVideo = (media.mime || '').startsWith('video/');
@@ -258,6 +263,26 @@ export async function reportFormView(view) {
     if (!ticketField) return;
     const box = view.querySelector(`#reportForm [data-field-id="${ticketField.id}"]`);
     if (box) box.outerHTML = fieldHtml(ticketField);   // 적어 둔 값은 values 에 있다
+  }
+
+  /**
+   * 고객사 리포트를 고르면 그 번호를 **리포트 번호로도** 쓴다 (v3.41). 고객사 리포트가 없으면
+   * 리포트 번호를 비워 둔다 — 올릴 때 시트가 그날 쓰인 번호(이 달 탭 · 고객사 시트)를 보고
+   * 다음 차례를 붙인다. 이미 시트에 올라간 리포트를 고칠 때 붙어 있던 번호는 바꾸지 않는다.
+   */
+  let numberFromCustomer = autoNumber && !editingLink
+    && String(values[numberField.id].value || '').trim() !== ''
+    && values[numberField.id].value === values[customerField.id].value;
+  function syncNumberFromCustomer(prev) {
+    if (!autoNumber) return;
+    const now = String(values[numberField.id].value || '').trim();
+    // 사람이 따로 정한 번호(또는 이미 붙은 번호)는 두고, 비었거나 앞서 고객사 번호를 따라간 것만 바꾼다
+    if (now && !(numberFromCustomer && now === String(prev || '').trim())) return;
+    const next = String(values[customerField.id].value || '').trim();
+    values[numberField.id].value = next;
+    numberFromCustomer = Boolean(next);
+    const box = view.querySelector(`#reportForm [data-field-id="${numberField.id}"]`);
+    if (box) box.outerHTML = fieldHtml(numberField);
   }
 
   /**
@@ -337,9 +362,12 @@ export async function reportFormView(view) {
     // 고치기로 들어왔으면 이미 붙은 번호를 보여 준다.
     if (autoNumber && field.id === numberField.id) {
       const now = String(state.value || '').trim();
+      const why = numberFromCustomer ? '고른 고객사 리포트 번호를 그대로 씁니다'
+        : now ? '이미 붙은 번호입니다'
+          : `고객사 리포트가 없으면 올릴 때 그날 번호를 확인해 붙입니다 · 예) ${h(sampleReportNumber())}`;
       return `<div class="field field--auto-no" ${tag}>${label}
         <div class="auto-no"><b class="auto-no__value tnum">${h(now || '자동')}</b>
-          <span class="auto-no__hint">${now ? '이미 붙은 번호입니다' : `올릴 때 붙습니다 · 예) ${h(sampleReportNumber())}`}</span></div></div>`;
+          <span class="auto-no__hint">${why}</span></div></div>`;
     }
     // 고객사 리포트(옛 구성에서는 리포트 번호) — 손으로 적지 않고 접수 목록에서 고른다 (목록이 없으면 입력칸).
     if (ticketField && field.id === ticketField.id && reportNumbers.length && !manualNumber) {
@@ -475,7 +503,9 @@ export async function reportFormView(view) {
     root.addEventListener('input', (ev) => {
       const id = ev.target.dataset.input;
       if (!id) return;
+      const prev = values[id].value;
       values[id].value = ev.target.value;
+      if (autoNumber && id === customerField.id) syncNumberFromCustomer(prev);
       if (storeField && id === storeField.id) {
         clearTimeout(visitTimer);
         visitTimer = setTimeout(paintPastVisits, 350);
@@ -509,6 +539,9 @@ export async function reportFormView(view) {
       if (ticketField && id === ticketField.id) fillStoreFromNumber(ev.target.value);
       if (modelField && id === modelField.id) paintWorkHelper();     // 그 로봇의 가이드로
     });
+    root.addEventListener('focusin', (ev) => {
+      if (actionField && /** @type {HTMLElement} */ (ev.target).dataset.input === actionField.id) layActionLines({ onlyEmpty: true });
+    });
     $('#reportForm').addEventListener('submit', submit);
     paintPastVisits();
     paintRobotHints();
@@ -523,6 +556,7 @@ export async function reportFormView(view) {
     const next = Math.max(0, Math.min(steps.length - 1, i));
     if (next === stepAt) return;
     stepAt = next;
+    if (actionField && steps[stepAt] && steps[stepAt].key === stepOf(actionField)) layActionLines({ onlyEmpty: true });
     autosave();
     render();
     view.scrollTop = 0;
@@ -597,6 +631,11 @@ export async function reportFormView(view) {
       workBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="workHelper"></div>');
       paintWorkHelper();
     }
+    const actionBox = fieldBox(actionField);
+    if (actionBox && !actionBox.querySelector('.field-helper')) {
+      actionBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="actionHelper"></div>');
+      paintActionHelper();
+    }
     const partsBox = fieldBox(partsField);
     if (partsBox && inventory.length && !partsBox.querySelector('.field-helper')) {
       partsBox.classList.add('field--parts');      // 글자칸 대신 알약 + [부품 추가]
@@ -629,10 +668,59 @@ export async function reportFormView(view) {
   /** 칸에는 한 줄에 하나씩 — 시트 칸에서도 줄을 바꿔 보인다 */
   function setWork(paths) {
     const text = paths.join(String.fromCharCode(10));     // 줄바꿈 — 글자로 쓰면 편집 도구가 진짜 줄바꿈으로 바꾼다
+    const before = issueNames(values[workField.id].value);
     values[workField.id].value = text;
     const input = /** @type {HTMLInputElement} */ (document.querySelector(`#reportForm [data-input="${workField.id}"]`));
     if (input) input.value = text;
+    // 증상 요약 맨 위에 고른 이슈 이름을 한 줄씩 (v3.41) — 앞서 자동으로 넣은 줄만 갈아 끼운다
+    if (symptomField) setText(symptomField, mergeSymptom(values[symptomField.id].value, before, issueNames(text)));
     paintWorkHelper();
+    paintActionHelper();
+  }
+
+  /** 칸 하나의 글자를 바꾸고 화면 칸도 맞춘다 */
+  function setText(field, text) {
+    values[field.id].value = text;
+    const el = /** @type {HTMLTextAreaElement} */ (document.querySelector(`#reportForm [data-input="${field.id}"]`));
+    if (el && el.value !== text) el.value = text;
+  }
+
+  /** 조치 내용에 깔 증상들 — 고른 이슈 유형, 없으면 증상 요약의 짧은 줄 (세 줄까지) */
+  function actionRoots() {
+    const names = workField ? issueNames(values[workField.id].value) : [];
+    if (names.length) return names;
+    if (!symptomField) return [];
+    return String(values[symptomField.id].value || '').split(/\r?\n/).map((l) => l.trim())
+      .filter((l) => l && l.length <= 40).slice(0, 3);
+  }
+
+  /**
+   * 조치 내용에 증상마다 '• 증상 → ' 줄을 깐다 (이미 있는 줄 · 직접 쓴 글은 그대로).
+   * 칸에 들어오거나 조치 단계로 넘어올 때는 **비어 있을 때만** — 깐 줄을 지우고 자유롭게 쓴 사람에게
+   * 다시 깔면 안 된다. 빠진 증상을 더하는 것은 처리 결과를 고를 때(현장에서 끝냈을 때)만.
+   */
+  function layActionLines({ onlyEmpty = false } = {}) {
+    if (!actionField) return;
+    if (onlyEmpty && String(values[actionField.id].value || '').trim()) return;
+    const roots = actionRoots();
+    if (!roots.length) return;
+    const next = scaffoldAction(values[actionField.id].value, roots);
+    if (next !== values[actionField.id].value) setText(actionField, next);
+    paintActionHelper();
+  }
+
+  /** 조치 칸 아래 — 같은 이슈 유형으로 지난번에 한 조치. 누르면 그 증상 줄의 화살표 뒤에 들어간다 */
+  function paintActionHelper() {
+    const box = $('#actionHelper');
+    if (!box || !actionField) return;
+    const names = workField ? issueNames(values[workField.id].value) : [];
+    const list = pastActions(pastEntries, names, 3);
+    box.innerHTML = list.length ? `
+      <div class="past-acts"><span class="past-acts__label">지난번 조치</span>
+        ${list.map((a) => `
+          <button class="choice-btn choice-btn--hint" data-act="use-action" data-root="${h(a.root)}"
+                  data-action="${h(a.action)}" type="button">${a.root && names.length > 1 ? `${h(a.root)} · ` : ''}${h(a.action)}</button>`).join('')}
+      </div>` : '';
   }
 
   function paintCodeHelper() {
@@ -981,9 +1069,16 @@ export async function reportFormView(view) {
         if (inp) inp.focus();
         return;
       }
+      const prev = values[ticketField.id].value;
       values[ticketField.id].value = value;
       repaintNumberField();
+      syncNumberFromCustomer(prev);
       fillStoreFromNumber(value);
+      return;
+    }
+    if (act === 'use-action' && actionField) {
+      layActionLines({ onlyEmpty: true });
+      setText(actionField, fillAction(values[actionField.id].value, btn.dataset.root || '', btn.dataset.action || ''));
       return;
     }
     if (act === 'choose') {
@@ -996,6 +1091,7 @@ export async function reportFormView(view) {
         b.setAttribute('aria-checked', String(on));
       });
       if (modelField && id === modelField.id) paintWorkHelper();     // 그 로봇의 가이드로
+      if (resultField && id === resultField.id && value) layActionLines();
       return;
     }
     if (act === 'pick-robot') {

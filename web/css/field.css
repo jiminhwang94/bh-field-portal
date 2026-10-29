@@ -223,6 +223,9 @@ a.door:hover { box-shadow: inset 0 0 0 3px var(--color-accent); }
 
 /* 이 매장에서 본 로봇 */
 .robot-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+/* 조치 칸 아래 — 같은 이슈 유형으로 지난번에 한 조치 (v3.41) */
+.past-acts { display: flex; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.past-acts__label { flex-basis: 100%; margin-bottom: 6px; font-size: 16px; font-weight: 800; color: var(--color-muted); }
 .robot-hints__label { flex-basis: 100%; font-size: 16px; font-weight: 800; color: var(--color-muted); }
 .robot-hint {
   min-height: 76px; min-width: 200px; padding: 10px 20px; border-radius: 18px; cursor: pointer; text-align: left;
