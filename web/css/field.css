@@ -223,9 +223,33 @@ a.door:hover { box-shadow: inset 0 0 0 3px var(--color-accent); }
 
 /* 이 매장에서 본 로봇 */
 .robot-hints { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-/* 조치 칸 아래 — 같은 이슈 유형으로 지난번에 한 조치 (v3.41) */
-.past-acts { display: flex; flex-wrap: wrap; align-items: center; margin-top: 10px; }
-.past-acts__label { flex-basis: 100%; margin-bottom: 6px; font-size: 16px; font-weight: 800; color: var(--color-muted); }
+/* 3C — 원인 · 조치: 증상마다 한 줄, 그 이슈의 목록에서 고른다 (v3.42) */
+.field--3c { gap: 10px; }
+/* 증상 칸 — 고른 이슈 + [이슈 유형 고르기] 아래에 덧붙일 말 */
+.field--symptom .work-field { margin-bottom: 4px; }
+.c3-rows { display: grid; gap: 10px; }
+.c3-row {
+  display: grid; gap: 12px; padding: 16px 18px 18px;
+  background: var(--color-bg); border: 2px solid var(--color-hairline); border-radius: 18px;
+}
+.c3-row__head { display: flex; align-items: center; gap: 10px; }
+.c3-row__no {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--color-text); color: var(--color-bg); font-size: 15px; font-weight: 800;
+}
+.c3-row__name { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; }
+.c3-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.c3-chip {
+  min-height: 56px; padding: 0 18px; border-radius: 14px; cursor: pointer; font: inherit; font-size: 17px; font-weight: 700;
+  background: var(--color-bg); border: 2px solid var(--color-border); color: var(--color-text-2);
+}
+.c3-chip:hover { border-color: var(--color-accent); }
+.c3-chip.is-on { background: var(--color-text); border-color: var(--color-text); color: var(--color-bg); }
+.c3-chip--unknown { color: var(--color-muted); border-style: dashed; }
+.c3-chip--unknown.is-on { background: var(--color-muted); border-color: var(--color-muted); border-style: solid; color: var(--color-bg); }
+.c3-chip--add { border-style: dashed; color: var(--color-accent); }
+.c3-memo { min-height: 56px; font-size: 17px; }
+.c3-extra { min-height: 64px; margin-top: 10px; }
 .robot-hints__label { flex-basis: 100%; font-size: 16px; font-weight: 800; color: var(--color-muted); }
 .robot-hint {
   min-height: 76px; min-width: 200px; padding: 10px 20px; border-radius: 18px; cursor: pointer; text-align: left;

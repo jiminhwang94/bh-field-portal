@@ -184,10 +184,16 @@ export function findWorks(text, list) {
   return splitIssues(text).map((t) => findWork(t, list)).filter((it) => it && !seen.has(it.id) && seen.add(it.id));
 }
 
-// ─── 이슈 유형 → 증상 요약 → 조치 내용 (v3.41) ─────────────────────────────
+// ─── 3C — 증상 → 원인 → 조치 (v3.42) ─────────────────────────────────────
 //
-// 이슈 유형을 고르면 그 이름이 증상 요약 첫 줄들로 들어가고, 조치 내용에는 증상마다
-// '• 증상 → ' 줄을 깔아 화살표 뒤만 채우게 한다. 사람이 직접 쓴 글은 절대 지우지 않는다.
+// 현장 정비 업계의 표준 양식(Complaint · Cause · Correction). 증상은 이슈 유형에서 고르고,
+// 원인 · 조치는 그 이슈의 목록에서 고른다. 글로 쓰면 사람마다 말이 달라 셀 수가 없다.
+//
+// 시트 칸에는 증상마다 한 줄:  '로더 멈춤: 커넥터 재체결, 재부팅 — CN3 빠져 있었음'
+//   (이름: 고른 것들 — 메모). 증상 줄이 아닌 줄은 '그 밖의 메모' 로 그대로 둔다.
+
+/** 원인을 못 찾았을 때 — 억지로 고르게 하면 자료가 더러워진다 (업계도 '원인 미확인' 을 따로 센다) */
+export const CAUSE_UNKNOWN = '원인 모름';
 
 /** 이슈 유형 칸의 줄들을 세부 항목 이름만으로 — '로봇 이슈 › 하드웨어 › 로더 교체' → '로더 교체' */
 export const issueNames = (text) => [...new Set(splitIssues(text).map((t) => t.split('›').pop().trim()).filter(Boolean))];
@@ -197,68 +203,74 @@ export const issueNames = (text) => [...new Set(splitIssues(text).map((t) => t.s
  * 그 밖의 줄(사람이 쓴 글)은 그대로 아래에 둔다.
  */
 export function mergeSymptom(current, before, after) {
-  const auto = new Set((before || []).map((x) => x.trim()));
+  const mine = freeSymptom(current, before);
+  return [...(after || []), ...(mine ? [mine] : [])].join('\n').replace(/\s+$/, '');
+}
+
+/** 증상 요약에서 이슈 이름 줄을 뺀 나머지 — 사람이 덧붙인 말 */
+export function freeSymptom(current, names) {
+  const auto = new Set((names || []).map((x) => x.trim()));
   const mine = String(current || '').replace(/\r/g, '').split('\n').filter((l) => !auto.has(l.trim()));
   while (mine.length && !mine[0].trim()) mine.shift();
-  return [...(after || []), ...mine].join('\n').replace(/\s+$/, '');
+  return mine.join('\n').replace(/\s+$/, '');
 }
 
-const ACTION_MARK = '• ';
-const ACTION_ARROW = ' → ';
-/** 조치 내용의 '• 증상 → 조치' 줄에서 증상 쪽 */
-const actionRoot = (line) => {
-  const t = String(line || '').trim();
-  if (!t.startsWith(ACTION_MARK.trim())) return '';
-  const i = t.indexOf('→');
-  return (i < 0 ? t.slice(1) : t.slice(1, i)).trim();
-};
+const MEMO_SEP = ' — ';
 
-/** 조치 내용에 아직 없는 증상만 '• 증상 → ' 줄로 맨 위에 더한다 (있는 줄 · 사람이 쓴 글은 그대로) */
-export function scaffoldAction(current, roots) {
-  const text = String(current || '').replace(/\r/g, '');
-  const have = new Set(text.split('\n').map(actionRoot).filter(Boolean));
-  const add = (roots || []).filter((r) => r && !have.has(r)).map((r) => `${ACTION_MARK}${r}${ACTION_ARROW}`);
-  if (!add.length) return text;
-  const lines = text.split('\n');
-  // 이미 깐 줄 바로 뒤에 붙인다 — 없으면 맨 위에
-  let at = 0;
-  lines.forEach((l, i) => { if (actionRoot(l)) at = i + 1; });
-  const out = text.trim() ? [...lines.slice(0, at), ...add, ...lines.slice(at)] : add;
-  return out.join('\n');
+/**
+ * 원인 · 조치 칸을 증상별로 읽는다. 이름이 맞는 줄만 증상 줄이고 나머지는 extra.
+ * v3.41 의 '• 증상 → 조치' 줄도 읽는다 (화살표 뒤를 메모로).
+ * @returns {{ rows: Record<string, { picks: string[], memo: string }>, extra: string }}
+ */
+export function parse3c(text, names) {
+  /** @type {Record<string, { picks: string[], memo: string }>} */
+  const rows = {};
+  for (const n of names || []) rows[n] = { picks: [], memo: '' };
+  const extra = [];
+  for (const raw of String(text || '').replace(/\r/g, '').split('\n')) {
+    const line = raw.trim();
+    if (!line) { extra.push(raw); continue; }
+    const old = line.match(/^•\s*(.+?)\s*→\s*(.*)$/);
+    const name = (names || []).find((n) => line.startsWith(`${n}:`)) || (old && rows[old[1]] ? old[1] : '');
+    if (!name) { extra.push(raw); continue; }
+    if (old) { rows[name].memo = old[2].trim(); continue; }
+    const body = line.slice(name.length + 1).trim();
+    const at = body.indexOf(MEMO_SEP.trim());
+    const pickText = at < 0 ? body : body.slice(0, at);
+    rows[name].memo = at < 0 ? '' : body.slice(at + 1).trim();
+    rows[name].picks = pickText.split(',').map((x) => x.trim()).filter(Boolean);
+  }
+  return { rows, extra: extra.join('\n').trim() };
 }
 
-/** 조치 하나를 넣는다 — 그 증상 줄의 화살표 뒤가 비었으면 거기, 아니면 맨 아래 새 줄 */
-export function fillAction(current, root, action) {
-  const lines = String(current || '').replace(/\r/g, '').split('\n');
-  const i = lines.findIndex((l) => actionRoot(l) === root && /→\s*$/.test(l));
-  if (i >= 0) { lines[i] = `${lines[i].replace(/\s+$/, '')} ${action}`; return lines.join('\n'); }
-  const j = lines.findIndex((l) => /→\s*$/.test(l));
-  if (!root && j >= 0) { lines[j] = `${lines[j].replace(/\s+$/, '')} ${action}`; return lines.join('\n'); }
-  return [...lines.filter((l, k) => k < lines.length - 1 || l.trim()), action].join('\n');
+/** parse3c 의 반대 — 고른 것이나 메모가 있는 증상만 줄이 된다 */
+export function build3c(rows, names, extra) {
+  const lines = [];
+  for (const n of names || []) {
+    const r = (rows || {})[n];
+    if (!r || (!r.picks.length && !r.memo)) continue;
+    lines.push(`${n}: ${r.picks.join(', ')}${r.memo ? `${r.picks.length ? MEMO_SEP : '— '}${r.memo}` : ''}`);
+  }
+  if (String(extra || '').trim()) lines.push(String(extra).trim());
+  return lines.join('\n');
 }
 
 /**
- * 같은 이슈 유형으로 지난번에 적은 조치 — 최근 것부터, 같은 글은 한 번.
- * '• 증상 → 조치' 로 쓴 줄이면 그 증상의 조치만 꺼낸다.
- * @returns {{ root: string, action: string }[]}
+ * 같은 이슈로 지난번에 고르거나 적은 것 — 최근 것부터, 이슈 이름마다.
+ * key 는 '원인' 또는 '조치' (리포트 칸 이름의 낱말).
+ * @returns {Record<string, string[]>}
  */
-export function pastActions(entries, names, max = 3) {
-  const out = [];
-  const seen = new Set();
+export function pastPicks(entries, names, key, max = 4) {
+  /** @type {Record<string, string[]>} */
+  const out = {};
+  for (const n of names || []) out[n] = [];
   for (const e of entries || []) {
     const mine = issuesOf(e).map((t) => t.split('›').pop().trim());
     const hits = (names || []).filter((n) => mine.includes(n));
     if (!hits.length) continue;
-    for (const line of valueOf(e, '조치').replace(/\r/g, '').split('\n')) {
-      const root = actionRoot(line);
-      const action = (root ? line.slice(line.indexOf('→') + 1) : line).trim();
-      if (!action || action.length > 60) continue;
-      const forRoot = root ? (hits.includes(root) ? root : '') : (hits.length === 1 ? hits[0] : '');
-      if (root && !forRoot) continue;
-      if (seen.has(action)) continue;
-      seen.add(action);
-      out.push({ root: forRoot, action });
-      if (out.length >= max) return out;
+    const { rows } = parse3c(valueOf(e, key), hits);
+    for (const n of hits) {
+      for (const p of rows[n].picks) if (p !== CAUSE_UNKNOWN && !out[n].includes(p) && out[n].length < max) out[n].push(p);
     }
   }
   return out;

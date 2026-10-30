@@ -202,6 +202,7 @@ export const api = {
   async addWorkItem(kind, cat, name) { const it = await store.addWorkItem(kind, cat, name); flushSoon(); return it; },
   async workOps(ops) { const l = await store.workOps(ops); flushSoon(); return l; },
   async mergeWorkItems(sourceId, targetId) { const l = await store.mergeWorkItems(sourceId, targetId); flushSoon(); return l; },
+  async learnWork(id, lists) { const l = await store.learnWork(id, lists); flushSoon(); return l; },
 
   /** 확인할 것 — 홈 알림 · 설정 맨 위 칸이 쓴다 (기기 안에서만 센다, 빠르다). */
   async attention() {

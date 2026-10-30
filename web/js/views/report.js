@@ -2,7 +2,7 @@
 import { api } from '../api.js';
 import { MEDIA_FILE_LIMIT, MEDIA_TOTAL_LIMIT, MEDIA_FILE_LIMIT_TEXT, MEDIA_TOTAL_LIMIT_TEXT, preuploadMedia } from '../sheets.js';
 import {
-  $, closeModal, confirmDialog, copyText, h, hydrateMedia, loading, openSheet,
+  $, closeModal, confirmDialog, copyText, h, hydrateMedia, loading, openSheet, promptDialog,
   toast, when,
 } from '../ui.js';
 import { reportToText, shareReport } from '../share.js';
@@ -16,7 +16,7 @@ import { showSheetEntry } from './history.js';
 import {
   guidesForCode, parseParts, partsText, findWorks, splitIssues, sameRobot, isIssueLabel,
   cachedEntries, isCodeShaped, normCode, robotPast, serialOf, valueOf,
-  issueNames, mergeSymptom, scaffoldAction, fillAction, pastActions,
+  issueNames, mergeSymptom, freeSymptom, parse3c, build3c, pastPicks, CAUSE_UNKNOWN,
 } from '../insights.js';
 
 // ------------------------------------------------------------ 단계식 (v3.35 A안)
@@ -29,9 +29,10 @@ const MODE_KEY = 'bh_report_mode';
 export const STEPS = [
   { key: 'visit', short: '접수 건', ask: '어느 접수 건인가요?', hint: '접수를 누르면 매장명이 채워집니다' },
   { key: 'robot', short: '로봇', ask: '어느 로봇인가요?', hint: '이 매장에서 본 로봇은 위에서 바로 고릅니다' },
-  { key: 'problem', short: '문제', ask: '무엇이 문제인가요?', hint: '이슈 유형을 고르고 오류 코드 · 증상을 적습니다' },
+  { key: 'problem', short: '증상', ask: '무엇이 문제인가요?', hint: '증상 칸에서 이슈 유형을 고르고, 오류 코드 · 덧붙일 말을 적습니다' },
   { key: 'photo', short: '사진', ask: '현장 사진을 찍으세요', hint: '사진 · 영상은 여러 장 붙일 수 있습니다' },
-  { key: 'fix', short: '조치 · 결과', ask: '무엇을 했나요?', hint: '조치 내용과 처리 결과를 고릅니다' },
+  { key: 'cause', short: '원인', ask: '왜 그랬나요?', hint: '증상마다 원인을 고릅니다 · 못 찾았으면 [원인 모름]' },
+  { key: 'fix', short: '조치 · 결과', ask: '무엇을 했나요?', hint: '증상마다 조치를 고르고 처리 결과를 고릅니다' },
   { key: 'check', short: '확인', ask: '확인하고 올리기', hint: '빈 필수 칸은 [고치기] 로 그 단계로 갑니다' },
 ];
 const squashLabel = (t) => String(t || '').replace(/\s/g, '');
@@ -47,6 +48,7 @@ export function stepOf(field) {
   if (l.includes('시리얼') || l.includes('모델') || l.includes('로봇')) return 'robot';
   if (isIssueLabel(field.fieldLabel) || l.includes('오류코드') || l.includes('증상')) return 'problem';
   if (field.fieldType === 'MEDIA') return 'photo';
+  if (l === '원인') return 'cause';
   return 'fix';
 }
 /** 고르기 칸은 선택지가 이만큼 이하면 큰 버튼으로, 넘으면 목록(셀렉트)으로 */
@@ -179,10 +181,12 @@ export async function reportFormView(view) {
   // 이슈 유형 — 이슈 유형 목록에서 고른다 (v3.31~). 칸 이름 '이슈 유형' (예전 '작업')
   const workField = fields.find((f) => isIssueLabel(f.fieldLabel));
   const modelField = fields.find((f) => f.fieldLabel.replace(/\s/g, '').includes('로봇모델'));
-  // 이슈 유형 → 증상 요약 → 조치 내용 (v3.41)
+  // 3C — 증상(이슈 유형을 이 칸 안에서 고른다) → 원인 → 조치 (v3.42)
   const symptomField = fields.find((f) => f.fieldLabel.includes('증상'));
+  const causeField = fields.find((f) => squashLabel(f.fieldLabel) === '원인');
   const actionField = fields.find((f) => f.fieldLabel.includes('조치') && !squashLabel(f.fieldLabel).includes('처리'));
-  const resultField = fields.find((f) => squashLabel(f.fieldLabel).includes('처리결과'));
+  // 이슈 유형 목록 (원인 · 조치 목록이 여기 있다) — 고르기 창에서 바뀌면 다시 읽는다
+  let workList = workField ? await api.workList() : { cats: [], items: [] };
   const allGuides = codeField || workField ? (await api.listGuides()).items : [];
   const inventory = partsField ? (await api.listInventory()).items : [];
   let reportNumbers = ticketField ? await cachedRequestNumbers() : [];
@@ -199,7 +203,7 @@ export async function reportFormView(view) {
   const serialField = fields.find((f) => f.fieldLabel.includes('시리얼'));
   // 같은 로봇의 지난 기록 — 최근 3달 **받아 둔** 이력 (시트에 묻지 않는다 · 뒤에서 한 번 읽는다)
   let pastEntries = [];
-  cachedEntries(3).then((list) => { pastEntries = list; paintRobotHints(); paintActionHelper(); }).catch(() => {});
+  cachedEntries(3).then((list) => { pastEntries = list; paintRobotHints(); repaint3c(); }).catch(() => {});
 
   function mediaTile(fieldId, media, idx) {
     const isVideo = (media.mime || '').startsWith('video/');
@@ -353,6 +357,17 @@ export async function reportFormView(view) {
             </div>` : ''}
         </div>`;
     }
+    // 이슈 유형 — 증상 칸 안에서 고른다. 값은 그대로 들고 다닌다 (시트 '이슈 유형' 칸)
+    if (workField && symptomField && field.id === workField.id) {
+      return `<div class="field" hidden ${tag}>${label}<input type="hidden" data-input="${field.id}" value="${h(state.value)}" /></div>`;
+    }
+    // 원인 · 조치 — 이슈를 골랐으면 증상마다 한 줄 (아니면 아래의 여러 줄 칸)
+    if (is3c(field) && currentIssues().length) return c3Html(field, tag, label);
+    if (symptomField && workField && field.id === symptomField.id) {
+      return `<div class="field field--wide field--long" ${tag}>${label}
+        <textarea class="input textarea textarea--long" data-input="${field.id}"
+                  placeholder="덧붙일 말 — 언제부터 · 어떤 상황에서 (선택)">${h(freeSymptom(state.value, currentIssues()))}</textarea></div>`;
+    }
     if (field.fieldType === 'TEXTAREA') {
       // 여러 줄 항목은 두 칸을 다 쓴다 (디자인의 .field--wide)
       return `<div class="field field--wide field--long" ${tag}>${label}
@@ -501,10 +516,16 @@ export async function reportFormView(view) {
     root.addEventListener('click', onClick);
     hydrateMedia(view);        // 첨부 미리보기는 기기 안 파일에서 꺼낸다
     root.addEventListener('input', (ev) => {
-      const id = ev.target.dataset.input;
+      const el = /** @type {HTMLInputElement} */ (ev.target);
+      if (el.dataset.c3field) { edit3c(el.dataset.c3field, el.dataset.c3name || '', { memo: el.value }); return; }
+      const id = el.dataset.input;
       if (!id) return;
       const prev = values[id].value;
-      values[id].value = ev.target.value;
+      values[id].value = el.value;
+      // 증상 칸 — 보이는 것은 덧붙일 말뿐, 시트에는 이슈 이름 줄 + 덧붙일 말로 간다
+      if (symptomField && workField && id === symptomField.id) {
+        values[id].value = mergeSymptom(el.value, [], currentIssues());
+      }
       if (autoNumber && id === customerField.id) syncNumberFromCustomer(prev);
       if (storeField && id === storeField.id) {
         clearTimeout(visitTimer);
@@ -536,11 +557,12 @@ export async function reportFormView(view) {
         return;
       }
       values[id].value = ev.target.value;
+      // 증상 칸 — 보이는 것은 덧붙일 말뿐이라, 여기서도 이슈 이름 줄을 앞에 붙여 둔다 (input 과 같은 규칙)
+      if (symptomField && workField && id === symptomField.id) {
+        values[id].value = mergeSymptom(ev.target.value, [], currentIssues());
+      }
       if (ticketField && id === ticketField.id) fillStoreFromNumber(ev.target.value);
       if (modelField && id === modelField.id) paintWorkHelper();     // 그 로봇의 가이드로
-    });
-    root.addEventListener('focusin', (ev) => {
-      if (actionField && /** @type {HTMLElement} */ (ev.target).dataset.input === actionField.id) layActionLines({ onlyEmpty: true });
     });
     $('#reportForm').addEventListener('submit', submit);
     paintPastVisits();
@@ -556,7 +578,6 @@ export async function reportFormView(view) {
     const next = Math.max(0, Math.min(steps.length - 1, i));
     if (next === stepAt) return;
     stepAt = next;
-    if (actionField && steps[stepAt] && steps[stepAt].key === stepOf(actionField)) layActionLines({ onlyEmpty: true });
     autosave();
     render();
     view.scrollTop = 0;
@@ -625,16 +646,15 @@ export async function reportFormView(view) {
       codeBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="codeHelper"></div>');
       paintCodeHelper();
     }
-    const workBox = fieldBox(workField);
-    if (workBox && !workBox.querySelector('.field-helper')) {
-      workBox.classList.add('field--work');        // 글자칸 대신 고른 결과 + [이슈 유형 고르기]
-      workBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="workHelper"></div>');
+    // 이슈 유형은 증상 칸 안에서 고른다 (v3.42) — 증상 칸이 없는 옛 구성만 따로 둔다
+    const workBox = symptomField ? fieldBox(symptomField) : fieldBox(workField);
+    if (workField && workBox && !workBox.querySelector('#workHelper')) {
+      // 증상 칸은 덧붙일 말 칸을 살려 둔다 (옛 이슈 유형 칸은 글자칸 대신 고른 결과만)
+      workBox.classList.add(symptomField ? 'field--symptom' : 'field--work');
+      const label = workBox.querySelector('label');
+      if (label) label.insertAdjacentHTML('afterend', '<div class="field-helper" id="workHelper"></div>');
+      else workBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="workHelper"></div>');
       paintWorkHelper();
-    }
-    const actionBox = fieldBox(actionField);
-    if (actionBox && !actionBox.querySelector('.field-helper')) {
-      actionBox.insertAdjacentHTML('beforeend', '<div class="field-helper" id="actionHelper"></div>');
-      paintActionHelper();
     }
     const partsBox = fieldBox(partsField);
     if (partsBox && inventory.length && !partsBox.querySelector('.field-helper')) {
@@ -672,55 +692,91 @@ export async function reportFormView(view) {
     values[workField.id].value = text;
     const input = /** @type {HTMLInputElement} */ (document.querySelector(`#reportForm [data-input="${workField.id}"]`));
     if (input) input.value = text;
-    // 증상 요약 맨 위에 고른 이슈 이름을 한 줄씩 (v3.41) — 앞서 자동으로 넣은 줄만 갈아 끼운다
-    if (symptomField) setText(symptomField, mergeSymptom(values[symptomField.id].value, before, issueNames(text)));
+    // 증상 칸 — 시트에는 고른 이슈 이름 줄 + 덧붙일 말 (화면에는 덧붙일 말만)
+    if (symptomField) values[symptomField.id].value = mergeSymptom(values[symptomField.id].value, before, issueNames(text));
     paintWorkHelper();
-    paintActionHelper();
+    // 고르기 창에서 새 이슈를 만들었을 수 있다 — 목록을 다시 읽고 원인 · 조치 칸을 그 이슈로 다시 그린다
+    api.workList().then((l) => { workList = l; repaint3c(); }).catch(() => repaint3c());
   }
 
-  /** 칸 하나의 글자를 바꾸고 화면 칸도 맞춘다 */
-  function setText(field, text) {
-    values[field.id].value = text;
-    const el = /** @type {HTMLTextAreaElement} */ (document.querySelector(`#reportForm [data-input="${field.id}"]`));
-    if (el && el.value !== text) el.value = text;
+  /** 지금 고른 이슈 이름들 (원인 · 조치 칸의 줄) */
+  const currentIssues = () => (workField ? issueNames(values[workField.id].value) : []);
+
+  // ─── 원인 · 조치 — 증상마다 한 줄, 그 이슈의 목록에서 고른다 (v3.42 · 3C) ───────
+  const is3c = (field) => Boolean(field && workField && (field === causeField || field === actionField));
+  const kindOf3c = (field) => (field === causeField ? '원인' : '조치');
+
+  /** 이 이슈에서 고를 것 — 팀 목록 + 지난번에 고른 것 + 이번에 고른 것 (+ 원인 모름) */
+  function optionsFor(field, name, picks) {
+    const item = findWorks(name, workList)[0];
+    const team = item ? (field === causeField ? item.causes : item.actions) || [] : [];
+    const past = (pastPicks(pastEntries, [name], kindOf3c(field))[name]) || [];
+    const all = [...team, ...past, ...picks];
+    if (field === causeField) all.push(CAUSE_UNKNOWN);
+    return [...new Set(all.filter(Boolean))];
   }
 
-  /** 조치 내용에 깔 증상들 — 고른 이슈 유형, 없으면 증상 요약의 짧은 줄 (세 줄까지) */
-  function actionRoots() {
-    const names = workField ? issueNames(values[workField.id].value) : [];
-    if (names.length) return names;
-    if (!symptomField) return [];
-    return String(values[symptomField.id].value || '').split(/\r?\n/).map((l) => l.trim())
-      .filter((l) => l && l.length <= 40).slice(0, 3);
+  function c3Html(field, tag, label) {
+    const names = currentIssues();
+    const { rows, extra } = parse3c(values[field.id].value, names);
+    const multi = field === actionField;
+    const rowHtml = (name, i) => {
+      const r = rows[name];
+      return `
+        <div class="c3-row">
+          <div class="c3-row__head"><span class="c3-row__no tnum">${i + 1}</span><b class="c3-row__name">${h(name)}</b></div>
+          <div class="c3-chips" role="${multi ? 'group' : 'radiogroup'}" aria-label="${h(name)} ${kindOf3c(field)}">
+            ${optionsFor(field, name, r.picks).map((o) => {
+              const on = r.picks.includes(o);
+              return `<button class="c3-chip${on ? ' is-on' : ''}${o === CAUSE_UNKNOWN ? ' c3-chip--unknown' : ''}" type="button"
+                        data-act="c3-pick" data-field="${field.id}" data-name="${h(name)}" data-value="${h(o)}"
+                        role="${multi ? 'checkbox' : 'radio'}" aria-checked="${on}">${h(o)}</button>`;
+            }).join('')}
+            <button class="c3-chip c3-chip--add" type="button" data-act="c3-add" data-field="${field.id}"
+                    data-name="${h(name)}">＋ 직접</button>
+          </div>
+          ${multi ? `<input class="input c3-memo" type="text" data-c3field="${field.id}" data-c3name="${h(name)}"
+                     value="${h(r.memo)}" placeholder="메모 (선택) — 예) CN3 빠져 있었음" />` : ''}
+        </div>`;
+    };
+    return `<div class="field field--wide field--3c" ${tag}>${label}
+      <div class="c3-rows">${names.map(rowHtml).join('')}</div>
+      <textarea class="input textarea c3-extra" data-c3field="${field.id}" rows="2"
+                placeholder="그 밖의 메모 (선택)">${h(extra)}</textarea></div>`;
   }
 
   /**
-   * 조치 내용에 증상마다 '• 증상 → ' 줄을 깐다 (이미 있는 줄 · 직접 쓴 글은 그대로).
-   * 칸에 들어오거나 조치 단계로 넘어올 때는 **비어 있을 때만** — 깐 줄을 지우고 자유롭게 쓴 사람에게
-   * 다시 깔면 안 된다. 빠진 증상을 더하는 것은 처리 결과를 고를 때(현장에서 끝냈을 때)만.
+   * 증상 줄 하나를 고친다 — 고르기 (원인은 하나 · 조치는 여러 개) · 메모 · 그 밖의 메모
+   * @param {string} fieldId
+   * @param {string} name   증상(이슈) 이름. '' 이면 그 밖의 메모 칸
+   * @param {{ pick?: string, memo?: string }} [change]
    */
-  function layActionLines({ onlyEmpty = false } = {}) {
-    if (!actionField) return;
-    if (onlyEmpty && String(values[actionField.id].value || '').trim()) return;
-    const roots = actionRoots();
-    if (!roots.length) return;
-    const next = scaffoldAction(values[actionField.id].value, roots);
-    if (next !== values[actionField.id].value) setText(actionField, next);
-    paintActionHelper();
+  function edit3c(fieldId, name, { pick = '', memo = undefined } = {}) {
+    const field = fields.find((f) => f.id === fieldId);
+    if (!field) return;
+    const names = currentIssues();
+    const { rows, extra } = parse3c(values[field.id].value, names);
+    if (!name) {                                       // 그 밖의 메모 칸
+      values[field.id].value = build3c(rows, names, memo);
+      return;
+    }
+    const r = rows[name] || (rows[name] = { picks: [], memo: '' });
+    if (memo !== undefined) r.memo = memo.trim();
+    if (pick) {
+      const on = r.picks.includes(pick);
+      if (field === causeField) r.picks = on ? [] : [pick];
+      else r.picks = on ? r.picks.filter((x) => x !== pick) : [...r.picks, pick];
+    }
+    values[field.id].value = build3c(rows, names, extra);
   }
 
-  /** 조치 칸 아래 — 같은 이슈 유형으로 지난번에 한 조치. 누르면 그 증상 줄의 화살표 뒤에 들어간다 */
-  function paintActionHelper() {
-    const box = $('#actionHelper');
-    if (!box || !actionField) return;
-    const names = workField ? issueNames(values[workField.id].value) : [];
-    const list = pastActions(pastEntries, names, 3);
-    box.innerHTML = list.length ? `
-      <div class="past-acts"><span class="past-acts__label">지난번 조치</span>
-        ${list.map((a) => `
-          <button class="choice-btn choice-btn--hint" data-act="use-action" data-root="${h(a.root)}"
-                  data-action="${h(a.action)}" type="button">${a.root && names.length > 1 ? `${h(a.root)} · ` : ''}${h(a.action)}</button>`).join('')}
-      </div>` : '';
+  /** 원인 · 조치 칸을 다시 그린다 (고른 이슈가 바뀌었을 때) */
+  function repaint3c() {
+    for (const field of [causeField, actionField]) {
+      if (!field) continue;
+      const box = view.querySelector(`#reportForm [data-field-id="${field.id}"]`);
+      if (box) box.outerHTML = fieldHtml(field);
+    }
   }
 
   function paintCodeHelper() {
@@ -1076,9 +1132,32 @@ export async function reportFormView(view) {
       fillStoreFromNumber(value);
       return;
     }
-    if (act === 'use-action' && actionField) {
-      layActionLines({ onlyEmpty: true });
-      setText(actionField, fillAction(values[actionField.id].value, btn.dataset.root || '', btn.dataset.action || ''));
+    if (act === 'c3-pick') {
+      edit3c(btn.dataset.field, btn.dataset.name || '', { pick: btn.dataset.value || '' });
+      const field = fields.find((f) => f.id === btn.dataset.field);
+      if (field) {
+        const box = view.querySelector(`#reportForm [data-field-id="${field.id}"]`);
+        if (box) box.outerHTML = fieldHtml(field);
+      }
+      return;
+    }
+    if (act === 'c3-add') {
+      const field = fields.find((f) => f.id === btn.dataset.field);
+      const name = btn.dataset.name || '';
+      if (!field) return;
+      const kind = kindOf3c(field);
+      const text = String((await promptDialog(`${name} — ${kind} 직접 적기`, {
+        label: `목록에 없는 ${kind}. 적으면 팀 목록에도 더해집니다.`, okLabel: '넣기',
+      })) || '').trim();
+      if (!text) return;
+      edit3c(field.id, name, { pick: text });
+      const item = findWorks(name, workList)[0];
+      if (item) {
+        api.learnWork(item.id, field === causeField ? { causes: [text] } : { actions: [text] })
+          .then((l) => { workList = l; }).catch(() => {});
+      }
+      const box = view.querySelector(`#reportForm [data-field-id="${field.id}"]`);
+      if (box) box.outerHTML = fieldHtml(field);
       return;
     }
     if (act === 'choose') {
@@ -1091,7 +1170,6 @@ export async function reportFormView(view) {
         b.setAttribute('aria-checked', String(on));
       });
       if (modelField && id === modelField.id) paintWorkHelper();     // 그 로봇의 가이드로
-      if (resultField && id === resultField.id && value) layActionLines();
       return;
     }
     if (act === 'pick-robot') {

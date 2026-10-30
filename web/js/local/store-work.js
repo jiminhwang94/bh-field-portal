@@ -22,7 +22,9 @@ const KEY = 'workList';
 
 /**
  * @typedef {{ kind: string, name: string }} WorkCat
- * @typedef {{ id: string, kind: string, cat: string, name: string, aliases: string[], guides: string[], isNew?: boolean }} WorkItem
+ * @typedef {{ id: string, kind: string, cat: string, name: string, aliases: string[], guides: string[], isNew?: boolean,
+ *             causes?: string[], actions?: string[] }} WorkItem
+ *   causes · actions — 리포트의 원인 · 조치 칸에서 고를 것 (v3.42 · 3C)
  * @typedef {{ cats: WorkCat[], items: WorkItem[] }} WorkList
  */
 
@@ -63,11 +65,21 @@ export function applyWorkOps(list, ops) {
     } else if (op.op === 'item-upsert') {
       const it = op.item || {};
       if (!it.id || !String(it.name || '').trim() || !String(it.cat || '').trim()) continue;
+      const was = out.items.findIndex((x) => x.id === it.id);
+      const prev = was >= 0 ? out.items[was] : null;
+      // 원인 · 조치를 안 보냈으면(옛 앱 · 다른 것만 고침) 있던 것을 지킨다
+      const keep = (key) => (it[key] == null ? [...((prev && prev[key]) || [])] : uniq(it[key]));
       const row = { id: it.id, kind: kindOf(it.kind), cat: String(it.cat).trim(), name: String(it.name).trim(),
-                    aliases: uniq(it.aliases), guides: uniq(it.guides), isNew: Boolean(it.isNew) };
+                    aliases: uniq(it.aliases), guides: uniq(it.guides), isNew: Boolean(it.isNew),
+                    causes: keep('causes'), actions: keep('actions') };
       if (catAt(row.kind, row.cat) < 0) out.cats.push({ kind: row.kind, name: row.cat });
-      const was = out.items.findIndex((x) => x.id === row.id);
       if (was >= 0) out.items[was] = row; else out.items.push(row);
+    } else if (op.op === 'item-learn') {
+      // 현장에서 새로 적은 원인 · 조치 — 더하기만 한다 (v3.42)
+      const target = out.items.find((x) => x.id === op.id);
+      if (!target) continue;
+      target.causes = uniq([...(target.causes || []), ...(op.causes || [])]);
+      target.actions = uniq([...(target.actions || []), ...(op.actions || [])]);
     } else if (op.op === 'item-delete') {
       out.items = out.items.filter((x) => x.id !== op.id);
     }
@@ -120,6 +132,14 @@ export async function mergeWorkItems(sourceId, targetId) {
   const dst = list.items.find((i) => i.id === targetId);
   if (!src || !dst || src.id === dst.id) throw new Error('합칠 항목을 찾지 못했습니다.');
   const item = { ...dst, aliases: uniq([...dst.aliases, src.name, ...src.aliases]).filter((a) => a !== dst.name),
-                 guides: uniq([...dst.guides, ...src.guides]) };
+                 guides: uniq([...dst.guides, ...src.guides]),
+                 causes: uniq([...(dst.causes || []), ...(src.causes || [])]),
+                 actions: uniq([...(dst.actions || []), ...(src.actions || [])]) };
   return workOps([{ op: 'item-upsert', item }, { op: 'item-delete', id: src.id }]);
+}
+
+/** 현장에서 새로 적은 원인 · 조치를 그 이슈 유형의 목록에 더한다 (팀 공용 · v3.42) */
+export async function learnWork(id, { causes = [], actions = [] } = {}) {
+  if (!id || (!causes.length && !actions.length)) return getWorkList();
+  return workOps([{ op: 'item-learn', id, causes, actions }]);
 }

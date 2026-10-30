@@ -71,6 +71,8 @@ test('새 리포트 단계식 — 접수 카드 → 로봇 → 문제 → 사진
   await expect(page.locator('.wz-ask h2')).toHaveText('현장 사진을 찍으세요');
   await expect(page.locator('#wzSaved')).toContainText('저절로 저장됨');   // 단계를 옮길 때마다 기기에 담는다
   await page.locator('[data-act="step-next"]').click();
+  await expect(page.locator('.wz-ask h2')).toHaveText('왜 그랬나요?');      // v3.42 — 원인 단계 (이슈를 안 골랐으면 글칸)
+  await page.locator('[data-act="step-next"]').click();
   await field(page, '조치 내용').fill('단계식 조치');
   await pick(page, '처리 결과', '완료');
   await page.locator('[data-act="step-next"]').click();
