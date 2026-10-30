@@ -80,6 +80,14 @@ export function applyWorkOps(list, ops) {
       if (!target) continue;
       target.causes = uniq([...(target.causes || []), ...(op.causes || [])]);
       target.actions = uniq([...(target.actions || []), ...(op.actions || [])]);
+    } else if (op.op === 'item-forget') {
+      // 현장에서 잘못 적은 원인 · 조치를 뺀다 (고치기 = 빼기 + 더하기)
+      const target = out.items.find((x) => x.id === op.id);
+      if (!target) continue;
+      const dropC = uniq(op.causes);
+      const dropA = uniq(op.actions);
+      target.causes = (target.causes || []).filter((x) => !dropC.includes(x));
+      target.actions = (target.actions || []).filter((x) => !dropA.includes(x));
     } else if (op.op === 'item-delete') {
       out.items = out.items.filter((x) => x.id !== op.id);
     }
@@ -136,6 +144,20 @@ export async function mergeWorkItems(sourceId, targetId) {
                  causes: uniq([...(dst.causes || []), ...(src.causes || [])]),
                  actions: uniq([...(dst.actions || []), ...(src.actions || [])]) };
   return workOps([{ op: 'item-upsert', item }, { op: 'item-delete', id: src.id }]);
+}
+
+/**
+ * 현장에서 잘못 적은 원인 · 조치를 고친다 — 뺄 것(forget) · 더할 것(learn) 을 한 번에
+ * @param {string} id
+ * @param {{ forget?: { causes?: string[], actions?: string[] }, learn?: { causes?: string[], actions?: string[] } }} [change]
+ */
+export async function fixLearned(id, { forget = {}, learn = {} } = {}) {
+  if (!id) return getWorkList();
+  const ops = [{ op: 'item-forget', id, causes: forget.causes || [], actions: forget.actions || [] }];
+  if ((learn.causes || []).length || (learn.actions || []).length) {
+    ops.push({ op: 'item-learn', id, causes: learn.causes || [], actions: learn.actions || [] });
+  }
+  return workOps(ops);
 }
 
 /** 현장에서 새로 적은 원인 · 조치를 그 이슈 유형의 목록에 더한다 (팀 공용 · v3.42) */

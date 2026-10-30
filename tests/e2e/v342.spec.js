@@ -101,6 +101,29 @@ test('목록에 없는 원인은 [＋ 직접] — 고른 것이 되고 팀 목�
     const r = (await rowsOf(sheet, '이슈 유형 목록')).find((x) => x[2] === '로더 멈춤');
     return r ? r[7] : '';
   }, { timeout: 15000 }).toContain('와이어 걸림');
+
+  // 직접 적은 것은 고치고 지울 수 있다 — 팀이 정해 둔 것은 고치기 목록에 안 나온다
+  const row = box(page, '원인').locator('.c3-row', { hasText: '로더 멈춤' });
+  await row.locator('[data-act="c3-edit"]').click();
+  await expect(row.locator('[data-act="c3-rename"]')).toHaveCount(1);
+  await expect(row.locator('[data-act="c3-rename"]')).toContainText('와이어 걸림');
+  await row.locator('[data-act="c3-rename"]').click();
+  await page.locator('#modalRoot input').fill('와이어 꼬임');
+  await page.locator('#modalRoot [type="submit"]').click();
+  await row.locator('[data-act="c3-edit"]').click();                       // 완료
+  await expect(chip(page, '원인', '로더 멈춤', '와이어 꼬임')).toHaveClass(/is-on/);   // 고른 자리도 따라간다
+  await expect(chip(page, '원인', '로더 멈춤', '와이어 걸림')).toHaveCount(0);
+  const teamCauses = async () => {
+    const r = (await rowsOf(sheet, '이슈 유형 목록')).find((x) => x[2] === '로더 멈춤');
+    return r ? r[7] : '';
+  };
+  await expect.poll(teamCauses, { timeout: 15000 }).toBe('커넥터 접촉 불량, 모터 과부하, 와이어 꼬임');
+
+  await row.locator('[data-act="c3-edit"]').click();
+  await row.locator('[data-act="c3-del"]').click();
+  await expect(chip(page, '원인', '로더 멈춤', '와이어 꼬임')).toHaveCount(0);
+  await expect(row.locator('[data-act="c3-edit"]')).toHaveCount(0);       // 직접 적은 것이 없으면 [고치기] 도 없다
+  await expect.poll(teamCauses, { timeout: 15000 }).toBe('커넥터 접촉 불량, 모터 과부하');
 });
 
 test('단계식 — 증상 → 사진 → 원인 → 조치 · 결과', async ({ page, sheet }) => {
@@ -118,6 +141,10 @@ test('단계식 — 증상 → 사진 → 원인 → 조치 · 결과', async ({
   await page.locator('.wz-steps [data-go="cause"]').click();
   await expect(page.locator('.wz-ask h2')).toContainText('왜 그랬나요');
   await expect(chip(page, '원인', '로더 멈춤', '커넥터 접촉 불량')).toBeVisible();
+  // 원인 단계에는 원인 칸만 — 다른 단계의 칸은 숨는다
+  const shown = await page.locator('#reportForm [data-step]').evaluateAll((els) => els
+    .filter((e) => e.offsetParent !== null).map((e) => e.getAttribute('data-step')));
+  expect([...new Set(shown)]).toEqual(['cause']);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/3c-step-cause.png` });
   await page.locator('.wz-steps [data-go="fix"]').click();
   await expect(chip(page, '조치 내용', '로더 멈춤', '커넥터 재체결')).toBeVisible();

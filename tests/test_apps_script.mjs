@@ -1503,6 +1503,13 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
   check('현장에서 새로 적은 원인 · 조치는 뒤에 더하기만 (같은 것은 한 번)',
         JSON.stringify(it3.causes) === '["커넥터 접촉 불량","모터 과부하","와이어 걸림"]'
         && JSON.stringify(it3.actions) === '["커넥터 재체결","로더 교체","와이어 교체"]', JSON.stringify(it3));
+  w = call({ work: 'push', ops: [
+    { op: 'item-forget', id: 'w3c', causes: ['와이어 걸림'], actions: [] },
+    { op: 'item-learn', id: 'w3c', causes: ['와이어 꼬임'], actions: [] },
+  ] });
+  it3 = w.items.find((x) => x.id === 'w3c');
+  check('잘못 적은 것 고치기 = 빼기 + 더하기 (다른 것은 그대로)',
+        JSON.stringify(it3.causes) === '["커넥터 접촉 불량","모터 과부하","와이어 꼬임"]', JSON.stringify(it3.causes));
   w = call({ work: 'push', ops: [{ op: 'item-upsert', item: { ...it3, causes: ['커넥터 접촉 불량'] } }] });
   check('새 앱이 목록을 보내면 그것이 새 목록 (줄이기도 된다)', w.items.find((x) => x.id === 'w3c').causes.length === 1);
 }
