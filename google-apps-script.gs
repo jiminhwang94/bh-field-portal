@@ -3407,6 +3407,7 @@ function cleanupChunks(ss) {
  *     {op:'cat-add', kind, name} · {op:'cat-rename', kind, from, to} · {op:'cat-delete', kind, name}
  *     {op:'item-upsert', item} · {op:'item-delete', id}
  *     {op:'item-learn', id, causes, actions} — 현장에서 새로 적은 원인 · 조치를 **더하기만** (v3.42)
+ *     {op:'item-forget', id, causes, actions} — 현장에서 잘못 적은 것을 빼기 (고치기 = 빼기 + 더하기)
  */
 var WORK_SHEET = '이슈 유형 목록';
 var WORK_SHEET_OLD = '작업 목록';     // v3.31 이름 — 있으면 이름만 바꿔 쓴다
@@ -3553,6 +3554,20 @@ function applyWorkOps(list, ops) {
         target[key] = cur;
       });
       if (added.length) done.push('원인 · 조치 추가 ' + target.name + ': ' + added.join(', '));
+    } else if (op.op === 'item-forget') {
+      var fi = findItem(String(op.id || ''));
+      if (fi < 0) continue;
+      var from = list.items[fi];
+      var gone = [];
+      ['causes', 'actions'].forEach(function (key) {
+        var drop = splitList((op[key] || []).join(','));
+        from[key] = (from[key] || []).filter(function (x) {
+          if (drop.indexOf(x) < 0) return true;
+          gone.push(x);
+          return false;
+        });
+      });
+      if (gone.length) done.push('원인 · 조치 빼기 ' + from.name + ': ' + gone.join(', '));
     } else if (op.op === 'item-delete') {
       var del = findItem(String(op.id || ''));
       if (del >= 0) { done.push('삭제 ' + list.items[del].name); list.items.splice(del, 1); }

@@ -122,6 +122,7 @@ a.door:hover { box-shadow: inset 0 0 0 3px var(--color-accent); }
 .rf[data-mode="step"][data-cur="robot"] [data-step]:not([data-step="robot"]),
 .rf[data-mode="step"][data-cur="problem"] [data-step]:not([data-step="problem"]),
 .rf[data-mode="step"][data-cur="photo"] [data-step]:not([data-step="photo"]),
+.rf[data-mode="step"][data-cur="cause"] [data-step]:not([data-step="cause"]),
 .rf[data-mode="step"][data-cur="fix"] [data-step]:not([data-step="fix"]),
 .rf[data-mode="step"][data-cur="check"] [data-step]:not([data-step="check"]) { display: none !important; }
 /* 단계식에서는 폼 전체가 아니라 칸 묶음만 카드로 — 아래 막대가 화면 끝까지 닿게 */
@@ -249,6 +250,18 @@ a.door:hover { box-shadow: inset 0 0 0 3px var(--color-accent); }
 .c3-chip--unknown.is-on { background: var(--color-muted); border-color: var(--color-muted); border-style: solid; color: var(--color-bg); }
 .c3-chip--add { border-style: dashed; color: var(--color-accent); }
 .c3-memo { min-height: 56px; font-size: 17px; }
+/* 직접 적은 것 고치기 · 지우기 */
+.c3-edit {
+  margin-left: auto; min-height: 48px; padding: 0 16px; border-radius: 12px; cursor: pointer; font: inherit;
+  font-size: 15px; font-weight: 700; background: none; border: 2px solid var(--color-border); color: var(--color-accent);
+}
+.c3-row.is-editing { border-color: var(--color-accent); }
+.c3-row.is-editing .c3-edit { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-accent); }
+.c3-chips--edit { row-gap: 10px; }
+.c3-own { display: inline-flex; gap: 4px; }
+.c3-own .c3-chip i { font-style: normal; color: var(--color-accent); margin-left: 4px; }
+.c3-chip--del { min-width: 56px; padding: 0; color: var(--color-danger); border-color: var(--color-danger-border); }
+.c3-edit__hint { margin: 0; }
 .c3-extra { min-height: 64px; margin-top: 10px; }
 .robot-hints__label { flex-basis: 100%; font-size: 16px; font-weight: 800; color: var(--color-muted); }
 .robot-hint {

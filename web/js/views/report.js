@@ -716,15 +716,50 @@ export async function reportFormView(view) {
     return [...new Set(all.filter(Boolean))];
   }
 
+  // [＋ 직접] 으로 적은 것은 고치거나 지울 수 있다 (v3.42) — 팀이 정해 둔 항목은 여기서 못 지운다.
+  // 이 기기에서 적은 것을 기억해 두고, 팀 목록에도 지난번에도 없는 고른 값(옛 리포트를 고칠 때)도 같이 본다.
+  const OWN_KEY = 'bh_c3_own';
+  const ownKey = (field, name, text) => `${kindOf3c(field)}|${name}|${text}`;
+  function ownSet() {
+    try { return new Set(JSON.parse(localStorage.getItem(OWN_KEY) || '[]')); } catch { return new Set(); }
+  }
+  function saveOwn(set) {
+    try { localStorage.setItem(OWN_KEY, JSON.stringify([...set].slice(-300))); } catch { /* 이번만 */ }
+  }
+  function ownOptions(field, name, picks) {
+    const item = findWorks(name, workList)[0];
+    const team = item ? (field === causeField ? item.causes : item.actions) || [] : [];
+    const past = (pastPicks(pastEntries, [name], kindOf3c(field))[name]) || [];
+    const own = ownSet();
+    return optionsFor(field, name, picks).filter((o) => o !== CAUSE_UNKNOWN
+      && (own.has(ownKey(field, name, o)) || (picks.includes(o) && !team.includes(o) && !past.includes(o))));
+  }
+  let c3Editing = '';                // 고치는 중인 줄 — '칸 id|증상 이름'
+
   function c3Html(field, tag, label) {
     const names = currentIssues();
     const { rows, extra } = parse3c(values[field.id].value, names);
     const multi = field === actionField;
     const rowHtml = (name, i) => {
       const r = rows[name];
+      const own = ownOptions(field, name, r.picks);
+      const editing = c3Editing === `${field.id}|${name}` && own.length > 0;
+      const attrs = `data-field="${field.id}" data-name="${h(name)}"`;
       return `
-        <div class="c3-row">
-          <div class="c3-row__head"><span class="c3-row__no tnum">${i + 1}</span><b class="c3-row__name">${h(name)}</b></div>
+        <div class="c3-row${editing ? ' is-editing' : ''}">
+          <div class="c3-row__head"><span class="c3-row__no tnum">${i + 1}</span><b class="c3-row__name">${h(name)}</b>
+            ${own.length ? `<button class="c3-edit" type="button" data-act="c3-edit" ${attrs}>${editing ? '완료' : '직접 적은 것 고치기'}</button>` : ''}
+          </div>
+          ${editing ? `
+          <div class="c3-chips c3-chips--edit">
+            ${own.map((o) => `
+              <span class="c3-own">
+                <button class="c3-chip" type="button" data-act="c3-rename" ${attrs} data-value="${h(o)}">${h(o)} <i aria-hidden="true">✎</i></button>
+                <button class="c3-chip c3-chip--del" type="button" data-act="c3-del" ${attrs} data-value="${h(o)}"
+                        aria-label="${h(o)} 지우기">✕</button>
+              </span>`).join('')}
+          </div>
+          <p class="hint c3-edit__hint">이름을 누르면 고치고, ✕ 는 지웁니다. 팀 목록에서도 함께 바뀝니다.</p>` : `
           <div class="c3-chips" role="${multi ? 'group' : 'radiogroup'}" aria-label="${h(name)} ${kindOf3c(field)}">
             ${optionsFor(field, name, r.picks).map((o) => {
               const on = r.picks.includes(o);
@@ -734,8 +769,8 @@ export async function reportFormView(view) {
             }).join('')}
             <button class="c3-chip c3-chip--add" type="button" data-act="c3-add" data-field="${field.id}"
                     data-name="${h(name)}">＋ 직접</button>
-          </div>
-          ${multi ? `<input class="input c3-memo" type="text" data-c3field="${field.id}" data-c3name="${h(name)}"
+          </div>`}
+          ${multi && !editing ? `<input class="input c3-memo" type="text" data-c3field="${field.id}" data-c3name="${h(name)}"
                      value="${h(r.memo)}" placeholder="메모 (선택) — 예) CN3 빠져 있었음" />` : ''}
         </div>`;
     };
@@ -768,6 +803,33 @@ export async function reportFormView(view) {
       else r.picks = on ? r.picks.filter((x) => x !== pick) : [...r.picks, pick];
     }
     values[field.id].value = build3c(rows, names, extra);
+  }
+
+  /** 직접 적은 것을 고치거나(to) 지운다(to 없음) — 이 리포트 · 이 기기 기억 · 팀 목록을 함께 */
+  function changeOwn(field, name, from, to = '') {
+    const names = currentIssues();
+    const { rows, extra } = parse3c(values[field.id].value, names);
+    const r = rows[name];
+    if (r) r.picks = [...new Set(r.picks.map((x) => (x === from ? to : x)).filter(Boolean))];
+    values[field.id].value = build3c(rows, names, extra);
+    const own = ownSet();
+    own.delete(ownKey(field, name, from));
+    if (to) own.add(ownKey(field, name, to));
+    saveOwn(own);
+    const item = findWorks(name, workList)[0];
+    if (item) {
+      const key = field === causeField ? 'causes' : 'actions';
+      api.fixLearned(item.id, { forget: { [key]: [from] }, learn: to ? { [key]: [to] } : {} })
+        .then((l) => { workList = l; }).catch(() => {});
+      // 화면은 바로 — 받아 둔 목록에서도 고친다
+      const list = item[key] || [];
+      item[key] = [...new Set(list.map((x) => (x === from ? to : x)).filter(Boolean))];
+    }
+  }
+
+  function repaintBox(field) {
+    const box = view.querySelector(`#reportForm [data-field-id="${field.id}"]`);
+    if (box) box.outerHTML = fieldHtml(field);
   }
 
   /** 원인 · 조치 칸을 다시 그린다 (고른 이슈가 바뀌었을 때) */
@@ -1141,6 +1203,29 @@ export async function reportFormView(view) {
       }
       return;
     }
+    if (act === 'c3-edit') {
+      const key = `${btn.dataset.field}|${btn.dataset.name || ''}`;
+      c3Editing = c3Editing === key ? '' : key;
+      const field = fields.find((f) => f.id === btn.dataset.field);
+      if (field) repaintBox(field);
+      return;
+    }
+    if (act === 'c3-rename' || act === 'c3-del') {
+      const field = fields.find((f) => f.id === btn.dataset.field);
+      const name = btn.dataset.name || '';
+      const from = btn.dataset.value || '';
+      if (!field || !from) return;
+      let to = '';
+      if (act === 'c3-rename') {
+        to = String((await promptDialog(`${kindOf3c(field)} 고치기`, {
+          label: `${name} — 고친 이름은 팀 목록에도 바뀝니다.`, value: from, okLabel: '고치기',
+        })) || '').trim();
+        if (!to || to === from) return;
+      }
+      changeOwn(field, name, from, to);
+      repaintBox(field);
+      return;
+    }
     if (act === 'c3-add') {
       const field = fields.find((f) => f.id === btn.dataset.field);
       const name = btn.dataset.name || '';
@@ -1151,6 +1236,9 @@ export async function reportFormView(view) {
       })) || '').trim();
       if (!text) return;
       edit3c(field.id, name, { pick: text });
+      const own = ownSet();
+      own.add(ownKey(field, name, text));
+      saveOwn(own);
       const item = findWorks(name, workList)[0];
       if (item) {
         api.learnWork(item.id, field === causeField ? { causes: [text] } : { actions: [text] })
