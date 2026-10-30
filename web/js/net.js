@@ -44,6 +44,7 @@ export async function ensureFirstData() {
   if (!(await store.sheetInventoryOn())) {
     await store.ensureWorkField().catch(() => {});
     await store.ensureCustomerField().catch(() => {});
+    await store.ensureCauseField().catch(() => {});
     await store.ensureDefaultWork().catch(() => {});
   }
   if (added) toast(`리포트 항목 ${added}개를 준비했습니다.`, 'ok');
@@ -81,8 +82,10 @@ export async function catchUpFromSheet() {
     const madeWorkField = fields ? await store.ensureWorkField().catch(() => false) : false;
     // '고객사 리포트' 항목 (v3.39) — 접수 번호는 여기, 리포트 번호는 올릴 때 시트가 매긴다
     const madeCustomer = fields ? await store.ensureCustomerField().catch(() => false) : false;
+    // '원인' 항목 (v3.42 · 3C) — 증상 → 원인 → 조치
+    const madeCause = fields ? await store.ensureCauseField().catch(() => false) : false;
     if (changedSomething(fields) || changedSomething(inventory)
-        || changedSomething(guides) || changedSomething(work) || madeWorkField || madeCustomer) {
+        || changedSomething(guides) || changedSomething(work) || madeWorkField || madeCustomer || madeCause) {
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     }
     // 새 버전이 있는지도 함께 (띠만 바뀌고 화면은 건드리지 않는다)

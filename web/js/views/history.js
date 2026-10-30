@@ -103,6 +103,7 @@ const STATUS_ORDER = ['조치 진행 중', '교체 예정', '모니터링', '조
 function entryParts(entry) {
   const robot = [];
   const symptom = [];
+  const cause = [];                          // 3C 원인 (v3.42)
   const action = [];
   const result = [];
   const rest = [];
@@ -110,12 +111,13 @@ function entryParts(entry) {
     if (isIssueLabel(v.label)) continue;      // 증상 줄 위에 따로 (이슈 유형 한 줄)
     if (has(v.label, '로봇', '시리얼') || has(v.label, '오류 코드')) robot.push(v);
     else if (has(v.label, '증상')) symptom.push(v);
+    else if (String(v.label || '').replace(/\s/g, '') === '원인') cause.push(v);
     else if (has(v.label, '처리 결과', '결과')) result.push(v);
     else if (has(v.label, '조치')) action.push(v);
     else if (has(v.label, '식당', '매장')) continue;        // 제목에 이미 있다
     else rest.push(v);
   }
-  return { robot, symptom, action, result, rest };
+  return { robot, symptom, cause, action, result, rest };
 }
 
 function entryDetailHtml(entry) {
@@ -124,6 +126,7 @@ function entryDetailHtml(entry) {
   const ICON = {
     robot: 'M6 8h12v10H6zM9 8V5h6v3M9 12h.01M15 12h.01M10 15h4',
     symptom: 'M12 8v5M12 16.5v.01M12 3 2 20h20z',
+    cause: 'M11 4a7 7 0 1 0 0 14a7 7 0 1 0 0-14M20 20l-4-4',
     action: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z',
     media: 'M4 8h3l2-3h6l2 3h3v11H4zM12 10.5a3 3 0 1 0 0 6a3 3 0 1 0 0-6',
   };
@@ -161,6 +164,10 @@ function entryDetailHtml(entry) {
         <div class="hd2-body">${workOf(entry) ? `<span class="hd-work"><b>이슈 유형</b> ${issuesOf(entry)
             .map((t) => `<span title="${h(t)}">${h(t.split('›').pop().trim())}</span>`).join(' · ')}</span>` : ''}${text(p.symptom, '적힌 증상이 없습니다.')}${guideLinksHtml(entry)}</div>
       </div>
+      ${p.cause.some((v) => String(v.value || '').trim()) ? `<div class="hd2-row" data-sec="cause">
+        ${label('cause', '원인')}
+        <div class="hd2-body">${text(p.cause, '')}</div>
+      </div>` : ''}
       <div class="hd2-row" data-sec="action">
         ${label('action', '조치')}
         <div class="hd2-body">

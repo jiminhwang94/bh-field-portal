@@ -3398,17 +3398,21 @@ function cleanupChunks(ss) {
  *    대분류만 있는 줄(세부 작업 빈칸)은 '아직 항목이 없는 대분류' 를 지킨다.
  *  - 별칭: 합친 이름 · 다른 표현 (쉼표로). 검색과 통계가 같은 것으로 센다.
  *  - 상태: '새 항목' = 현장에서 새로 적은 것 (정리 대상)
+ *  - 원인 목록 · 조치 목록 (v3.42 · 3C): 리포트의 원인 · 조치 칸에서 고를 것 (쉼표로). 맨 오른쪽에 붙였다 —
+ *    옛 앱은 이 두 칸을 모르고 item-upsert 로 줄을 통째로 보낸다. 그 요청에 원인 · 조치가 없으면 있던 것을 지킨다.
  *
  * 올리기는 통째로 덮어쓰지 않고 **바뀐 것(ops)만** 적용한다 — 둘이 동시에 고쳐도 서로를 지우지 않는다.
  *   { work: 'pull' }  → { exists, cats: [{kind, name}], items: [{id, kind, cat, name, aliases, guides, isNew}] }
  *   { work: 'push', ops: [...] }
  *     {op:'cat-add', kind, name} · {op:'cat-rename', kind, from, to} · {op:'cat-delete', kind, name}
  *     {op:'item-upsert', item} · {op:'item-delete', id}
+ *     {op:'item-learn', id, causes, actions} — 현장에서 새로 적은 원인 · 조치를 **더하기만** (v3.42)
  */
 var WORK_SHEET = '이슈 유형 목록';
 var WORK_SHEET_OLD = '작업 목록';     // v3.31 이름 — 있으면 이름만 바꿔 쓴다
-var WORK_HEADER = ['구분', '대분류', '세부 항목', '별칭 (쉼표로)', '가이드 ID', '상태', 'ID(고치지 마세요)'];
-var WORK_WIDTHS = [110, 150, 220, 260, 200, 90, 160];
+var WORK_HEADER = ['구분', '대분류', '세부 항목', '별칭 (쉼표로)', '가이드 ID', '상태', 'ID(고치지 마세요)',
+                   '원인 목록 (쉼표로)', '조치 목록 (쉼표로)'];
+var WORK_WIDTHS = [110, 150, 220, 260, 200, 90, 160, 300, 300];
 var WORK_KINDS = ['로봇 이슈', '로봇 외 이슈'];
 
 function splitList(text) {
@@ -3454,7 +3458,9 @@ function readWork(ss) {
       kind: kind, cat: cat, name: name,
       aliases: splitList(rows[r][3]),
       guides: splitList(rows[r][4]),
-      isNew: String(rows[r][5] || '').indexOf('새') >= 0
+      isNew: String(rows[r][5] || '').indexOf('새') >= 0,
+      causes: splitList(rows[r][7]),
+      actions: splitList(rows[r][8])
     });
   }
   return { exists: true, cats: cats, items: items };
@@ -3471,11 +3477,11 @@ function writeWork(ss, list) {
       var cat = list.cats[c];
       if (cat.kind !== kind) continue;
       var mine = list.items.filter(function (it) { return it.kind === kind && it.cat === cat.name; });
-      if (!mine.length) lines.push([kind, cat.name, '', '', '', '', '']);
+      if (!mine.length) lines.push([kind, cat.name, '', '', '', '', '', '', '']);
       for (var i = 0; i < mine.length; i++) {
         var it = mine[i];
         lines.push([kind, cat.name, it.name, (it.aliases || []).join(', '), (it.guides || []).join(', '),
-                    it.isNew ? '새 항목' : '', it.id]);
+                    it.isNew ? '새 항목' : '', it.id, (it.causes || []).join(', '), (it.actions || []).join(', ')]);
       }
     }
   }
@@ -3521,11 +3527,32 @@ function applyWorkOps(list, ops) {
       if (!id || !nm || !ct) continue;
       var ik = WORK_KINDS.indexOf(item.kind) >= 0 ? item.kind : WORK_KINDS[0];
       if (findCat(ik, ct) < 0) list.cats.push({ kind: ik, name: ct });
-      var row = { id: id, kind: ik, cat: ct, name: nm, aliases: splitList((item.aliases || []).join(',')),
-                  guides: splitList((item.guides || []).join(',')), isNew: Boolean(item.isNew) };
       var was = findItem(id);
+      var prev = was >= 0 ? list.items[was] : null;
+      // 옛 앱은 원인 · 조치를 모른다 — 안 보냈으면 있던 것을 지킨다 (보냈으면 그것이 새 목록)
+      var keep = function (key) {
+        if (item[key] === undefined || item[key] === null) return prev ? (prev[key] || []) : [];
+        return splitList((item[key] || []).join(','));
+      };
+      var row = { id: id, kind: ik, cat: ct, name: nm, aliases: splitList((item.aliases || []).join(',')),
+                  guides: splitList((item.guides || []).join(',')), isNew: Boolean(item.isNew),
+                  causes: keep('causes'), actions: keep('actions') };
       if (was >= 0) list.items[was] = row; else list.items.push(row);
       done.push((was >= 0 ? '고침 ' : '추가 ') + ik + ' › ' + ct + ' › ' + nm);
+    } else if (op.op === 'item-learn') {
+      // 현장에서 새로 적은 원인 · 조치 — 있던 목록 뒤에 더하기만 한다 (두 태블릿이 동시에 적어도 안 지워진다)
+      var li = findItem(String(op.id || ''));
+      if (li < 0) continue;
+      var target = list.items[li];
+      var added = [];
+      ['causes', 'actions'].forEach(function (key) {
+        var cur = target[key] || [];
+        splitList((op[key] || []).join(',')).forEach(function (x) {
+          if (cur.indexOf(x) < 0) { cur.push(x); added.push(x); }
+        });
+        target[key] = cur;
+      });
+      if (added.length) done.push('원인 · 조치 추가 ' + target.name + ': ' + added.join(', '));
     } else if (op.op === 'item-delete') {
       var del = findItem(String(op.id || ''));
       if (del >= 0) { done.push('삭제 ' + list.items[del].name); list.items.splice(del, 1); }

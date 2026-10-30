@@ -217,6 +217,7 @@
 .hd2-row[data-sec="robot"]   { --sec: var(--st-doing); --sec-tint: var(--st-doing-tint); }
 .hd2-row[data-sec="symptom"] { --sec: var(--st-swap);  --sec-tint: var(--st-swap-tint); background: var(--st-swap-soft); }
 .hd2-row[data-sec="action"]  { --sec: var(--st-done);  --sec-tint: var(--st-done-tint); background: var(--st-done-soft); }
+.hd2-row[data-sec="cause"]   { --sec: var(--st-watch); --sec-tint: var(--st-watch-tint); }   /* 3C 원인 (v3.42) */
 .hd2-label { display: flex; align-items: flex-start; gap: 10px; padding: 16px 0 16px 20px; font-size: 16px; font-weight: 850; color: var(--sec); white-space: nowrap; }
 .hd2-label .tnum { margin-left: 4px; }
 .hd2-ico { width: 34px; height: 34px; flex: none; margin-top: -6px; border-radius: 10px; display: grid; place-items: center; background: var(--sec-tint); }

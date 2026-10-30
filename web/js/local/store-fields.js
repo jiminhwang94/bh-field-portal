@@ -99,7 +99,8 @@ export async function reorderFields(orderedIds) {
  *     사용 부품   | 이슈 유형
  *     오류 코드
  *     현장 사진            ← 한 줄
- *     증상 요약            ← 한 줄
+ *     증상 요약            ← 한 줄 (이슈 유형을 이 칸 안에서 고른다 · v3.42)
+ *     원인                 ← 한 줄 (v3.42 · 3C)
  *     조치 내용            ← 한 줄
  *     처리 결과
  */
@@ -115,6 +116,7 @@ export const DEFAULT_FIELDS = [
   { fieldLabel: '오류 코드', fieldType: 'TEXT', options: null, isRequired: false },
   { fieldLabel: '현장 사진', fieldType: 'MEDIA', options: null, isRequired: false },
   { fieldLabel: '증상 요약', fieldType: 'TEXTAREA', options: null, isRequired: true },
+  { fieldLabel: '원인', fieldType: 'TEXTAREA', options: null, isRequired: false },   // 증상마다 고른 원인 (v3.42 · 3C)
   { fieldLabel: '조치 내용', fieldType: 'TEXTAREA', options: null, isRequired: true },
   { fieldLabel: '처리 결과', fieldType: 'DROPDOWN',
     options: '완료,재방문 필요,부품 대기,모니터링', isRequired: true },
@@ -200,6 +202,24 @@ export async function ensureCustomerField() {
   const ids = sorted.map((f) => f.id).filter((id) => id !== made.id);
   const number = sorted.find((f) => fieldLabelKey(f.fieldLabel) === '리포트번호');
   const at = number ? ids.indexOf(number.id) + 1 : 0;
+  ids.splice(at, 0, made.id);
+  await reorderFields(ids);
+  return true;
+}
+
+/**
+ * '원인' 항목 (v3.42 · 3C: 증상 → 원인 → 조치) — 없으면 만들어 '증상 요약' 바로 뒤에 둔다.
+ * 시트를 쓰는 기기는 항목을 받은 뒤에 부른다 — 팀 공통 항목으로 올라간다.
+ */
+export async function ensureCauseField() {
+  const rows = await idb.getAll('fields');
+  if (rows.some((f) => fieldLabelKey(f.fieldLabel) === '원인')) return false;
+  const made = await saveField({ fieldLabel: '원인', fieldType: 'TEXTAREA', isRequired: false });
+  const sorted = (await idb.getAll('fields')).sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0));
+  const ids = sorted.map((f) => f.id).filter((id) => id !== made.id);
+  const symptom = sorted.find((f) => fieldLabelKey(f.fieldLabel).includes('증상'));
+  const action = sorted.find((f) => fieldLabelKey(f.fieldLabel).includes('조치내용'));
+  const at = symptom ? ids.indexOf(symptom.id) + 1 : action ? ids.indexOf(action.id) : ids.length;
   ids.splice(at, 0, made.id);
   await reorderFields(ids);
   return true;

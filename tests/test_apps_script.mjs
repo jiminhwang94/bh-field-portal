@@ -1482,6 +1482,29 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
         tab.getRange(2, 1).getValue() === '구분' && tab.getRange(3, 1).getValue() === '로봇 이슈');
   check('이슈 유형 목록 변경이 변경기록에 남는다', ss.getSheetByName('변경기록').getRange(3, 1, ss.getSheetByName('변경기록').getLastRow() - 2, 6)
         .getValues().some((r) => r[3] === '이슈 유형 목록'));
+
+  console.log('── 3C 원인 · 조치 목록 (v3.42) — 맨 오른쪽 두 칸 · 옛 앱이 고쳐도 지킨다 · 현장에서 더하기');
+  w = call({ work: 'push', ops: [{ op: 'item-upsert', item: { id: 'w3c', kind: '로봇 이슈', cat: '로더', name: '로더 멈춤',
+    aliases: [], guides: [], causes: ['커넥터 접촉 불량', '모터 과부하'], actions: ['커넥터 재체결', '로더 교체'] } }] });
+  let it3 = w.items.find((x) => x.id === 'w3c');
+  check('원인 · 조치 목록을 받아 돌려준다', JSON.stringify(it3.causes) === '["커넥터 접촉 불량","모터 과부하"]'
+        && JSON.stringify(it3.actions) === '["커넥터 재체결","로더 교체"]', JSON.stringify(it3));
+  check('탭 머리줄 맨 오른쪽 두 칸이 원인 목록 · 조치 목록 (옛 칸 자리는 그대로)',
+        tab.getRange(2, 7).getValue() === 'ID(고치지 마세요)' && tab.getRange(2, 8).getValue() === '원인 목록 (쉼표로)'
+        && tab.getRange(2, 9).getValue() === '조치 목록 (쉼표로)');
+  // 옛 앱(v3.41 이하)은 원인 · 조치를 모르고 줄을 통째로 보낸다 — 별칭만 고쳤는데 목록이 지워지면 안 된다
+  w = call({ work: 'push', ops: [{ op: 'item-upsert', item: { id: 'w3c', kind: '로봇 이슈', cat: '로더', name: '로더 멈춤',
+    aliases: ['로더 정지'], guides: [] } }] });
+  it3 = w.items.find((x) => x.id === 'w3c');
+  check('옛 앱이 항목을 고쳐도 원인 · 조치 목록은 지킨다', it3.causes.length === 2 && it3.actions.length === 2
+        && it3.aliases[0] === '로더 정지', JSON.stringify(it3));
+  w = call({ work: 'push', ops: [{ op: 'item-learn', id: 'w3c', causes: ['와이어 걸림', '모터 과부하'], actions: ['와이어 교체'] }] });
+  it3 = w.items.find((x) => x.id === 'w3c');
+  check('현장에서 새로 적은 원인 · 조치는 뒤에 더하기만 (같은 것은 한 번)',
+        JSON.stringify(it3.causes) === '["커넥터 접촉 불량","모터 과부하","와이어 걸림"]'
+        && JSON.stringify(it3.actions) === '["커넥터 재체결","로더 교체","와이어 교체"]', JSON.stringify(it3));
+  w = call({ work: 'push', ops: [{ op: 'item-upsert', item: { ...it3, causes: ['커넥터 접촉 불량'] } }] });
+  check('새 앱이 목록을 보내면 그것이 새 목록 (줄이기도 된다)', w.items.find((x) => x.id === 'w3c').causes.length === 1);
 }
 
 console.log('='.repeat(62));
