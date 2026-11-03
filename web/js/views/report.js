@@ -327,13 +327,22 @@ export async function reportFormView(view) {
   }
 
   /** 번호를 고르면 그 접수의 매장명을 (매장명 칸이 비어 있을 때만) 같이 채운다. */
+  // 고객사 리포트를 고를 때마다 매장명을 그 리포트 매장으로 바꾼다 (v3.42.3 — 전에는 처음 고른 것만 들어갔다).
+  // '없음'으로 돌리면 카드가 넣은 매장명만 지운다 — 손으로 적은 매장명은 둔다.
+  let storeFromTicket = '';
   function fillStoreFromNumber(number) {
+    if (!storeField) return;
     const item = reportNumbers.find((it) => it.number === number);
-    if (!item || !item.store || !storeField) return;
-    if (String(values[storeField.id].value || '').trim()) return;
-    values[storeField.id].value = item.store;
+    const now = String(values[storeField.id].value || '').trim();
+    let next;
+    if (item && item.store) next = item.store;
+    else if (storeFromTicket && now === storeFromTicket) next = '';
+    else return;
+    storeFromTicket = next;
+    if (next === now) return;
+    values[storeField.id].value = next;
     const el = view.querySelector(`[data-input="${storeField.id}"]`);
-    if (el) el.value = item.store;
+    if (el) el.value = next;
     paintPastVisits();
     paintRobotHints();
   }
