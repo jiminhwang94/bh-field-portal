@@ -1,6 +1,6 @@
 // v3.42 — 3C: 증상(이슈 유형을 증상 칸 안에서) → 원인 → 조치. 원인 · 조치는 그 이슈의 목록에서 고른다.
 const { test, expect, openApp, pick } = require('./fixtures.js');
-const { seed, GUIDES } = require('./seed.js');
+const { seed, GUIDES, NOW } = require('./seed.js');   // 시험 자료가 10월 탭이라 시계를 10월에 둔다
 
 const SHOTS = process.env.SHOTS || '';
 const field = (page, label) => page.locator('#reportForm .field', {
@@ -37,6 +37,7 @@ const chip = (page, label, name, value) => box(page, label).locator('.c3-row', {
   .locator('.c3-chip', { hasText: value });
 
 test('증상 칸 안에서 이슈 유형을 고르고 → 증상마다 원인 · 조치를 고른다 → 시트에 증상별 한 줄씩', async ({ page, sheet }) => {
+  await page.clock.setFixedTime(NOW);
   await seed(sheet);
   await seedWork(sheet);
   await openApp(page, '#/');
@@ -152,6 +153,7 @@ test('단계식 — 증상 → 사진 → 원인 → 조치 · 결과', async ({
 });
 
 test('지난번에 고른 조치도 버튼으로 나온다 (팀 목록에 없어도)', async ({ page, sheet }) => {
+  await page.clock.setFixedTime(NOW);
   await seed(sheet);
   await seedWork(sheet);
   const H = ['작성일시', '작성자', '리포트 번호', '매장명', '로봇 시리얼', '로봇 모델', '이슈 유형', '증상 요약', '원인', '조치 내용', '처리 결과', '상태'];

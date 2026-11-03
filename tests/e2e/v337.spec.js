@@ -85,3 +85,19 @@ test('카드에서 바로 +/− · 이름을 누르면 상세 창', async ({ pag
   await card.locator('.inv-pick').click();
   await expect(page.locator('#modalRoot')).toContainText('숫자로 바로 입력');
 });
+
+test('제목 줄 — 버튼은 한 묶음 · 보충 필요 띠가 거르기 줄에 가려지지 않는다 (v3.42.2)', async ({ page, sheet }) => {
+  const { seed } = require('./seed.js');
+  await seed(sheet);                                                         // 그리퍼 패드가 부족 — 띠가 뜬다
+  for (const [w, hgt] of [[1280, 800], [962, 601], [800, 1280]]) {
+    await page.setViewportSize({ width: w, height: hgt });
+    await openApp(page, '#/inventory');
+    await page.locator('#btn-update').click();
+    await expect(page.locator('.inv-alert')).toBeVisible({ timeout: 15000 });
+    const tops = await page.locator('.inv-head__acts .btn').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    expect(new Set(tops).size, `${w} 버튼이 한 줄`).toBe(1);
+    const alertBottom = await page.locator('.inv-alert').evaluate((e) => e.getBoundingClientRect().bottom);
+    const filterTop = await page.locator('.inv-filter').evaluate((e) => e.getBoundingClientRect().top);
+    expect(alertBottom, `${w} 띠가 거르기 줄 위에서 끝난다`).toBeLessThanOrEqual(filterTop + 1);
+  }
+});

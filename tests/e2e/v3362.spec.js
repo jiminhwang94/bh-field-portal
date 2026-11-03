@@ -1,5 +1,6 @@
 // v3.36.2 — 이력 [새로고침] · 재고 분류 머리줄
 const { test, expect, openApp } = require('./fixtures.js');
+const { NOW } = require('./seed.js');   // 시험 자료가 10월 탭이라 시계를 10월에 둔다 (11월이 되자 이번 달 이력이 비어 깨졌다)
 
 const H = ['작성일시', '작성자', '리포트 번호', '매장명', '로봇 시리얼', '로봇 모델', '증상 요약', '조치 내용', '처리 결과', '현장 사진', '상태'];
 const report = (when, store) => [when, '검사봇', 'P1', store, 'SN-1', 'Gen.1(D1)', '증상', '조치', '완료', '', '조치 완료'];
@@ -7,6 +8,7 @@ const tag = (body) => (body.reports ? `reports:${body.reports}` : Object.keys(bo
 
 test('막 설치한 태블릿 — 시트 답을 기다리는 동안 이력이 "없습니다" 가 아니라 "받는 중"', async ({ page, sheet }) => {
   await sheet.call({ sheetName: '2026-10', headers: H, row: report('2026-10-21 09:10', '느린점') });
+  await page.clock.setFixedTime(NOW);
   let release;
   const gate = new Promise((r) => { release = r; });
   await page.route('**/127.0.0.1:8791/exec', async (route) => {
@@ -23,6 +25,7 @@ test('막 설치한 태블릿 — 시트 답을 기다리는 동안 이력이 "�
 
 test('위 [새로고침] — 재고 받기가 실패해도 이력을 새로 받고, 달 목록도 다시 받는다', async ({ page, sheet }) => {
   await sheet.call({ sheetName: '2026-10', headers: H, row: report('2026-10-21 09:10', '먼저점') });
+  await page.clock.setFixedTime(NOW);
   const calls = [];
   let inventoryDown = false;
   await page.route('**/127.0.0.1:8791/exec', async (route) => {
