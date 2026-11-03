@@ -373,10 +373,13 @@ export async function inventoryView(view) {
           ${vehicleTabs}
           <span class="page-head__spacer"></span>
           ${current ? `
-            ${sheetMode ? `
-              <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
-            ${items.length > 1 ? '<button class="btn btn-secondary" data-act="order-start" type="button">순서 바꾸기</button>' : ''}
-            <button class="btn btn-secondary" data-act="add-item" type="button">＋ 품목 추가</button>` : ''}
+            <!-- 버튼은 한 묶음으로 — 따로 줄을 바꾸면 차량 탭 옆에 하나만 남아 들쭉날쭉했다 (v3.42.2) -->
+            <div class="inv-head__acts">
+              ${sheetMode ? `
+                <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
+              ${items.length > 1 ? '<button class="btn btn-secondary" data-act="order-start" type="button">순서 바꾸기</button>' : ''}
+              <button class="btn btn-secondary" data-act="add-item" type="button">＋ 품목 추가</button>
+            </div>` : ''}
         </div>
         ${current ? `<div id="invAlert">${alertHtml()}</div>` : ''}
 

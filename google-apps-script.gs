@@ -2410,11 +2410,13 @@ function handleReportNumbers() {
   }
 
   var items = [];
+  // 왜 목록에 안 나오는지 (v3.42.2) — 콘솔에 있는 접수가 앱에 안 보일 때 무엇에 걸렸는지 센다
+  var why = { rows: values.length - 1, notField: 0, closed: 0, noNumber: 0 };
   for (var r = 1; r < values.length; r++) {
-    if (String(values[r][iResult] || '').indexOf(CONSUMER_REQUEST_MARK) < 0) continue;
-    if (!isConsoleOpen(values[r][iConsole])) continue;
+    if (String(values[r][iResult] || '').indexOf(CONSUMER_REQUEST_MARK) < 0) { why.notField++; continue; }
+    if (!isConsoleOpen(values[r][iConsole])) { why.closed++; continue; }
     var number = String(values[r][iNum] || '').trim();
-    if (!number) continue;
+    if (!number) { why.noNumber++; continue; }
     var when = iWhen < 0 ? '' : values[r][iWhen];
     items.push({
       number: number,
@@ -2424,8 +2426,16 @@ function handleReportNumbers() {
     });
   }
   items.reverse();                       // 최근 접수가 앞
+  // 맨 아래(최근) 다섯 줄의 판단 재료 — 번호 · 조치결과 · 콘솔 상태 (이름 · 내용은 보내지 않는다)
+  var recent = [];
+  for (var k = values.length - 1; k >= 1 && recent.length < 5; k--) {
+    recent.push({ number: String(values[k][iNum] || '').trim(), result: String(values[k][iResult] || '').trim(),
+                  console: String(values[k][iConsole] || '').trim() });
+  }
+  why.recent = recent;
+  why.tab = sheet.getName();
   // statusHeader — 어느 열을 '콘솔 상태' 로 보았는지 (시트가 바뀌었을 때 확인용)
-  return json({ ok: true, items: items.slice(0, 100), statusHeader: head[iConsole] });
+  return json({ ok: true, items: items.slice(0, 100), statusHeader: head[iConsole], why: why });
 }
 
 function handleReports(ss, body) {

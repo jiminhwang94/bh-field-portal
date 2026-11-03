@@ -251,6 +251,14 @@ const midItem = result.items.find((it) => it.number === 'P260914-01');
 check('매장명과 문제 내용이 딸려 온다',
       midItem && midItem.store === '테스트' && midItem.problem === '멈춰 있어요',
       JSON.stringify(midItem));
+// v3.42.2 — 콘솔에 있는 접수가 앱에 안 보일 때 무엇에 걸렸는지
+const why = result.why || {};
+check('왜 빠졌는지 센다 (필드팀 아님 · 끝난 건 · 번호 없음) — 합이 맞다',
+      why.rows === result.items.length + why.notField + why.closed + why.noNumber
+        && why.notField > 0 && why.closed > 0, JSON.stringify(why));
+check('최근 다섯 줄의 번호 · 조치결과 · 콘솔 상태를 보여 준다 (매장 · 내용은 빼고)',
+      Array.isArray(why.recent) && why.recent.length > 0 && why.recent.length <= 5
+        && 'console' in why.recent[0] && !('store' in why.recent[0]), JSON.stringify(why.recent));
 
 // ─────────────────────────────────────────────── 리포트 항목 설정
 //
