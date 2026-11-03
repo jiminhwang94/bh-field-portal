@@ -33,8 +33,15 @@ test('리포트 번호 — 고객사 리포트를 고르면 그 번호 그대로
   await expect(page.locator('.auto-no__value')).toHaveText('P260912-01');     // 고객사 번호가 리포트 번호로
   await expect(page.locator('.auto-no__hint')).toContainText('고객사 리포트 번호를 그대로');
   await expect(field(page, '매장명')).toHaveValue('홍기와');                    // 고르면 매장이 채워진다
+  await pick(page, '고객사 리포트', 'P260914-01');                              // 다른 카드를 고르면 매장도 따라간다 (v3.42.3)
+  await expect(field(page, '매장명')).toHaveValue('테스트');
+  await expect(page.locator('.auto-no__value')).toHaveText('P260914-01');
   await page.locator('.ticket--none').click();                                // 되돌리면 번호도 자동으로
   await expect(page.locator('.auto-no__value')).toHaveText('자동');
+  await expect(field(page, '매장명')).toHaveValue('');                         // 카드가 넣은 매장명은 같이 빠진다
+  await field(page, '매장명').fill('손으로적은곳');
+  await page.locator('.ticket--none').click();
+  await expect(field(page, '매장명')).toHaveValue('손으로적은곳');              // 손으로 적은 것은 둔다
   await pick(page, '고객사 리포트', 'P260912-01');
   await finish(page, '홍기와', '고객사 건 조치');
   await expect.poll(async () => cellOf(monthRows(await sheet.dump()), '리포트 번호', '고객사 건 조치'), { timeout: 15000 })
