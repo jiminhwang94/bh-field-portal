@@ -127,7 +127,7 @@ test('이력 카드 — 증상 · 조치가 보이고, 같은 로봇 같은 코�
   await expect(past.locator('.past__warn')).toContainText('지난번 조치: 벨트 장력 조정');
 });
 
-test('가이드 — 한 단계씩 [다 했어요] 로 넘기고, 끝나면 마친 단계가 조치 칸에 들어간 리포트로', async ({ page, sheet }) => {
+test('가이드 — 한 단계씩 [다 했어요] 로 넘기고, 끝나면 그 로봇의 가이드 목록으로', async ({ page, sheet }) => {
   await seed(sheet);
   await seedRepeat(sheet);
   await page.clock.setFixedTime(NOW);
@@ -142,12 +142,7 @@ test('가이드 — 한 단계씩 [다 했어요] 로 넘기고, 끝나면 마�
   await expect(page.locator('.gs-no')).toHaveText('2 / 2');
   await expect(page.locator('.gs-item.is-done')).toHaveCount(1);
   await expect(page.locator('[data-act="done-next"]')).toHaveText('완료');    // 마지막 단계는 [완료]
-  await page.locator('[data-act="write-report"]').click();                 // 리포트는 위 버튼으로
-  await expect(page).toHaveURL(/#\/report\/new$/);
-  await expect(field(page, '매장명')).toHaveValue('옥동식 서초점');
-  await expect(field(page, '로봇 시리얼')).toHaveValue('SN-0009');
-  await expect(field(page, '오류 코드')).toHaveValue('E-101');
-  await expect(field(page, '조치 내용')).toHaveValue(/커넥터 CN3/);       // 마친 단계만 들어간다
+  await expect(page.locator('[data-act="write-report"]')).toHaveCount(0);   // [이 작업으로 리포트 쓰기] 는 뺐다 (v3.43.1)
   // 마지막 단계에서 [완료] → 그 로봇의 가이드 목록으로 돌아간다
   await openApp(page, `#/guides/${GUIDES[0].id}`);
   await page.locator('[data-act="go-step"][data-idx="1"]').click();

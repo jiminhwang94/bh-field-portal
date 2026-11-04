@@ -667,6 +667,9 @@ iframe.step__img--edit, video.step__img--edit { width: 260px; height: 150px; }
   padding: var(--space-6);
   display: flex; flex-direction: column; gap: var(--space-4);
 }
+/* 내용이 길면(패치 내용 · 운행일지 항목 관리) 칸들이 눌려 제목 줄이 납작해지고, ✕ 버튼이 그 줄 밖으로
+   삐져나가 위 테두리가 잘렸다 — 눌리지 않고 상자가 대신 스크롤한다 (v3.43.1) */
+.modal__box > * { flex-shrink: 0; }
 .modal__title { font-weight: 600; font-size: 21px; letter-spacing: -0.02em; margin: 0; }
 .modal__msg { margin: 0; color: var(--color-muted); line-height: 1.7; white-space: pre-wrap; }
 

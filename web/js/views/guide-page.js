@@ -153,7 +153,6 @@ export async function guideDetailView(view, guideId, query = null) {
             <span class="spacer"></span>
             <!-- 고치기 · 지우기는 현장에서 드물다 — [⋯] 안으로 (v3.35). 주 동작은 아래 [다 했어요] 하나 -->
             <button class="btn btn-secondary btn--icon gd-more" data-act="more" type="button" aria-label="가이드 수정 · 삭제">⋯</button>
-            <button class="btn ${stepView ? 'btn-secondary' : 'btn-primary'}" data-act="write-report" type="button">이 작업으로 리포트 쓰기</button>
           </div>
         </header>
 
@@ -201,18 +200,6 @@ export async function guideDetailView(view, guideId, query = null) {
     if (box) box.innerHTML = pastHtml;
   }
 
-  /** 마친 단계로 리포트를 시작한다 — 조치 칸에 단계를 차례대로, 오류 코드 · 매장 · 시리얼까지 */
-  function writeReport() {
-    const finished = guide.steps.map((s, i) => ({ s, i })).filter(({ i }) => done.has(String(i)));
-    const lines = finished.map(({ s, i }) => `${i + 1}) ${String(s.instruction || '').split('\n')[0]}`);
-    sessionStorage.setItem('bh_report_seed', JSON.stringify({
-      store: ctx.store, serial: ctx.serial, model: ctx.model,
-      code: guide.categoryType === 'ERROR_CODE' ? code : '',
-      action: lines.length ? [`가이드 ${guide.codeOrTitle}`, ...lines].join('\n') : '',
-    }));
-    location.hash = '#/report/new';
-  }
-
   render();
   loadPast().catch(() => {});
 
@@ -238,7 +225,7 @@ export async function guideDetailView(view, guideId, query = null) {
     if (act === 'done-next') {
       done.add(String(at));
       saveDone();
-      // 마지막 단계의 [완료] — 그 로봇의 가이드 목록으로 돌아간다 (리포트는 위 [이 작업으로 리포트 쓰기])
+      // 마지막 단계의 [완료] — 그 로봇의 가이드 목록으로 돌아간다
       if (at >= total - 1) {
         // 진행 기록을 지운다 — 다음에 이 가이드를 열면 1단계부터 (v3.35)
         try { localStorage.removeItem(DONE_KEY(guideId)); } catch { /* 이번만 */ }
@@ -250,7 +237,6 @@ export async function guideDetailView(view, guideId, query = null) {
       render();
       window.scrollTo(0, 0);
     }
-    if (act === 'write-report') writeReport();
     if (act === 'more') {
       const box = openSheet('가이드 관리', `
         <div class="sheet-actions gd-more-menu">

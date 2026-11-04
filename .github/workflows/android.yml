@@ -9,6 +9,11 @@ name: 안드로이드 APK 빌드
 #   3) 태블릿 크롬으로 그 링크를 열어 다운로드 → 설치
 #
 # v3.0.0 처럼 태그를 붙여 push 해도 자동으로 만들어진다.
+#
+# 버전을 올린 PR 이 main 에 합쳐지면 저절로 만든다 (v3.43.1~). build.gradle 의 버전에
+# vX.Y.Z 태그가 아직 없으면 이 일이 태그를 붙이고 APK 를 만든다. 이미 있으면 건너뛴다.
+# 손으로 태그를 붙이다 합치기 전 커밋에 붙는 일(v3.43.0)이 다시 없게 한다.
+# (이 일이 GITHUB_TOKEN 으로 올린 태그는 이 일을 또 부르지 않는다 — 두 번 만들지 않는다)
 
 on:
   workflow_dispatch:
@@ -19,12 +24,41 @@ on:
         default: ''
   push:
     tags: ['v*']
+    branches: [main]
+    paths: ['android/app/build.gradle']
 
 permissions:
   contents: write        # Releases 에 APK 를 올리기 위해 필요
 
 jobs:
+  # main 에 합쳐질 때 — 새 버전이면 태그를 붙이고 만든다. 태그 · 손으로 부른 때는 그대로 만든다.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.check.outputs.go }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: check
+        run: |
+          if [ "${{ github.event_name }}" != "push" ] || [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "go=yes" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          VER=$(grep -oP 'appVersionName = "\K[^"]+' android/app/build.gradle)
+          if git rev-parse -q --verify "refs/tags/v$VER" >/dev/null; then
+            echo "::notice::v$VER 태그가 이미 있습니다 — APK 를 다시 만들지 않습니다."
+            echo "go=no" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          python3 tools/release.py --check
+          git tag "v$VER" "$GITHUB_SHA"
+          git push origin "v$VER"
+          echo "::notice::v$VER 태그를 붙였습니다 — APK 를 만듭니다."
+          echo "go=yes" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: gate
+    if: needs.gate.outputs.go == 'yes'
     runs-on: ubuntu-latest
 
     steps:
