@@ -69,3 +69,32 @@ test('가이드 사진 — 처음엔 받아서 담고, 다음부터는 기기에
   await expect(page.locator('.media-missing', { hasText: '이 사진은 아직 이 기기에 없어요' })).toBeVisible({ timeout: 15000 });
   await page.context().setOffline(false);
 });
+
+// v3.43.1 — 내용이 긴 창(패치 내용 · 운행일지 항목 관리)에서 제목 줄이 눌려 ✕ 버튼 위 테두리가 잘렸다
+async function closeFits(page) {
+  return page.evaluate(() => {
+    const box = document.querySelector('#modalRoot .modal__box').getBoundingClientRect();
+    const btn = document.querySelector('#modalRoot .modal__box [data-act="close"]');
+    const b = btn.getBoundingClientRect();
+    const row = btn.parentElement.getBoundingClientRect();
+    return {
+      inside: b.top >= box.top && b.right <= box.right && b.left >= box.left,
+      rowHolds: row.height >= b.height - 0.5 && b.top >= row.top - 0.5,
+    };
+  });
+}
+
+test('긴 창의 ✕ 버튼이 상자 안에 다 보인다 — 패치 내용 · 운행일지 항목 관리', async ({ page, sheet }) => {
+  const { seed } = require('./seed.js');
+  await seed(sheet);
+  await openApp(page, '#/');
+  await page.locator('#btn-patch').click();
+  await expect(page.locator('#modalRoot .modal__title')).toHaveText('패치 내용');
+  expect(await closeFits(page)).toEqual({ inside: true, rowHolds: true });
+  await page.locator('#modalRoot [data-act="close"]').click();
+
+  await openApp(page, '#/driving');
+  await page.locator('[data-act="manage-options"]').click({ timeout: 15000 });
+  await expect(page.locator('#modalRoot .modal__title')).toHaveText('운행일지 항목 관리');
+  expect(await closeFits(page)).toEqual({ inside: true, rowHolds: true });
+});

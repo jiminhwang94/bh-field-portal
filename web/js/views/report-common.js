@@ -3,7 +3,7 @@
 import { h, toast } from '../ui.js';
 import { normCode, pastStory } from '../insights.js';
 
-export const SEED_KEY = 'bh_report_seed';   // [수정] · [이 매장 새 리포트] · 가이드 [리포트 쓰기] 가 넘기는 값
+export const SEED_KEY = 'bh_report_seed';   // [수정] · [이 매장 새 리포트] 가 넘기는 값
 
 /**
  * '이 로봇 지난번' 메모 (v3.35) — 이력 상세 · 가이드 · 새 리포트가 같은 모양을 쓴다.

@@ -11,7 +11,8 @@
   python tools/release.py 3.30.0 --tag      ↑ + vX.Y.Z 태그 (main 에서만) → push 하면 APK 자동 빌드
   python tools/release.py --check           세 곳이 같은지만 본다 (CI · 검사가 쓴다)
 
-태그를 올리면(git push origin v3.30.0) GitHub 가 APK 를 만들어 Releases · Dropbox · 시트
+버전을 올린 PR 이 main 에 합쳐지면 GitHub 가 vX.Y.Z 태그를 저절로 붙이고 APK 를 만든다 (v3.43.1~,
+손으로 태그를 올릴 필요 없음). 태그를 손으로 올려도(git push origin v3.30.0) GitHub 가 APK 를 만들어 Releases · Dropbox · 시트
 '앱 버전' 탭에 올린다 (.github/workflows/android.yml). google-apps-script.gs 는 main 에
 합쳐질 때 따로 자동 배포된다 (.github/workflows/apps-script.yml).
 """
