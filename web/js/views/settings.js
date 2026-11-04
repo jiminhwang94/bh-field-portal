@@ -89,9 +89,10 @@ export async function settingsView(view) {
   const install = installStateLabel();
   const waiting = state.pending;
   // 기기에 담긴 자료 규모 — 예전에는 서버가 세어 주었는데, 이제 기기 안에서 직접 센다.
-  const [guideCount, itemCount] = await Promise.all([
+  const [guideCount, itemCount, photos] = await Promise.all([
     api.listGuides().then((r) => r.items.length).catch(() => 0),
     api.listInventory().then((r) => r.items.length).catch(() => 0),
+    import('../drivemedia.js').then((m) => m.photoUsage()).catch(() => ({ bytes: 0, count: 0 })),
   ]);
   const [attn, conflicts] = await Promise.all([
     api.attention().catch(() => ({ pending: 0, conflicts: 0, errors: 0, failed: '' })),
@@ -257,6 +258,8 @@ export async function settingsView(view) {
           </span>
           <span class="badge">기기 보관 가이드 ${guideCount}건</span>
           <span class="badge">재고 ${itemCount}종</span>
+          <span class="badge" id="photoUsage">담아 둔 사진 ${photos.count}장 · ${formatBytes(photos.bytes)} / 1GB</span>
+          ${photos.count ? '<button class="btn btn--ghost btn--sm" data-act="clear-photos" type="button">사진 비우기</button>' : ''}
           ${settings.pendingCount ? `<span class="badge badge--warn">
             대기 작업 ${settings.pendingCount}건</span>` : ''}
         </div>
@@ -264,6 +267,8 @@ export async function settingsView(view) {
           <li>가이드 열람·검색·수정, 리포트 작성, 재고 수정은 <strong>인터넷 없이 전부</strong> 됩니다.</li>
           <li>오프라인에서 누른 시트 업로드와 재고 수량 변경은 <strong>대기열에 쌓였다가
               연결되면 자동 처리</strong>됩니다.</li>
+          <li>한 번 본 가이드 사진은 기기에 담아 두어 다음부터 <strong>바로</strong> 뜨고, 오프라인에서도 보입니다.
+              1GB 를 넘으면 오래 안 본 사진부터 저절로 지웁니다. 영상은 담지 않습니다.</li>
           <li><strong>올리기·받기</strong>는 인터넷만 되면
               <strong>어느 와이파이에서도</strong> 됩니다. 따로 등록할 주소는 없습니다.</li>
         </ul>
@@ -307,6 +312,14 @@ export async function settingsView(view) {
     const act = btn.dataset.act;
 
     if (act === 'install') { await installApp(); return; }
+    if (act === 'clear-photos') {
+      if (!await confirmDialog('담아 둔 사진 비우기', '기기에 담아 둔 사진을 모두 지웁니다. 다시 보면 또 받아 옵니다.', '비우기')) return;
+      const { clearPhotos } = await import('../drivemedia.js');
+      const n = await clearPhotos().catch(() => 0);
+      toast(`사진 ${n}장을 비웠습니다.`, 'ok');
+      settingsView(view);
+      return;
+    }
     if (act === 'toggle-contrast') {
       const on = document.documentElement.getAttribute('data-contrast') !== 'high';
       if (on) document.documentElement.setAttribute('data-contrast', 'high');
