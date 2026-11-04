@@ -37,6 +37,10 @@ export function stepMediaHtml(url, cls, alt) {
     return `<img class="${cls}" data-media="${h(url)}" alt="${h(alt)}" loading="lazy" />`;
   }
   const id = driveIdOf(url);
+  // 영상은 기기에 담지 않는다 (v3.43) — 오프라인이면 빈 재생기 대신 까닭을 적는다
+  if (id && !navigator.onLine) {
+    return '<div class="media-missing">영상은 인터넷이 연결되면 재생돼요</div>';
+  }
   if (id) {
     return `<iframe class="${cls}" src="https://drive.google.com/file/d/${id}/preview"
                     allow="fullscreen" allowfullscreen title="${h(alt)}"></iframe>`;

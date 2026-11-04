@@ -234,8 +234,14 @@ export async function hydrateMedia(root = document) {
       // 드라이브 '보기' 주소를 <img src> 에 그대로 넣으면 그림이 아니라
       // 페이지가 와서 액박이 된다.
       const id = driveFileId(raw);
+      if (id && el.tagName === 'IMG') {
+        // 사진은 기기에 담아 두고 다음부터는 거기서 꺼낸다 (v3.43 · drivemedia.js)
+        import('./drivemedia.js').then(({ showDrivePhoto }) => showDrivePhoto(el, id))
+          .catch(() => { el.src = thumbUrl(id, 640); });
+        continue;
+      }
       if (el.tagName === 'A') url = raw;
-      else if (id) url = el.tagName === 'IMG' ? thumbUrl(id, 640) : previewUrl(id);
+      else if (id) url = previewUrl(id);
       else url = raw;
     } else {
       const filename = raw.split('/').pop();
@@ -250,17 +256,6 @@ export async function hydrateMedia(root = document) {
     if (!url) { el.replaceWith(brokenNote()); continue; }
     if (el.tagName === 'A') el.href = url;
     else el.src = url;
-
-    // 드라이브 썸네일은 파일이 공개돼 있을 때만 그림을 준다. 막혀 있으면
-    // Apps Script 로 바이트를 직접 받아 끼운다 (가이드 단계 사진도 마찬가지).
-    const driveId = raw.startsWith('http') ? driveFileId(raw) : '';
-    if (driveId && el.tagName === 'IMG') {
-      el.addEventListener('error', () => {
-        import('./drivemedia.js')
-          .then(({ reviveImage }) => reviveImage(el, driveId, 'thumb'))
-          .catch(() => { /* 못 받으면 그대로 둔다 */ });
-      }, { once: true });
-    }
   }
 }
 
