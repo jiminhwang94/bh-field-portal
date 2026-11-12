@@ -773,3 +773,16 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 @media (max-width: 720px) {
   .gs-gallery--many { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* 새 리포트 맨 위 — 작성일시 (v3.45). 지난 작업을 나중에 쓰면 날짜를 바꾼다. 바꾸면 눈에 띄게 */
+.rf-when {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px;
+  padding: 10px 16px; border-radius: 16px; background: var(--color-surface-2);
+}
+.rf-when.is-past { background: var(--memo-tint); border: 2px solid var(--memo-border); color: var(--memo-ink); }
+.rf-when__label { font-size: 15px; font-weight: 700; color: var(--color-muted); }
+.rf-when.is-past .rf-when__label { color: inherit; }
+.rf-when__value { font-size: 19px; font-weight: 800; }
+.rf-when__hint { flex: 1 1 220px; min-width: 0; font-size: 15px; }
+.rf-when__edit { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex-basis: 100%; }
+.rf-when__input { flex: 1 1 240px; min-width: 0; max-width: 320px; }

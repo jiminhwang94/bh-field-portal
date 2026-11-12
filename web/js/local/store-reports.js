@@ -13,7 +13,15 @@ const reportOut = (r) => ({
   sheetLink: r.sheetLink || null,
   errorMessage: r.errorMessage || null,
   createdAt: r.createdAt, updatedAt: r.updatedAt,
+  // 작성일시를 사람이 정했나 (v3.45 — 지난 작업을 나중에 쓸 때)
+  dated: Boolean(r.dated),
 });
+
+/** 'YYYY-MM-DDTHH:MM(:SS)' 만 받는다. 아니면 빈 문자열. */
+function pickedStamp(text) {
+  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2})?$/.exec(String(text || '').trim());
+  return m ? `${m[1]}T${m[2]}${m[3] || ':00'}` : '';
+}
 
 export async function listReports(limit = 100) {
   const rows = await idb.getAll('reports');
@@ -41,6 +49,10 @@ export async function saveReport(payload, reportId = null) {
 
   const stamp = now();
   const existing = reportId ? await idb.get('reports', reportId) : null;
+  // createdAt 을 보내지 않았으면(undefined) 예전에 정한 것을 그대로 둔다
+  const picked = payload.createdAt === undefined
+    ? (existing && existing.dated ? existing.createdAt : '')
+    : pickedStamp(payload.createdAt);
   if (reportId && !existing) throw new Error('리포트를 찾을 수 없습니다.');
 
   const row = {
@@ -53,7 +65,10 @@ export async function saveReport(payload, reportId = null) {
     sheetName: existing ? existing.sheetName : null,
     sheetRow: existing ? existing.sheetRow : null,
     errorMessage: existing ? existing.errorMessage : null,
-    createdAt: existing ? existing.createdAt : stamp,
+    // 작성일시 — 사람이 정했으면 그 시각(시트 탭 · 리포트 번호 · 이력이 모두 이것을 따른다).
+    // 정하지 않았으면 예전처럼 처음 저장한 시각. 정했다가 [지금으로] 되돌리면 지금.
+    createdAt: picked || (existing && !existing.dated ? existing.createdAt : stamp),
+    dated: Boolean(picked),
     updatedAt: stamp,
   };
   await idb.put('reports', row);        // 리포트는 기기 전용 — 시트에 올릴 때만 밖으로 나간다

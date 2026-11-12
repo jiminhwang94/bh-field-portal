@@ -95,12 +95,17 @@ export async function reportFormView(view) {
   });
 
   let reportId = null;   // 기기에 저장한 리포트 (임시보관 · 저절로 저장 · 올리기가 같은 것을 고친다)
+  // 작성일시 (v3.45) — '' 면 올리는 시각. 지난 작업을 나중에 쓸 때 사람이 날짜 · 시각을 정한다.
+  // 시트 탭 · 리포트 번호 · 이력 순서가 모두 이것을 따른다. 시트에 이미 올라간 리포트를 고칠 때는 바꾸지 않는다.
+  let writtenAt = '';
+  let whenOpen = false;
 
   // [이어 쓰기] — 임시보관 리포트의 값 · 첨부를 그대로 채운다. 칸은 아이디로, 없으면 이름표로 맞춘다.
   if (draftId) {
     const draft = await api.getReport(draftId).catch(() => null);
     if (draft && draft.status === 'DRAFT') {
       reportId = draft.id;
+      if (draft.dated) writtenAt = String(draft.createdAt || '').slice(0, 16);
       for (const item of draft.payload || []) {
         const f = fields.find((x) => x.id === item.fieldId) || fields.find((x) => x.fieldLabel === item.label);
         if (!f) continue;
@@ -388,7 +393,8 @@ export async function reportFormView(view) {
       const now = String(state.value || '').trim();
       const why = numberFromCustomer ? '고른 고객사 리포트 번호를 그대로 씁니다'
         : now ? '이미 붙은 번호입니다'
-          : `고객사 리포트가 없으면 올릴 때 그날 번호를 확인해 붙입니다 · 예) ${h(sampleReportNumber())}`;
+          : `고객사 리포트가 없으면 올릴 때 그날 번호를 확인해 붙입니다 · 예) ${h(sampleReportNumber(
+            writtenAt ? new Date(`${writtenAt.slice(0, 10)}T00:00`) : new Date()))}`;
       return `<div class="field field--auto-no" ${tag}>${label}
         <div class="auto-no"><b class="auto-no__value tnum">${h(now || '자동')}</b>
           <span class="auto-no__hint">${why}</span></div></div>`;
@@ -487,6 +493,62 @@ export async function reportFormView(view) {
       </div>`;
   }
 
+  /** 지금 시각 'YYYY-MM-DDTHH:MM' (datetime-local 칸 모양) */
+  const nowLocal = () => {
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+  /** '2026-11-05T14:00' → '11월 5일 (목) 14:00' */
+  const whenText = (v) => {
+    const [d, t] = String(v).split('T');
+    const [y, m, day] = d.split('-').map(Number);
+    return `${m}월 ${day}일 (${WEEK[new Date(y, m - 1, day).getDay()]}) ${t || ''}`.trim();
+  };
+
+  /** 작성일시 줄 — 평소엔 '지금', 지난 작업이면 그 날짜와 그 날짜로 붙을 것들 */
+  function whenHtml() {
+    const editor = whenOpen ? `
+      <span class="rf-when__edit">
+        <input class="input rf-when__input" id="rfWhenInput" type="datetime-local"
+               value="${h(writtenAt || nowLocal())}" max="${h(nowLocal())}" aria-label="작성일시" />
+        <button class="btn btn-primary" data-act="when-ok" type="button">이 날짜로</button>
+        <button class="btn btn-secondary" data-act="when-cancel" type="button">취소</button>
+      </span>` : '';
+    if (!writtenAt) {
+      return `
+        <span class="rf-when__label">작성일시</span>
+        <b class="rf-when__value">지금</b>
+        <span class="rf-when__hint">올리는 시각으로 적힙니다</span>
+        ${whenOpen ? editor : '<button class="btn btn-secondary" data-act="when-open" type="button">날짜 바꾸기</button>'}`;
+    }
+    const ymd = writtenAt.slice(0, 10);
+    const [y, m, d] = ymd.split('-');
+    return `
+      <span class="rf-when__label">작성일시</span>
+      <b class="rf-when__value tnum">${h(whenText(writtenAt))}</b>
+      <span class="rf-when__hint">이 날짜로 올립니다 · 시트 <b class="tnum">${h(`${y}-${m}`)}</b> 탭 ·
+        번호 <b class="tnum">P${h(y.slice(2) + m + d)}-…</b></span>
+      ${whenOpen ? editor : `
+        <button class="btn btn-secondary" data-act="when-open" type="button">바꾸기</button>
+        <button class="btn btn-secondary" data-act="when-now" type="button">지금으로</button>`}`;
+  }
+
+  function repaintWhen() {
+    const box = document.getElementById('rfWhen');
+    if (!box) return;
+    box.classList.toggle('is-past', Boolean(writtenAt));
+    box.innerHTML = whenHtml();
+    // 리포트 번호 예시도 그 날짜로
+    const no = autoNumber && view.querySelector(`#reportForm [data-field-id="${numberField.id}"]`);
+    if (no) no.outerHTML = fieldHtml(numberField);
+    if (whenOpen) {
+      const inp = /** @type {HTMLInputElement|null} */ (document.getElementById('rfWhenInput'));
+      if (inp) inp.focus();
+    }
+  }
+
   function render() {
     const step = stepMode();
     view.innerHTML = `
@@ -500,6 +562,7 @@ export async function reportFormView(view) {
           <a class="btn btn-secondary" href="#/fields">항목 설정</a>
         </div>
 
+        ${editingLink ? '' : `<div class="rf-when${writtenAt ? ' is-past' : ''}" id="rfWhen">${whenHtml()}</div>`}
         ${step ? stepperHtml() : ''}
         <div id="robotHints" data-step="robot"></div>
         <div id="pastRobot" data-step="problem"></div>
@@ -549,6 +612,11 @@ export async function reportFormView(view) {
     });
     // 단계식에서 입력칸의 [Enter](자판의 '다음')는 올리기가 아니라 다음 단계다
     root.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' && ev.target.id === 'rfWhenInput') {   // 작성일시 칸의 Enter 는 [이 날짜로]
+        ev.preventDefault();
+        /** @type {HTMLElement|null} */ (root.querySelector('[data-act="when-ok"]'))?.click();
+        return;
+      }
       if (ev.key !== 'Enter' || !stepMode() || ev.target.tagName !== 'INPUT' || ev.isComposing) return;
       ev.preventDefault();
       goStep(stepAt + 1);
@@ -1175,6 +1243,21 @@ export async function reportFormView(view) {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
+    // ── 작성일시 (v3.45)
+    if (act === 'when-open') { whenOpen = true; repaintWhen(); return; }
+    if (act === 'when-cancel') { whenOpen = false; repaintWhen(); return; }
+    if (act === 'when-now') { writtenAt = ''; whenOpen = false; repaintWhen(); return; }
+    if (act === 'when-ok') {
+      const inp = /** @type {HTMLInputElement|null} */ (document.getElementById('rfWhenInput'));
+      const v = inp ? inp.value.slice(0, 16) : '';
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) { toast('날짜와 시각을 골라 주세요.', 'err'); return; }
+      if (v > nowLocal()) { toast('앞으로 올 날짜는 고를 수 없습니다.', 'err'); return; }
+      // 지금과 같은 분이면 '지금' 으로 둔다
+      writtenAt = v === nowLocal() ? '' : v;
+      whenOpen = false;
+      repaintWhen();
+      return;
+    }
     // ── 단계식 · 큰 버튼 고르기 (v3.35)
     if (act === 'step-next') { goStep(stepAt + 1); return; }
     if (act === 'step-prev') { goStep(stepAt - 1); return; }
@@ -1347,7 +1430,9 @@ export async function reportFormView(view) {
       }
     }
     const payload = { values: collectPayload(), draft: !requireComplete,
-                      sheetLink: editingLink };
+                      sheetLink: editingLink,
+                      // 고치기(시트 줄)는 작성일시를 건드리지 않는다. null = 올리는 시각
+                      createdAt: editingLink ? undefined : (writtenAt ? `${writtenAt}:00` : null) };
     try {
       const saved = reportId
         ? await api.updateReport(reportId, payload)
