@@ -139,7 +139,7 @@ export async function runRefresh(btn, { quiet = false } = {}) {
 
   if (btn) { btn.disabled = true; btn.textContent = '받는 중…'; }
   const done = { uploaded: 0, sheet: false, guides: 0, guidesRemoved: 0, guidesDeleted: 0,
-                 fields: 0 };
+                 fields: 0, driving: 0 };
   const problems = [];
 
   // 1. 밀린 것이 있으면 먼저 올린다 (오프라인에서 쌓인 것 · 실패했던 것)
@@ -151,7 +151,7 @@ export async function runRefresh(btn, { quiet = false } = {}) {
     problems.push(`대기분 전송: ${err.message}`);
   }
 
-  // 2. 시트에서 받기 — 항목 · 재고 · 가이드 · 리포트 이력을 **동시에** (v3.36.2)
+  // 2. 시트에서 받기 — 항목 · 재고 · 가이드 · 운행일지 · 이슈 유형 · 고객사 접수 · 리포트 이력을 **동시에** (v3.36.2 · v3.44.1)
   //
   // 예전에는 하나씩 차례로 받았다. 시트 왕복이 한 번에 5~10초라 이력은 맨 끝에야 다시
   // 받았고, 이력 사본 비우기가 재고 받기 성공에 묶여 있어 재고가 실패하면 이력은 그대로였다.
@@ -182,6 +182,27 @@ export async function runRefresh(btn, { quiet = false } = {}) {
           done.guidesRemoved = got.removed || 0;
           done.guidesDeleted = got.deleted || 0;
         } catch (err) { problems.push(`가이드 받기: ${err.message}`); }
+      })(),
+      // 운행일지 · 이슈 유형 목록 · 고객사 접수 (v3.44.1) — 예전에는 [새로고침] 이 받지 않아
+      // 운행일지는 그 화면의 [시트에서 받기] 를 눌러야, 이슈 유형은 앱을 다시 켜야 바뀌었다.
+      (async () => {
+        try {
+          const drivesheet = await import('./drivesheet.js');
+          const got = await drivesheet.pullDriving();          // 모든 차량
+          done.driving = (got.changed || 0) + (got.added || 0) + (got.removed || 0);
+        } catch (err) { problems.push(`운행일지 받기: ${err.message}`); }
+      })(),
+      (async () => {
+        try {
+          const worksheet = await import('./worksheet.js');
+          await worksheet.pullWork();
+        } catch (err) { problems.push(`이슈 유형 받기: ${err.message}`); }
+      })(),
+      (async () => {
+        try {
+          const reportsheet = await import('./reportsheet.js');
+          await reportsheet.pullRequestNumbers();
+        } catch { /* 고객사 접수는 받아 둔 것으로 — 새 리포트를 열 때 다시 받는다 */ }
       })(),
       (async () => {
         // 이력 — 달 목록을 새로 받고 사본을 비운다. 화면을 다시 그리면 이력이 그 달을 새로 받는다
@@ -217,6 +238,7 @@ export async function runRefresh(btn, { quiet = false } = {}) {
   if (done.uploaded) parts.push(`${done.uploaded}건 올림`);
   if (done.fields) parts.push(`리포트 항목 ${done.fields}건`);
   if (done.guides) parts.push(`가이드 ${done.guides}건`);
+  if (done.driving) parts.push(`운행일지 ${done.driving}건`);
   if (done.guidesDeleted) parts.push(`다른 기기에서 지운 가이드 ${done.guidesDeleted}건 반영`);
   if (done.guidesRemoved) parts.push(`중복 가이드 ${done.guidesRemoved}건 정리`);
   if (problems.length) {
