@@ -101,8 +101,9 @@ check("출발지·도착지는 아래 태그로 고르거나 직접 적는다",
       and "아래에서 누르거나 직접 적으세요" in view
       and "<datalist" not in view and 'list="' not in view)
 check("자주 가는 곳은 눌러서 넣는다", "data-place=" in view)
-# 목록이 길어도 다 보여 준다 — 스크롤해 가며 찾을 것이 없다.
-check("만들어 둔 곳은 빠짐없이 보인다", "options.places.map((p) => `" in view)
+# 다녀온 곳이 쌓이면 태그가 화면을 덮는다 (v3.44) — 최근 5곳만, 그 전 곳은 치면 비슷한 곳으로.
+check("칸이 비면 최근 다녀온 5곳만 보인다", "const RECENT_PLACES = 5;" in view and "recentPlaces()" in view)
+check("치면 다녀온 곳 전부에서 비슷한 곳을 (초성도)", "similarPlaces(text)" in view and "choseong(p)" in view)
 check("장소도 만들고 고치고 지울 수 있다", "optionListHtml('places'" in view)
 # 직접 친 곳을 기억하지 않으면 자주 가는 곳을 매번 다시 쳐야 한다.
 check("직접 친 곳은 다음부터 고를 수 있게 기억한다",

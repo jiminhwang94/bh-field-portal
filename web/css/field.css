@@ -561,6 +561,10 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .drv-card__acts .btn { min-height: 56px; }
 .btn--danger-text { color: var(--color-danger); }
 #drvForm .tag { min-height: 52px; padding: 0 16px; font-size: 17px; border-radius: 14px; }
+/* 출발지 · 도착지 아래 — 최근 5곳 / 친 글자와 비슷한 곳 (v3.44) */
+.drv-places { margin-top: 8px; align-items: center; }
+.drv-places:empty { display: none; }
+.drv-places__head { flex-basis: 100%; font-size: 14px; font-weight: 700; color: var(--color-muted); }
 
 /* ── 차량 재고: 줄에서 바로 −/+, 맨 위 '보충 필요' 띠, 상세는 창 */
 .inv-vehicles { align-self: flex-start; max-width: 100%; }
