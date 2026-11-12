@@ -12,6 +12,7 @@ import { api } from '../api.js';
 import { $, h, closeModal, confirmDialog, loading, openSheet, toast } from '../ui.js';
 import * as store from '../local/store.js';
 import { deviceName } from '../syncnow.js';
+import { choseong } from '../insights.js';
 
 const VEHICLE_KEY = 'bh_driving_vehicle';
 
@@ -248,19 +249,68 @@ export async function drivingView(view) {
    * 아래 태그를 누르면 바로 들어가므로 **고르는 목록(datalist)은 두지 않는다.**
    * 같은 것을 두 가지 방법으로 고르게 하면 칸을 눌렀을 때 목록이 덮어써서
    * 아래 태그가 가린다. 없는 곳은 그냥 칸에 치면 된다.
+   *
+   * 다녀온 곳이 쌓이면 태그가 화면을 덮는다 (v3.44). 그래서
+   *  · 칸이 비어 있으면 **최근 다녀온 5곳**만 보이고
+   *  · 글자를 치면 그 전에 다녀온 곳 중 **비슷한 곳**이 보인다 (이름 일부 · 초성)
    */
+  const RECENT_PLACES = 5;
+  const MATCH_PLACES = 8;
+
+  /** 최근 다녀온 곳 — 기록(새것부터)의 출발지 · 도착지. 모자라면 목록의 장소로 채운다. */
+  function recentPlaces() {
+    const seen = new Set();
+    const out = [];
+    const add = (p) => {
+      const name = String(p || '').trim();
+      if (!name || seen.has(name) || out.length >= RECENT_PLACES) return;
+      seen.add(name);
+      out.push(name);
+    };
+    for (const r of rows) { add(r.fromPlace); add(r.toPlace); }
+    for (const p of options.places) add(p);
+    return out;
+  }
+
+  /** 다녀온 곳 전부 — 목록 + 기록 (같은 이름은 한 번) */
+  function allPlaces() {
+    const names = [...options.places, ...rows.flatMap((r) => [r.fromPlace, r.toPlace])]
+      .map((p) => String(p || '').trim()).filter(Boolean);
+    return [...new Set(names)];
+  }
+
+  const squash = (t) => String(t || '').toLowerCase().replace(/\s+/g, '');
+
+  /** 친 글자와 비슷한 곳 — 이름 일부, 또는 초성만 쳐도 ('ㅇㅈ' → 언주사무실) */
+  function similarPlaces(typed) {
+    const want = squash(typed);
+    if (!want) return [];
+    const byCho = /^[ㄱ-ㅎ]+$/.test(want);
+    return allPlaces()
+      .filter((p) => squash(p) !== want)
+      .filter((p) => (byCho ? squash(choseong(p)) : squash(p)).includes(want))
+      .sort((a, b) => Number(!squash(a).startsWith(want)) - Number(!squash(b).startsWith(want)))
+      .slice(0, MATCH_PLACES);
+  }
+
+  function placeTagsHtml(which, typed) {
+    const text = String(typed || '').trim();
+    const list = text ? similarPlaces(text) : recentPlaces();
+    if (!list.length) return '';
+    return `
+      <span class="drv-places__head">${text ? '비슷한 곳' : '최근 다녀온 곳'}</span>
+      ${list.map((p) => `
+        <button class="tag tag-neutral" data-place="${which}" data-name="${h(p)}"
+                type="button">${h(p)}</button>`).join('')}`;
+  }
+
   function placeField(which, label, value) {
     return `
       <div class="field">
         <label>${label}</label>
-        <input class="input" id="${which}" value="${h(value)}"
+        <input class="input" id="${which}" value="${h(value)}" data-place-input="${which}"
                placeholder="아래에서 누르거나 직접 적으세요" autocomplete="off" />
-        ${options.places.length ? `
-          <div class="tag-list" style="margin-top:8px">
-            ${options.places.map((p) => `
-              <button class="tag tag-neutral" data-place="${which}" data-name="${h(p)}"
-                      type="button">${h(p)}</button>`).join('')}
-          </div>` : ''}
+        <div class="tag-list drv-places" data-places-for="${which}">${placeTagsHtml(which, '')}</div>
       </div>`;
   }
 
@@ -352,12 +402,22 @@ export async function drivingView(view) {
       $('#drvWeekday', body).textContent = `(${store.weekdayOf(dateBox.value)})`;
     });
 
-    // 자주 가는 곳 태그 — 누르면 칸에 넣는다
+    // 장소 태그 — 누르면 칸에 넣는다. 그러면 태그는 다시 최근 5곳으로.
+    const paintPlaces = (which, typed) => {
+      const box = body.querySelector(`[data-places-for="${which}"]`);
+      if (box) box.innerHTML = placeTagsHtml(which, typed);
+    };
     body.addEventListener('click', (ev) => {
       const tag = ev.target.closest('[data-place]');
       if (!tag) return;
       const field = $(`#${tag.dataset.place}`, body);
       if (field) { field.value = tag.dataset.name; field.focus(); }
+      paintPlaces(tag.dataset.place, '');
+    });
+    // 글자를 치면 그 전에 다녀온 곳 중 비슷한 곳을 보여 준다 (한글 조합 중에도)
+    body.addEventListener('input', (ev) => {
+      const which = ev.target.dataset && ev.target.dataset.placeInput;
+      if (which) paintPlaces(which, ev.target.value);
     });
 
     $('#drvForm', body).addEventListener('submit', async (ev) => {
