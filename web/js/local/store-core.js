@@ -172,6 +172,22 @@ export const outbox = () => idb.getAll('outbox');
 export const outboxCount = () => idb.count('outbox');
 export const dequeue = (id) => idb.remove('outbox', id);
 
+/**
+ * 대기열 한 줄에 실패 기록을 덧붙인다 (v3.46).
+ *   tries · nextTryAt(ms) — 같은 실패를 계속 두드리지 않게 1분 · 5분 · 30분 뒤에 다시
+ *   lastError — [올릴 내용] 에 보여 줄 까닭
+ *   stuck — 다시 보내도 안 되는 실패(다른 기기가 그 줄을 지움 등). 저절로는 다시 보내지 않는다.
+ */
+export async function markOutbox(id, patch) {
+  const row = await idb.get('outbox', id);
+  if (row) await idb.put('outbox', { ...row, ...patch });
+}
+
+/** [다시 시도] — 실패 기록을 지워 다음 올리기에 바로 보내게 한다 */
+export async function retryOutbox(id) {
+  await markOutbox(id, { tries: 0, nextTryAt: 0, stuck: false, lastError: '' });
+}
+
 const PUSH_TYPES = new Set(['invsheet-push', 'guidesheet-push', 'fieldsheet-push']);
 
 /** 같은 (차량, 부품) 수량 작업은 마지막 것만 남긴다. 시트 전체 반영도 종류별 1건만. */

@@ -230,7 +230,7 @@ async function postDirect(endpoint, payload, timeout = 120000) {
         '구글이 접근을 거부했습니다 (권한).\n'
         + "Apps Script 배포 시 [액세스 권한]을 '모든 사용자'로 설정했는지 확인하세요.");
     }
-    throw new SheetsError(`구글 시트 오류 ${res.status}: ${body.slice(0, 200)}`);
+    throw Object.assign(new SheetsError(`구글 시트 오류 ${res.status}: ${body.slice(0, 200)}`), { answered: true });
   }
   let result;
   try {
@@ -251,6 +251,10 @@ async function postDirect(endpoint, payload, timeout = 120000) {
       /** @type {any} */ (err).unsupported = true;
     }
     if (Array.isArray(result.missing)) /** @type {any} */ (err).missing = result.missing;
+    // 다른 기기가 그 줄을 지우거나 옮겼다 — 다시 보내도 같은 답이다 (대기열이 '못 보냄' 으로 뺀다)
+    if (result.conflict) /** @type {any} */ (err).conflict = true;
+    // 시트가 받아서 '안 된다' 고 답했다 — 곧바로 다시 보내도 같다 (대기열이 1 · 5 · 30분 뒤에 다시)
+    /** @type {any} */ (err).answered = true;
     throw err;
   }
   return result;

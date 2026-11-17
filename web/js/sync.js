@@ -78,15 +78,35 @@ export { OfflineError };
 //    중이면 그게 끝난 뒤에 시작하고, 올리기는 도는 중인 받기를 기다렸다 시작한다.
 let flushRun = null;       // 도는 중이거나 차례를 기다리는 올리기
 let queuedFlush = null;    // 아직 시작하지 않은 다음 올리기 (여러 번 불러도 하나)
+let forceNext = false;     // 다음 올리기는 '다시 시도 기다림' 을 건너뛴다 (사람이 눌렀다)
+let sending = false;       // 지금 실제로 보내는 중인가 — 상단 칩이 '올리는 중' 을 이때만 쓴다
 const pulls = new Set();
 
-export function flushOutbox() {
+/** 지금 시트로 보내는 중인가 (v3.46) */
+export const isSending = () => sending;
+
+/**
+ * 대기열을 올린다.
+ *   force=true — 사람이 [새로고침] · [다시 시도] 를 눌렀다. 실패 뒤 기다리는 중인 것도 지금 보낸다.
+ *   (다른 기기와 부딪혀 '못 보냄' 으로 뺀 것은 [다시 시도] 로만 다시 보낸다)
+ */
+export function flushOutbox({ force = false } = {}) {
+  if (force) forceNext = true;
   if (queuedFlush) return queuedFlush;
   const prev = flushRun || Promise.resolve();
   const run = prev.catch(() => {}).then(async () => {
     queuedFlush = null;    // 시작했다 — 지금부터 부르면 다음 차례가 된다
+    const forced = forceNext;
+    forceNext = false;
     await Promise.allSettled([...pulls]);
-    return doFlushOutbox();
+    sending = true;
+    window.dispatchEvent(new Event('bh-sending'));
+    try {
+      return await doFlushOutbox(forced);
+    } finally {
+      sending = false;
+      window.dispatchEvent(new Event('bh-sending'));
+    }
   });
   queuedFlush = run;
   flushRun = run;
@@ -104,14 +124,42 @@ export async function sheetRead(fn) {
 
 // ------------------------------------------------------------ 대기열 처리
 
+// 실패한 것은 1분 · 5분 · 30분 뒤에 다시 (그 뒤로는 30분마다) — 같은 실패로 시트를 계속 두드리지 않는다 (v3.46)
+const RETRY_MINUTES = [1, 5, 30];
+
+/** 이번에 보낼 차례인가 — '못 보냄' 은 건너뛰고, 기다리는 중이면 force 일 때만 */
+const isDue = (op, force) => !op.stuck && (force || !op.nextTryAt || op.nextTryAt <= Date.now());
+
+/**
+ * 실패를 그 줄들에 적는다. 오프라인은 실패가 아니다 (기록하지 않는다).
+ *  - 시트가 받아서 '안 된다' 고 답한 것(answered)만 1 · 5 · 30분 기다린다. 연결이 끊긴 것은
+ *    다음 기회(연결 회복 · 화면 켜기)에 바로 다시 보낸다 — 끊김은 시트 탓이 아니다.
+ *  - 다른 기기와 부딪힌 실패(conflict)는 다시 보내도 같으므로 '못 보냄' 으로 뺀다 — 뒤의 것을 막지 않는다.
+ */
+async function noteFailure(ops, err) {
+  if (err && err.offline) return;
+  for (const op of ops) {
+    const tries = (op.tries || 0) + 1;
+    const wait = err && err.answered
+      ? RETRY_MINUTES[Math.min(tries, RETRY_MINUTES.length) - 1] * 60000 : 0;
+    await store.markOutbox(op.id, {
+      tries, nextTryAt: wait ? Date.now() + wait : 0,
+      lastError: String((err && err.message) || err || '').slice(0, 300),
+      stuck: Boolean(err && err.conflict),
+    });
+  }
+}
+
 /** 쌓인 작업(리포트·재고·이력 상태·가이드)을 구글 시트에 반영한다. */
-async function doFlushOutbox() {
+async function doFlushOutbox(force = false) {
   await store.compactOutbox();
-  const rows = await store.outbox();
+  const all = await store.outbox();
+  // 이번 차례가 아닌 것(기다리는 중 · 못 보냄)은 빼고 보낸다
+  const rows = all.filter((op) => isDue(op, force));
   if (!rows.length) {
     // 올릴 것이 없으면 지난 실패 표시도 지운다 — 남겨 두면 "올리지 못한 것 0건"
     // 이라는 말이 안 되는 칩이 계속 떠 있다 (실제로 그랬다).
-    await store.setMeta('flushFailed', '');
+    if (!all.length) await store.setMeta('flushFailed', '');
     return { sent: 0, failed: [] };
   }
 
@@ -129,11 +177,13 @@ async function doFlushOutbox() {
   // 종류마다 따로 감싼다. 한 종류가 실패해도 나머지는 계속 보내야 한다.
   // 예전에는 가이드 탭 갱신 한 번이 실패하면 밀린 리포트가 전부 막혔다.
   const failed = [];
-  const step = async (label, fn) => {
+  // ops — 이 단계가 보내는 대기열 줄들. 실패하면 그 줄들에 실패를 적는다 (다시 시도 · 못 보냄)
+  const step = async (label, fn, ops = []) => {
     try {
       await fn();
     } catch (err) {
       failed.push(`${label}: ${err.message}`);
+      await noteFailure(ops, err).catch(() => {});
       // 오프라인은 오류가 아니다. 그 밖의 실패는 시트 '오류기록' 탭으로 간다.
       if (!(err && err.offline)) {
         import('./errlog.js').then((e) => e.recordError(`올리기 실패 — ${label}`, err.message)).catch(() => {});
@@ -154,7 +204,7 @@ async function doFlushOutbox() {
         await store.dequeue(op.id);
         sent += 1;
       }
-    });
+    }, guidePushOps);
   }
 
   // 이슈 유형 목록 (팀 공통) — 바뀐 것(ops)만 차례대로 한 번에. 시트가 돌려준 목록이 최종본이다.
@@ -167,7 +217,7 @@ async function doFlushOutbox() {
         sent += 1;
       }
       if (result && Array.isArray(result.cats)) await store.setWorkFromSheet(result);
-    });
+    }, workOps);
   }
 
   // 리포트 항목 설정 (팀 공통) — 가장 먼저 올린다.
@@ -181,7 +231,7 @@ async function doFlushOutbox() {
         await store.dequeue(op.id);
         sent += 1;
       }
-    });
+    }, fieldPushOps);
   }
 
   // 운행일지 선택지(부서·장소) — 일지보다 먼저 올린다.
@@ -195,7 +245,7 @@ async function doFlushOutbox() {
         await store.dequeue(op.id);
         sent += 1;
       }
-    });
+    }, driveOptionOps);
   }
 
   // 운행일지 — 차량마다 탭이 다르므로 차량별로 묶어 한 번씩 올린다.
@@ -214,22 +264,22 @@ async function doFlushOutbox() {
           await store.dequeue(op.id);
           sent += 1;
         }
-      });
+      }, ops);
     }
   }
 
   // 오프라인에서 바꾼 이력 상태 — 한 건씩 시트에 반영한다.
+  // 한 건이 실패해도 다음 건은 보낸다 (v3.46 — 예전에는 하나가 막히면 뒤가 전부 막혔다)
   if (statusOps.length && onSheet) {
-    await step('이력 상태', async () => {
-      const reportsheet = await import('./reportsheet.js');
-      for (const op of statusOps) {
+    const reportsheet = await import('./reportsheet.js');
+    for (const op of statusOps) {
+      await step(`이력 상태 ${op.sheetName || ''} ${op.row || ''}행`, async () => {
         await reportsheet.pushStatusOps([op]);
         await store.dequeue(op.id);
         sent += 1;
-      }
-    });
+      }, [op]);
+    }
   }
-
   if (onSheet) {
     // 재고를 구글 시트로 관리 — 서버 대신 시트에 반영한다.
     if (sheetPushOps.length || quantityOps.length) {
@@ -254,23 +304,24 @@ async function doFlushOutbox() {
         if (!sheetPushOps.length && result && result.items) {
           await store.applyInventorySheet(result);
         }
-      });
+      }, [...sheetPushOps, ...quantityOps]);
     }
   }
   // 시트가 연결되지 않았으면 재고 변경은 대기열에 그대로 둔다.
   // 시트를 연결하고 [⬆ 업데이트] 를 누르면 그때 한꺼번에 올라간다.
 
   // 시트 업로드 대기분 — 가장 중요하므로 위에서 무엇이 실패했든 반드시 시도한다.
-  await step('리포트 업로드', async () => {
-    const { uploadReport } = await import('./sheets.js');
-    for (const row of rows.filter((r) => r.type === 'sheet')) {
+  // 한 건씩 따로 — 한 리포트가 실패해도 뒤의 리포트는 올라간다 (v3.46)
+  const { uploadReport } = await import('./sheets.js');
+  for (const row of rows.filter((r) => r.type === 'sheet')) {
+    await step('리포트 업로드', async () => {
       const report = await store.getReport(row.reportId);
-      if (!report) { await store.dequeue(row.id); continue; }
+      if (!report) { await store.dequeue(row.id); return; }
       await uploadReport(report);
       await store.dequeue(row.id);
       sent += 1;
-    }
-  });
+    }, [row]);
+  }
 
   // 실패가 있으면 기억해 둔다 — 상단 칩은 **이때만** 눈에 띄게 보인다.
   // 올리기는 자동이라 정상일 때는 숫자를 보일 이유가 없다.

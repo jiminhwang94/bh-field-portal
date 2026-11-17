@@ -163,7 +163,7 @@ export async function settingsView(view) {
         ${state.failed || waiting ? `
         <div class="row" style="gap:8px;margin-bottom:14px">
           <span class="badge ${state.failed ? 'badge--danger' : 'badge--warn'}">
-            ${state.failed ? `올리지 못한 것 ${waiting}건` : `올리는 중 ${waiting}건`}
+            ${state.failedCount ? `못 보냄 ${state.failedCount}건` : `대기 ${waiting}건`}
           </span>
         </div>` : ''}
         <p class="muted" style="margin:0 0 14px;font-size:.9rem">${h(syncSummaryText())}</p>

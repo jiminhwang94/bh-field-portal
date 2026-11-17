@@ -526,6 +526,8 @@ export async function reportListView(view, params = null) {
     if (!list.length && waiting && !query && !filter) {
       return '<div class="skeleton">시트에서 이력을 받는 중…</div>';
     }
+    // 받지 못해서 빈 것을 "리포트가 없습니다" 라고 하지 않는다 — 위 알림 하나로 충분하다 (v3.46)
+    if (!list.length && data.error && !query && !filter) return '';
     if (!list.length) {
       return `<div class="empty">${
         query || filter ? '조건에 맞는 리포트가 없습니다.' : '이 달에 기록된 리포트가 없습니다.'
@@ -597,13 +599,31 @@ export async function reportListView(view, params = null) {
 
     const sync = $('#histSync');
     if (sync) {
+      const at = cachedAt();
       sync.textContent = data.fromCache
-        ? '받아 둔 내용 표시 중' : `${new Date().toTimeString().slice(0, 5)} 수신`;
+        ? (at ? `${at} 기준` : '받아 둔 내용 표시 중') : `${new Date().toTimeString().slice(0, 5)} 수신`;
     }
+  }
+
+  /** 받아 둔 사본을 언제 받았나 — '11/17 10:00' (모르면 빈 문자열) */
+  function cachedAt() {
+    const raw = data.fetchedAt || data.stale;
+    if (!raw) return '';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return '';
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
   }
 
   /** 못 받아 왔으면 왜인지 화면에 적는다 — 그냥 비워 두면 원인을 알 수 없다. */
   function noticeHtml() {
+    // 오프라인 — 알림 하나만. 빨간 오류 상자 · 빈 목록을 겹쳐 띄우지 않는다 (v3.46)
+    if ((data.error && data.error.offline) || (data.fromCache && !navigator.onLine)) {
+      const at = cachedAt();
+      return data.entries.length
+        ? `<div class="hist-note">오프라인 · ${at ? `${h(at)} 에 받은 내용입니다` : '받아 둔 내용입니다'}. 인터넷이 되면 새로 받습니다.</div>`
+        : '<div class="hist-note">오프라인이라 이 달 이력을 아직 받지 못했습니다. 인터넷이 되면 새로 받습니다.</div>';
+    }
     if (data.error && !data.entries.length) {
       return `<div class="hist-note hist-note--bad">시트에서 이력을 받지 못했습니다.
         <div style="margin-top:6px;white-space:pre-wrap;font-weight:400">${h(explainError(data.error))}</div>
@@ -611,7 +631,8 @@ export async function reportListView(view, params = null) {
     }
     // 받아 둔 것을 먼저 보여 주는 것은 늘 하는 일이다 — 받으려다 **실패했을 때만** 알린다
     if (data.fromCache && data.error) {
-      return '<div class="hist-note">연결이 안 돼 마지막으로 받아 둔 내용을 보여 줍니다.</div>';
+      const at = cachedAt();
+      return `<div class="hist-note">연결이 안 돼 ${at ? `${h(at)} 에 ` : '마지막으로 '}받아 둔 내용을 보여 줍니다.</div>`;
     }
     return '';
   }
@@ -760,7 +781,8 @@ export async function reportListView(view, params = null) {
     const wasWaiting = waiting;
     waiting = false;
     // 시트 내용이 그대로면 다시 그리지 않는다 — 괜히 화면이 깜빡인다.
-    if (listSignature(data.entries) === before && !wasWaiting) return;
+    // 다만 받지 못했으면 그 사실(오프라인 · 몇 시 기준)은 알린다 (v3.46)
+    if (listSignature(data.entries) === before && !wasWaiting && !data.error) return;
     paintMonths();
     paint();
   })();
