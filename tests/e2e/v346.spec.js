@@ -119,8 +119,8 @@ test('오프라인 이력 — [새로고침] 뒤에 끊겨도 받아 둔 이력�
   await seed(sheet);
   await page.clock.setFixedTime(NOW);
   await openApp(page, '#/reports');
-  await expect(page.locator('.hist-row').first()).toBeVisible({ timeout: 15000 });
-  const count = await page.locator('.hist-row').count();
+  const count = 3;                                                             // seed 의 10월 리포트 셋
+  await expect(page.locator('.hist-row')).toHaveCount(count, { timeout: 15000 });
   // 이력 받기가 실패하는 LTE — 예전에는 [새로고침] 이 받기도 전에 사본을 지워 "0건" 이 됐다
   await page.route(`${SHEET}/exec`, (route) => (
     (route.request().postData() || '').includes('"reports":"pull"') ? route.abort() : route.continue()));
@@ -131,7 +131,9 @@ test('오프라인 이력 — [새로고침] 뒤에 끊겨도 받아 둔 이력�
   await expect(page.locator('.empty')).toHaveCount(0);
   await page.unroute(`${SHEET}/exec`);
   await page.context().setOffline(true);
+  // 홈이 다 그려진 뒤에 이력으로 간다 — 연달아 옮기면 늦게 끝난 홈이 이력 화면을 덮는다 (CI 에서 흔들렸다)
   await page.evaluate(() => { location.hash = '#/'; });
+  await expect(page.locator('.home3')).toBeVisible();
   await page.evaluate(() => { location.hash = '#/reports'; });
   await expect(page.locator('.hist-row')).toHaveCount(count, { timeout: 15000 });
   await expect(page.locator('.hist-note')).toContainText('오프라인');
