@@ -121,4 +121,6 @@ export function initNetStatus() {
   });
   sync.runPendingWork().then(paint);
   setInterval(paint, 5000);
+  // 올린 지 14일 지난 리포트의 기기 사본 · 사진 · 영상을 치운다 (v3.46 — 켤 때 한 번, 조용히)
+  setTimeout(() => { store.pruneUploadedReports(14).catch(() => {}); }, 15000);
 }

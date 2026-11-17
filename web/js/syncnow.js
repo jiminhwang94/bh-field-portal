@@ -20,7 +20,8 @@ const LAST_SYNC_KEY = 'lastSyncAt';
 
 let state = {
   pending: 0,          // 올릴 대기 건수 (outbox)
-  failed: '',          // 마지막 자동 올리기가 실패했으면 그 이유
+  failed: '',          // 실패가 적힌 대기열 줄의 첫 까닭
+  failedCount: 0,      // 실패가 적힌 줄 수 (v3.46)
   offline: false,
   lastSyncAt: '',
 };
@@ -74,9 +75,12 @@ async function doRefreshState() {
  */
 export async function paint() {
   // 올릴 것은 전부 대기열 하나에 들어 있다 (두 번 세지 않는다).
-  state.pending = await store.outboxCount();
-  // 올릴 것이 없으면 실패도 없는 것이다 — 지난 실패 표시가 남아 있어도 무시한다.
-  state.failed = state.pending ? ((await store.getMeta('flushFailed', '')) || '') : '';
+  const rows = await store.outbox();
+  state.pending = rows.length;
+  // 못 보냄 = 실패가 적힌 줄 (다시 시도를 기다리거나, 다른 기기와 부딪혀 뺀 것) — v3.46
+  const bad = rows.filter((r) => r.lastError);
+  state.failedCount = bad.length;
+  state.failed = bad.length ? String(bad[0].lastError) : '';
   state.offline = !sync.isOnline();
   state.lastSyncAt = (await store.getMeta(LAST_SYNC_KEY, '')) || '';
   paintNow();
@@ -87,9 +91,9 @@ function paintNow() {
   const text = document.getElementById('sync-text');
   const waiting = state.pending;
 
-  // 숫자는 오프라인이거나 올리기가 실패했을 때만 보인다.
-  // 온라인이고 대기 중이면 곧 자동으로 올라가므로 '올리는 중' 으로만 표시한다.
-  const failed = !state.offline && !!state.failed;
+  // 말은 셋으로 나눈다 (v3.46) — 실제로 보내는 동안만 '올리는 중', 기다리면 '대기', 실패는 '못 보냄'.
+  // 예전에는 기다리는 것도 '올리는 중' 이라 해서, 끝나지 않는 칩을 믿지 않게 됐다.
+  const failed = !state.offline && state.failedCount > 0;
   if (chip) {
     chip.classList.toggle('is-offline', state.offline);
     chip.classList.toggle('is-failed', failed);
@@ -103,10 +107,12 @@ function paintNow() {
   if (!text) return;
   if (state.offline) {
     text.textContent = waiting ? `오프라인 · 올릴 것 ${waiting}건` : '오프라인';
-  } else if (failed) {
-    text.textContent = `올리지 못한 것 ${waiting}건`;
-  } else if (waiting) {
+  } else if (sync.isSending() && waiting) {
     text.textContent = `올리는 중 ${waiting}건`;
+  } else if (failed) {
+    text.textContent = `못 보냄 ${state.failedCount}건`;
+  } else if (waiting) {
+    text.textContent = `대기 ${waiting}건`;
   } else {
     text.textContent = state.lastSyncAt
       ? `시트와 같은 내용 · ${state.lastSyncAt.slice(5, 16).replace('T', ' ')}`
@@ -144,7 +150,7 @@ export async function runRefresh(btn, { quiet = false } = {}) {
 
   // 1. 밀린 것이 있으면 먼저 올린다 (오프라인에서 쌓인 것 · 실패했던 것)
   try {
-    const result = await sync.flushOutbox();
+    const result = await sync.flushOutbox({ force: true });   // 사람이 눌렀다 — 기다리는 것도 지금
     done.uploaded = result.sent || 0;
     for (const f of result.failed || []) problems.push(f);
   } catch (err) {
@@ -263,10 +269,13 @@ function safeToRepaint() {
 
 /** 이력 화면이 시트에서 다시 받아오도록 기기 사본을 비운다. */
 async function dropReportCache() {
+  // 지우지 않고 '오래됨' 으로만 표시한다 (v3.46). 예전에는 받기도 전에 지워서, LTE 가 약하면
+  // 이력 · 홈 숫자 · '지난번' 이 모두 비고 이력이 "0건 · 리포트가 없습니다" 라고 했다.
+  // fetchedAt 이 없으면 이력 화면이 열릴 때 새로 받고, 못 받으면 이 사본을 그대로 보여 준다.
   const idb = await import('./local/idb.js');
   for (const row of await idb.getAll('meta')) {
-    if (String(row.key || '').startsWith('sheetReports:')) {
-      await idb.remove('meta', row.key);
+    if (String(row.key || '').startsWith('sheetReports:') && row.value && row.value.fetchedAt) {
+      await idb.put('meta', { ...row, value: { ...row.value, fetchedAt: null, stale: row.value.fetchedAt } });
     }
   }
 }
@@ -275,8 +284,8 @@ async function dropReportCache() {
 export function syncSummaryText() {
   const waiting = state.pending;
   if (state.offline) return `오프라인입니다. 올릴 것 ${waiting}건은 연결되면 자동으로 올라갑니다.`;
-  if (state.failed) return `올리지 못한 것이 ${waiting}건 있습니다 — ${state.failed}`;
-  if (waiting) return `${waiting}건을 올리는 중입니다.`;
+  if (state.failedCount) return `보내지 못한 것이 ${state.failedCount}건 있습니다 — ${state.failed}`;
+  if (waiting) return `${waiting}건이 보낼 차례를 기다립니다.`;
   return state.lastSyncAt
     ? `시트와 같은 내용입니다. 마지막 새로고침 ${state.lastSyncAt.replace('T', ' ')}`
     : '아직 한 번도 새로고침하지 않았습니다.';
@@ -296,6 +305,8 @@ export function initSyncButton() {
   }
 
   refreshState();
+  // 보내기 시작 · 끝 — 칩의 '올리는 중' 을 그때그때 맞춘다
+  window.addEventListener('bh-sending', () => { paint().catch(() => {}); });
   // 칩(올릴 건수·오프라인 표시)만 주기로 맞춘다. **화면은 건드리지 않는다.**
   setInterval(refreshState, 60 * 1000);
   sync.onNetChange(() => refreshState());

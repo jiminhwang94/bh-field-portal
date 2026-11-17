@@ -91,6 +91,29 @@ export async function deleteReport(id) {
   return true;
 }
 
+/**
+ * 시트에 올린 지 오래된 리포트를 기기에서 치운다 — 사진 · 영상과 함께 (v3.46).
+ *
+ * 올린 리포트는 시트(글) · 드라이브(사진 · 영상)에 있다. 기기 사본을 그대로 두면 영상 때문에
+ * 1년이면 몇 GB 가 쌓여, 결국 현장에서 사진을 못 붙이게 된다. 최근 days 일 것은 오프라인에서도
+ * 볼 수 있게 남긴다. 아직 대기열에 있는 것(다시 올리기 등)은 건드리지 않는다.
+ * 반환: 치운 리포트 수.
+ */
+export async function pruneUploadedReports(days = 14) {
+  const cut = Date.now() - days * 24 * 60 * 60 * 1000;
+  const queued = new Set((await idb.getAll('outbox')).map((op) => op.reportId).filter(Boolean));
+  let removed = 0;
+  for (const row of await idb.getAll('reports')) {
+    if (row.status !== 'UPLOADED' || queued.has(row.id)) continue;
+    const at = new Date(String(row.updatedAt || row.createdAt || '')).getTime();
+    if (!Number.isFinite(at) || at > cut) continue;
+    await idb.remove('reports', row.id);
+    removed += 1;
+  }
+  if (removed) await pruneOrphanMedia();
+  return removed;
+}
+
 // --------------------------------------------------------------- 사진
 
 /** 파일을 기기에 저장하고 서버와 동일한 모양의 정보를 돌려준다. */

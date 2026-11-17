@@ -185,7 +185,16 @@ async function undo(op) {
  * 한 줄. 되돌리기는 **그 줄 안에서** 한 번 더 묻는다.
  * 창을 또 띄우면 이 시트를 덮어써서 둘 다 사라진다 (실제로 그랬다).
  */
+/** 이 줄의 상태 한 줄 (v3.46) — 기다림 · 몇 분 뒤 다시 · 못 보냄(까닭) */
+function stateText(op) {
+  if (!op.lastError) return '';
+  if (op.stuck) return `못 보냄 — 다른 기기와 부딪혔습니다. 확인한 뒤 [다시 시도] 하거나 취소하세요 · ${op.lastError}`;
+  const left = Math.max(0, Math.ceil(((op.nextTryAt || 0) - Date.now()) / 60000));
+  return `못 보냄 (${op.tries || 1}번) · ${left ? `${left}분 뒤 다시 보냅니다` : '곧 다시 보냅니다'} — ${op.lastError}`;
+}
+
 function rowHtml(op, info, idx, asking) {
+  const bad = stateText(op);
   return `
     <div class="row" data-idx="${idx}"
          style="align-items:flex-start;gap:var(--space-3);padding:var(--space-3) 0;
@@ -195,7 +204,10 @@ function rowHtml(op, info, idx, asking) {
         <span class="row__title">${h(info.title)}</span>
         <span class="row__meta">${h(info.what)}</span>
         <span class="row__meta">${h(when(op.queuedAt))}${asking ? ` · ${h(info.undoNote)}` : ''}</span>
+        ${bad ? `<span class="row__meta pend-bad">${h(bad)}</span>` : ''}
       </button>
+      ${bad && !asking ? `
+        <button class="btn btn-primary" data-act="retry" data-idx="${idx}" type="button">다시 시도</button>` : ''}
       ${asking ? `
         <button class="btn btn-secondary" data-act="undo-no" data-idx="${idx}"
                 type="button">그대로 두기</button>
@@ -269,6 +281,29 @@ export async function openPendingList() {
       closeModal();
       if (info.goto && location.hash !== info.goto) location.hash = info.goto;
       else if (changed) window.dispatchEvent(new HashChangeEvent('hashchange'));
+      return;
+    }
+    if (act === 'retry') {
+      // 기다림 · 못 보냄 표시를 지우고 지금 보낸다 (v3.46)
+      btn.disabled = true;
+      btn.textContent = '보내는 중…';
+      await store.retryOutbox(op.id);
+      const sync = await import('./sync.js');
+      await sync.flushOutbox({ force: true }).catch(() => {});
+      const syncnow = await import('./syncnow.js');
+      await syncnow.paint();
+      const left = new Map((await store.outbox()).map((o) => [o.id, o]));
+      if (!left.has(op.id)) {
+        ops.splice(idx, 1);
+        infos.splice(idx, 1);
+        changed = true;
+        toast('보냈습니다.', 'ok');
+        if (!ops.length) { closeAndRepaint(); return; }
+      } else {
+        ops[idx] = left.get(op.id);
+        toast('아직 못 보냈습니다. 까닭을 확인하세요.', 'err');
+      }
+      paintRows();
       return;
     }
     if (act === 'undo-ask') { asking = idx; paintRows(); return; }
