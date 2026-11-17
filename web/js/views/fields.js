@@ -20,7 +20,7 @@ export async function fieldsView(view) {
       field.fieldType === 'DROPDOWN' && field.options ? field.options : '',
     ].filter(Boolean).join(' · ');
     return `
-      <div class="row" data-id="${field.id}">
+      <div class="row" data-id="${h(field.id)}">
         <button class="drag-handle" type="button" data-drag="1"
                 aria-label="${h(field.fieldLabel)} 순서 옮기기 (잡고 끌기)">≡</button>
         <span class="row__code tnum">${index + 1}</span>
@@ -31,8 +31,8 @@ export async function fieldsView(view) {
           <span class="row__meta">${h(sub)}</span>
         </span>
         <span class="order-btns">
-          <button class="btn btn-secondary" data-act="edit" data-id="${field.id}" type="button">수정</button>
-          <button class="btn btn-secondary" data-act="del" data-id="${field.id}" type="button">삭제</button>
+          <button class="btn btn-secondary" data-act="edit" data-id="${h(field.id)}" type="button">수정</button>
+          <button class="btn btn-secondary" data-act="del" data-id="${h(field.id)}" type="button">삭제</button>
         </span>
       </div>`;
   }

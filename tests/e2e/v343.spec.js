@@ -48,6 +48,10 @@ test('가이드 사진 — 처음엔 받아서 담고, 다음부터는 기기에
   expect(hits).toBe(1);
   expect(oldThumb).toBe(0);
 
+  // 리포트를 지우거나 대기를 취소할 때 도는 '안 쓰는 첨부 정리' 가 담아 둔 사진을 지우지 않는다 (v3.45.1)
+  await page.evaluate(async () => (await import('/js/local/store-reports.js')).pruneOrphanMedia());
+  expect((await usage(page)).count).toBe(1);
+
   // 설정 — 담아 둔 크기가 보이고 비울 수 있다
   await openApp(page, '#/settings');
   await expect(page.locator('#photoUsage')).toContainText('담아 둔 사진 1장');

@@ -674,7 +674,31 @@ check('정책으로 막히면 못 바꿨다고 정직하게 말한다', cannot.f
       `바꿈 ${cannot.fixed} · 못 바꿈 ${cannot.failed}`);
 
 env.blockSharing = false;
+// 사진 · 동영상 폴더 밖 (시트 백업 · 설치 APK · 회사 파일) 과 사진 · 영상이 아닌 것은 건드리지 않는다 (v3.45.1)
+const keepPrivate = (() => {
+  const root = env.driveTree;
+  const at = (...names) => names.reduce((f, n) => {
+    const got = f.getFoldersByName(n);
+    return got.hasNext() ? got.next() : f.createFolder(n);
+  }, root);
+  const blob = (name, mime) => ({ name, mime, getName: () => name, getContentType: () => mime, getBytes: () => [1] });
+  return [
+    at('시트 백업').createFile(blob('백업 사본', 'application/vnd.google-apps.spreadsheet')),
+    at('시트 백업', '사진').createFile(blob('백업 속 사진.jpg', 'image/jpeg')),
+    at('앱 설치 파일').createFile(blob('현장포털.apk', 'application/vnd.android.package-archive')),
+    at('회사 자료').createFile(blob('계약서.jpg', 'image/jpeg')),
+    at('옥동식 서초점', '2026-09-02', '사진').createFile(blob('메모.pdf', 'application/pdf')),
+  ];
+})();
 const canFix = call({ drive: 'repair', limit: 200 });
+check('사진 공개 복구는 사진 · 동영상 폴더의 사진 · 영상만 — 백업 · APK · 회사 파일 · 문서는 그대로 비공개',
+      keepPrivate.every((f) => f.getSharingAccess() === 'private'),
+      keepPrivate.map((f) => `${f.getName()}=${f.getSharingAccess()}`).join(' · '));
+// 검사용으로 넣은 파일은 치운다 — 아래 설치 APK 검사는 그 폴더에 파일이 하나뿐인지 본다
+(function tidy(folder) {
+  folder.files = folder.files.filter((f) => !keepPrivate.includes(f));
+  for (const sub of folder.folders.values()) tidy(sub);
+})(env.driveTree);
 check('정책이 풀리면 예전 사진을 공개로 바꾼다', canFix.fixed > 0,
       `바꿈 ${canFix.fixed} · 못 바꿈 ${canFix.failed}`);
 check('두 번째 복구는 이미 공개인 것을 건드리지 않는다',

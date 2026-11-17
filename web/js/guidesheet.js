@@ -44,6 +44,7 @@ export async function pushGuides(changes = null) {
   // 합칠 때 시트를 한 번만 읽는다 — 가이드와 로봇 분류가 같은 응답에 들어 있다.
   const sheet = changes && changes.length
     ? await callAppsScript({ guides: 'pull' }, 60000) : null;
+  if (sheet) store.cleanIds(sheet.items);                 // 시트 아이디는 안전한 모양만 (v3.45.1)
   const conflicts = [];
   const guides = mergeWithSheet(await idb.getAll('guides'), changes, sheet, conflicts);
   const models = mergeModels(await store.listGuideModels(), changes, sheet);
@@ -239,7 +240,7 @@ export function pullGuides() {
 
 async function pullGuidesNow() {
   const result = await callAppsScript({ guides: 'pull' }, 60000);
-  const rows = result.items || [];
+  const rows = store.cleanIds(result.items || []);        // 시트 아이디는 안전한 모양만 (v3.45.1)
 
   // 로봇 분류 — 시트에 탭이 있고 내가 안 올린 변경이 없을 때만 시트를 따른다.
   let modelsChanged = 0;

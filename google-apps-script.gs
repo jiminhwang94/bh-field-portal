@@ -2701,13 +2701,26 @@ function handleDriveRepair(ss, body) {
   var failed = 0;
   var stack = [root.folder];
 
+  // 공개로 바꾸는 것은 '사진' · '동영상' 폴더 바로 안의 사진 · 영상뿐이다 (v3.45.1).
+  // 예전에는 공유 드라이브를 통째로 훑어 시트 매일 백업 · 설치 APK · 회사 파일까지
+  // '링크가 있는 누구나' 로 바꿨다. 백업 · APK 폴더는 들어가지도 않는다.
+  var SKIP = {};
+  SKIP[BACKUP_FOLDER_NAME] = true;
+  SKIP[APK_FOLDER_NAME] = true;
   while (stack.length && checked < limit) {
     var folder = stack.pop();
     var subs = folder.getFolders();
-    while (subs.hasNext()) stack.push(subs.next());
+    while (subs.hasNext()) {
+      var sub = subs.next();
+      if (!SKIP[sub.getName()]) stack.push(sub);
+    }
+    var here = folder.getName();
+    if (here !== PHOTO_FOLDER_NAME && here !== VIDEO_FOLDER_NAME) continue;
     var items = folder.getFiles();
     while (items.hasNext() && checked < limit) {
       var file = items.next();
+      var mime = String(file.getMimeType() || '');
+      if (mime.indexOf('image/') !== 0 && mime.indexOf('video/') !== 0) continue;
       checked++;
       try {
         if (file.getSharingAccess() === DriveApp.Access.ANYONE_WITH_LINK) continue;

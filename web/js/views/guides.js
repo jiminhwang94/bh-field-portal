@@ -127,7 +127,7 @@ export function robotColor(name, models) {
 export const modelKey = (g) => (g.robotModel || '').trim() || NONE;
 export const modelLabel = (key) => (key === NONE ? NONE_LABEL : key);
 export const modelHref = (key, cat = null) =>
-  `#/guides/m/${encodeURIComponent(key || NONE)}${cat ? `/${cat}` : ''}`;
+  `#/guides/m/${encodeURIComponent(key || NONE)}${cat ? `/${encodeURIComponent(cat)}` : ''}`;
 
 /**
  * 오류 코드는 코드(E-101)와 제목을 나눠 보여 준다. 나머지는 제목만.
@@ -385,7 +385,7 @@ export async function guideAssignView(view) {
       const on = picked.has(g.id);
       return `
         <label class="pick-row${on ? ' is-on' : ''}">
-          <input type="checkbox" class="pick-row__box" data-id="${g.id}" ${on ? 'checked' : ''} />
+          <input type="checkbox" class="pick-row__box" data-id="${h(g.id)}" ${on ? 'checked' : ''} />
           <span class="pick-row__code tnum">${h(code || CAT_TINY[g.categoryType])}</span>
           <span class="pick-row__title">${h(title)}</span>
           <span class="pick-row__meta">${h(CAT_SHORT[g.categoryType])} · ${h(modelLabel(modelKey(g)))}</span>
