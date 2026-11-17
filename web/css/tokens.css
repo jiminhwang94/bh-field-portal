@@ -63,10 +63,10 @@
   --color-surface-2: #e4e9f0;       /* 세그먼트 트랙 · 눌린 면 */
   --color-text: #16181d;
   --color-muted: #5a6270;           /* 보조 텍스트 */
-  --color-faint: #6f7784;           /* 3차 텍스트 · 표 머리 */
+  --color-faint: #5f6774;           /* 3차 텍스트 · 표 머리 — 햇빛에서도 4.5:1 넘게 (v3.48) */
   --color-disabled: #9aa2ae;
   --color-border: #d2d8e1;
-  --color-border-strong: #b8c0cc;
+  --color-border-strong: #8a93a1;   /* 입력칸 테두리 — 흰 바탕에 3:1 넘게 (v3.48, 예전 #b8c0cc 1.8:1) */
   --color-hairline: #dde2ea;        /* 셸 구분선 */
 
   /* 코발트 블루 — 브랜드 강조색 */

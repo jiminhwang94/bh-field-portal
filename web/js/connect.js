@@ -46,7 +46,8 @@ export async function ensureSheetConnection({ force = false } = {}) {
     const result = await testConnection();
     await store.setMeta(VERIFIED_KEY, store.now());
     await store.setMeta(ERROR_KEY, '');
-    toast(`구글 시트에 연결됐습니다${result.spreadsheetName ? ` · ${result.spreadsheetName}` : ''}`, 'ok');
+    // 사람이 [연결 확인] 을 눌렀을 때만 알린다 — 앱을 켤 때마다 뜨면 화면만 가린다 (v3.48)
+    if (force) toast(`구글 시트에 연결됐습니다${result.spreadsheetName ? ` · ${result.spreadsheetName}` : ''}`, 'ok');
     return { verifiedAt: store.now(), error: '', name: result.spreadsheetName || '' };
   } catch (err) {
     await store.setMeta(ERROR_KEY, err.message || '연결에 실패했습니다.');

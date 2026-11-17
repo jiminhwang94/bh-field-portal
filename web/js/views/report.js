@@ -3,7 +3,7 @@ import { api } from '../api.js';
 import { MEDIA_FILE_LIMIT, MEDIA_TOTAL_LIMIT, MEDIA_FILE_LIMIT_TEXT, MEDIA_TOTAL_LIMIT_TEXT, preuploadMedia } from '../sheets.js';
 import {
   $, closeModal, confirmDialog, copyText, h, hydrateMedia, loading, openSheet, promptDialog,
-  toast, when,
+  toast, undoToast, when,
 } from '../ui.js';
 import { reportToText, shareReport } from '../share.js';
 import {
@@ -205,6 +205,7 @@ export async function reportFormView(view) {
   try { if (editMode || localStorage.getItem(MODE_KEY) === 'all') mode = 'all'; } catch { /* 기본 단계식 */ }
   let stepAt = 0;
   let savedAt = '';           // 마지막으로 저절로 저장한 시각
+  let showMissing = false;    // 올리려다 빈 필수 칸이 있었다 — 그 칸을 표시한다 (v3.48)
   const serialField = fields.find((f) => f.fieldLabel.includes('시리얼'));
   // 같은 로봇의 지난 기록 — 최근 3달 **받아 둔** 이력 (시트에 묻지 않는다 · 뒤에서 한 번 읽는다)
   let pastEntries = [];
@@ -354,7 +355,9 @@ export async function reportFormView(view) {
 
   function fieldHtml(field) {
     const state = values[field.id];
-    const label = `<label>${h(field.fieldLabel)}${field.isRequired ? '<span class="req">*</span>' : ''}</label>`;
+    // 저절로 채워지는 리포트 번호에는 필수 표시를 달지 않는다 — 사람이 채울 칸이 아니다 (v3.48)
+    const auto = autoNumber && numberField && field.id === numberField.id;
+    const label = `<label>${h(field.fieldLabel)}${field.isRequired && !auto ? '<span class="req">*</span>' : ''}</label>`;
     // 칸마다 단계 · 아이디를 단다 — 단계식은 지금 단계 칸만 보이고, 칸 찾기는 아이디로 한다
     const tag = `data-field-id="${field.id}" data-step="${stepOf(field)}"`;
 
@@ -558,11 +561,19 @@ export async function reportFormView(view) {
           ${editingLink ? `<span class="page-head__meta">${h(editingLink.sheetName)} 시트 <span class="tnum">${editingLink.row}</span>행 수정</span>` : ''}
           ${!sheetsReady ? '<span class="page-head__meta rf-warn">구글 시트 연결이 아직 없습니다 — 설정에서 먼저 연결하세요</span>' : ''}
           <span class="page-head__spacer"></span>
-          ${fields.length ? `<button class="btn btn-secondary" data-act="toggle-mode" type="button">${step ? '한 번에 보기' : '단계로 보기'}</button>` : ''}
-          <a class="btn btn-secondary" href="#/fields">항목 설정</a>
+          ${step ? `
+            <details class="rf-more">
+              <summary class="btn btn-secondary" aria-label="보기 바꾸기 · 항목 설정">⋯</summary>
+              <div class="rf-more__menu">
+                <button class="btn btn-secondary" data-act="toggle-mode" type="button">한 번에 보기</button>
+                <a class="btn btn-secondary" href="#/fields">항목 설정</a>
+              </div>
+            </details>` : `
+            ${fields.length ? '<button class="btn btn-secondary" data-act="toggle-mode" type="button">단계로 보기</button>' : ''}
+            <a class="btn btn-secondary" href="#/fields">항목 설정</a>`}
         </div>
 
-        ${editingLink ? '' : `<div class="rf-when${writtenAt ? ' is-past' : ''}" id="rfWhen">${whenHtml()}</div>`}
+        ${editingLink ? '' : `<div class="rf-when${writtenAt ? ' is-past' : ''}" id="rfWhen"${step ? ' data-step="check"' : ''}>${whenHtml()}</div>`}
         ${step ? stepperHtml() : ''}
         <div id="robotHints" data-step="robot"></div>
         <div id="pastRobot" data-step="problem"></div>
@@ -587,6 +598,11 @@ export async function reportFormView(view) {
     const root = $('#pageRoot');
     root.addEventListener('click', onClick);
     hydrateMedia(view);        // 첨부 미리보기는 기기 안 파일에서 꺼낸다
+    // 단계로 쓸 때는 위의 [업로드] 를 숨긴다 — 1단계부터 보이면 너무 일찍 누르게 된다 (v3.48).
+    // 올리기는 마지막 [확인] 단계의 아래 버튼 하나뿐이다.
+    const topAction = document.getElementById('btn-topaction');
+    if (topAction) topAction.hidden = step;
+    if (showMissing) markMissing();
     root.addEventListener('input', (ev) => {
       const el = /** @type {HTMLInputElement} */ (ev.target);
       if (el.dataset.c3field) { edit3c(el.dataset.c3field, el.dataset.c3name || '', { memo: el.value }); return; }
@@ -594,6 +610,14 @@ export async function reportFormView(view) {
       if (!id) return;
       const prev = values[id].value;
       values[id].value = el.value;
+      // 비었다고 표시한 칸에 적기 시작하면 표시를 거둔다 (v3.48)
+      const missBox = el.closest('.is-missing');
+      if (missBox && String(el.value || '').trim()) {
+        missBox.classList.remove('is-missing');
+        const note = missBox.querySelector('.field__miss');
+        if (note) note.remove();
+        el.removeAttribute('aria-invalid');
+      }
       // 증상 칸 — 보이는 것은 덧붙일 말뿐, 시트에는 이슈 이름 줄 + 덧붙일 말로 간다
       if (symptomField && workField && id === symptomField.id) {
         values[id].value = mergeSymptom(el.value, [], currentIssues());
@@ -1147,6 +1171,26 @@ export async function reportFormView(view) {
     }));
   }
 
+  /** 빈 필수 칸에 빨간 테두리 · "이 칸이 비었어요" — 첫 칸으로 데려간다 (v3.48) */
+  function markMissing() {
+    const missing = missingRequired();
+    if (!missing.length) { showMissing = false; return; }
+    let first = null;
+    for (const f of missing) {
+      const box = view.querySelector(`#reportForm [data-field-id="${f.id}"]`);
+      if (!box || box.hidden) continue;
+      box.classList.add('is-missing');
+      if (!box.querySelector('.field__miss')) box.insertAdjacentHTML('beforeend', '<p class="field__miss">이 칸이 비었어요</p>');
+      const input = box.querySelector('input, textarea, select');
+      if (input) input.setAttribute('aria-invalid', 'true');
+      if (!first && getComputedStyle(box).display !== 'none') first = { box, input };
+    }
+    if (first) {
+      first.box.scrollIntoView({ block: 'center' });
+      if (first.input && first.input.type !== 'hidden') first.input.focus({ preventScroll: true });
+    }
+  }
+
   function missingRequired() {
     return fields.filter((f) => {
       if (!f.isRequired) return false;
@@ -1396,14 +1440,28 @@ export async function reportFormView(view) {
       return;
     }
     if (act === 'del-kept') {
-      const [gone] = values[btn.dataset.field].kept.splice(Number(btn.dataset.idx), 1);
-      if (gone) values[btn.dataset.field].dropped.push(gone);
+      const state = values[btn.dataset.field];
+      const at = Number(btn.dataset.idx);
+      const [gone] = state.kept.splice(at, 1);
+      if (gone) state.dropped.push(gone);
       render();
+      // 6초 동안 되돌릴 수 있다 (v3.48)
+      if (gone) undoToast('사진을 뺐어요', () => {
+        state.dropped = state.dropped.filter((x) => x !== gone);
+        state.kept.splice(Math.min(at, state.kept.length), 0, gone);
+        render();
+      });
       return;
     }
     if (act === 'del-media') {
-      values[btn.dataset.field].media.splice(Number(btn.dataset.idx), 1);
+      const state = values[btn.dataset.field];
+      const at = Number(btn.dataset.idx);
+      const [gone] = state.media.splice(at, 1);
       render();
+      if (gone) undoToast('사진을 뺐어요', () => {
+        state.media.splice(Math.min(at, state.media.length), 0, gone);
+        render();
+      });
       return;
     }
     if (act === 'save-draft') {
@@ -1470,7 +1528,14 @@ export async function reportFormView(view) {
     if (!saved) {
       setSubmitState(idleLabel(), false);
       // 단계식이면 빈 칸이 어느 단계인지 보이는 [확인] 단계로 데려간다
-      if (stepMode() && missingRequired().length) goStep(steps.length - 1);
+      // 빈 칸이 있는 **그 단계**로 데려가 칸을 표시한다 (예전에는 [확인] 단계로만 갔다)
+      const missing = missingRequired();
+      if (missing.length) {
+        showMissing = true;
+        const at = stepMode() ? steps.findIndex((x) => x.key === stepOf(missing[0])) : -1;
+        if (at >= 0 && at !== stepAt) goStep(at);
+        else markMissing();
+      }
       return;
     }
     deductParts(saved.id).catch(() => {});      // 쓴 부품은 올리기 결과와 상관없이 재고에서 뺀다

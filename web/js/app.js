@@ -161,7 +161,8 @@ async function mainView() {
   const models = await api.listGuideModels();
   const drafts = (await api.listReports()).items.filter((r) => r.status === 'DRAFT');
   const unsent = (await api.listReports()).items.filter((r) => r.status !== 'UPLOADED' && r.status !== 'DRAFT');
-  const numbers = await requestNumbers();
+  const numbersKnown = await requestNumbers();
+  const numbers = numbersKnown || [];
   const month = await monthEntries();
   const stock = await lowStock();
   const attn = await api.attention();
@@ -221,7 +222,11 @@ async function mainView() {
             <a class="door__row" href="#/report/new">
               <b>접수 대기 <span class="tnum">${numbers.length}</span>건</b>
               <span>${h(stores.slice(0, 2).join(' · '))}${stores.length > 2 ? ` 외 ${stores.length - 2}` : ''}</span>${ICON_SVG(I.chev, 2.4)}
-            </a>` : ''}
+            </a>` : `
+            <span class="door__row door__row--quiet">
+              <b>${numbersKnown ? '접수 대기 없음' : '접수 목록을 아직 받지 못했어요'}</b>
+              <span>${numbersKnown ? '새 접수가 오면 여기에 보입니다' : '인터넷이 되면 [새로고침] 으로 받습니다'}</span>
+            </span>`}
           ${unsent.length ? `
             <a class="door__row" href="#/reports">
               <b>올리는 중 <span class="tnum">${unsent.length}</span>건</b><span>인터넷이 되면 자동으로 올라갑니다</span>${ICON_SVG(I.chev, 2.4)}
@@ -236,9 +241,10 @@ async function mainView() {
           ? `최근: ${h(recent.store || '(식당명 없음)')}${recent.summary ? ` · ${h(recent.summary)}` : ''} · ${h((recent.date || '').slice(5))}`
           : '어떤 문제였고 무엇을 했는지 카드로 봅니다'}</span>
         <span class="door__counts">
-          <span data-track="doing"><i></i>진행 중<b class="tnum">${count('조치 진행 중')}</b></span>
-          <span data-track="swap"><i></i>교체 예정<b class="tnum">${count('교체 예정')}</b></span>
-          <span data-track="late"${overdue.length ? '' : ' class="is-zero"'}>${ICON_SVG(I.clock, 2.2)}${OVERDUE_DAYS}일 넘음<b class="tnum">${overdue.length}</b></span>
+          <span data-track="doing"><i></i>진행 중<b class="tnum">${month ? count('조치 진행 중') : '—'}</b></span>
+          <span data-track="swap"><i></i>교체 예정<b class="tnum">${month ? count('교체 예정') : '—'}</b></span>
+          <span data-track="late"${overdue.length ? '' : ' class="is-zero"'}>${ICON_SVG(I.clock, 2.2)}${OVERDUE_DAYS}일 넘음<b class="tnum">${month ? overdue.length : '—'}</b></span>
+          <span class="door__asof">${month ? h(asOfText(month.at)) : '이력을 아직 받지 못했어요'}</span>
         </span>
       </a>
 
@@ -269,14 +275,22 @@ function draftStore(report) {
   return hit ? String(hit.value).trim() : '';
 }
 
-/** 받아 둔 접수 목록 ('필드팀 요청') — 홈은 시트에 묻지 않는다 */
+/** 받아 둔 접수 목록 ('필드팀 요청') — 홈은 시트에 묻지 않는다. 받은 적이 없으면 null (v3.48) */
 async function requestNumbers() {
   try {
-    const { cachedRequestNumbers } = await import('./reportsheet.js');
-    return (await cachedRequestNumbers()) || [];
+    const store = await import('./local/store.js');
+    return await store.getMeta('sheetReportNumbers', null);
   } catch {
-    return [];
+    return null;
   }
+}
+
+/** '방금' · '5분 전' · '3시간 전' 기준 — 홈 숫자가 언제 것인지 (v3.48) */
+function asOfText(iso) {
+  const at = new Date(String(iso || '')).getTime();
+  if (!Number.isFinite(at)) return '';
+  const min = Math.max(0, Math.floor((Date.now() - at) / 60000));
+  return min < 1 ? '방금 기준' : `${agoText(min)} 기준`;
 }
 
 /** 끝나지 않은 채 이만큼 지나면 홈 · 이력에서 눈에 띄게 알린다. */
@@ -310,10 +324,11 @@ async function monthEntries() {
     const d = new Date();
     const name = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const cached = await store.getMeta(`sheetReports:${name}`, null);
-    if (!cached || !(cached.entries || []).length) return null;
-    const entries = [...cached.entries].sort((a, b) =>
+    // 받은 적이 없으면 null — 홈은 0 이 아니라 '—' 를 보인다 (v3.48)
+    if (!cached) return null;
+    const entries = [...(cached.entries || [])].sort((a, b) =>
       String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || '')));
-    return { name, entries };
+    return { name, entries, at: cached.fetchedAt || cached.stale || '' };
   } catch {
     return null;
   }

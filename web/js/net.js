@@ -47,7 +47,7 @@ export async function ensureFirstData() {
     await store.ensureCauseField().catch(() => {});
     await store.ensureDefaultWork().catch(() => {});
   }
-  if (added) toast(`리포트 항목 ${added}개를 준비했습니다.`, 'ok');
+  // 기본 항목을 갖춘 것은 앱이 알아서 한 일이다 — 알리지 않는다 (v3.48)
   // 기본 순서를 한 번 맞춘다 (그 뒤로는 기기에서 옮긴 순서를 지킨다).
   // 갑자기 칸 자리가 바뀌면 놀라므로, 실제로 바뀐 경우에만 알려 준다.
   const moved = await store.applyDefaultFieldOrderOnce();

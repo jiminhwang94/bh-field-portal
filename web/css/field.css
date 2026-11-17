@@ -16,8 +16,9 @@
 .topbar .btn { min-height: 56px; }
 .input, .select { min-height: 56px; font-size: 18px; }
 .textarea, textarea.input { font-size: 18px; }
-/* 알림은 위쪽에 — 아래는 엄지가 누르는 주 동작(다음 · 올리기) 자리다. 예전에는 알림이 그 버튼을 덮었다 */
-.toasts { top: calc(var(--topbar-h) + 12px); bottom: auto; }
+/* 알림은 아래 주 동작 바(다음 · 올리기) **바로 위**에 (v3.48).
+   위쪽에 두면 화면 제목 · 첫 카드를 가렸고, 맨 아래에 두면 그 버튼을 덮었다. */
+.toasts { top: auto; bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
 
 /* ══ 2. 홈 — 세 개의 문 ══════════════════════════════════════════════════ */
 .home3 {
@@ -438,7 +439,7 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .veh-tab { min-height: 56px; font-size: 18px; font-weight: 700; border-radius: 12px; }
 
 /* ── 입력칸 — 테두리를 또렷하게 */
-.input, .select, .textarea, textarea.input { border-width: 2px; border-color: var(--color-border); border-radius: 14px; }
+.input, .select, .textarea, textarea.input { border-width: 2px; border-color: var(--color-border-strong); border-radius: 14px; }   /* 햇빛에서도 칸이 보이게 3:1 넘게 (v3.48) */
 .input:focus-visible, .select:focus-visible, .textarea:focus-visible { border-color: var(--color-accent); }
 .field > label, .field > .label { font-size: 17px; font-weight: 700; }
 
@@ -701,16 +702,17 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
   .wz-bar .btn, .gs-bar .btn { font-size: 18px; padding: 0 16px; }
   .wz-bar__next, .gs-bar__next { flex: 1; min-width: 0; }
   .gs-instr { font-size: 22px; }
+  .toasts { bottom: calc(168px + env(safe-area-inset-bottom, 0px)); }   /* 아래 탭(64) + 주 동작 바 위 */
   .hd2-head { flex-wrap: wrap; }                  /* 폰 — 매장 이름이 한 글자씩 꺾이지 않게 */
   /* 폰 아래 탭은 중요한 넷만 — 운행일지 · 재고 · 설정은 홈 아래 줄에 있다 (일곱 개면 옆으로 밀어야 보였다) */
   .tab[data-tab="driving"], .tab[data-tab="inventory"], .tab[data-tab="settings"] { display: none; }
-  .tab { min-width: 0; height: 64px; font-size: 13px; box-shadow: none; }
+  .tab { min-width: 0; height: 64px; font-size: 15px; box-shadow: none; }
   .tab[aria-current="page"] { box-shadow: none; }
   .tab__label { white-space: nowrap; }
   .topbar { gap: 8px; }
   .topbar .btn { min-height: 48px; padding: 0 12px; font-size: 15px; border-radius: 12px; }
   .topbar .btn--icon { min-width: 48px; min-height: 48px; }
-  .test-banner { height: 36px; padding: 0 10px; font-size: 13px; }
+  .test-banner { height: 36px; padding: 0 10px; font-size: 15px; }
   .topbar__brand, .btn-patch { display: none; }   /* 폰 상단바는 뒤로 · 테스트 · 올리는 중 · 새로고침만 */
   .topbar > * { flex-shrink: 0; }
   .topbar .topbar__spacer { flex-shrink: 1; }
@@ -764,7 +766,7 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .gm-tile .step__img--edit { margin: 0; }
 .gm-tile__len {
   position: absolute; left: 6px; bottom: 6px; padding: 2px 8px; border-radius: 999px;
-  background: var(--color-text); color: var(--color-bg); font-size: 13px; font-weight: 700;
+  background: var(--color-text); color: var(--color-bg); font-size: 15px; font-weight: 700;
 }
 .gm-tile__del {
   position: absolute; top: 4px; right: 4px; width: 44px; height: 44px; border: 0; border-radius: 50%;
@@ -789,3 +791,34 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 
 /* [올릴 내용] — 못 보낸 줄의 까닭 (v3.46) */
 .pend-bad { color: var(--color-danger); font-weight: 700; }
+
+/* 새 리포트 — 단계로 쓸 때 머리를 줄인다 (v3.48): [한 번에 보기] · [항목 설정] 은 [⋯] 안으로 */
+.rf-more { position: relative; }
+.rf-more > summary { list-style: none; min-width: 60px; font-size: 24px; letter-spacing: 2px; }
+.rf-more > summary::-webkit-details-marker { display: none; }
+.rf-more__menu {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 60;
+  display: flex; flex-direction: column; gap: 8px; min-width: 200px; padding: 10px;
+  background: var(--color-bg); border: 1px solid var(--color-border); border-radius: 16px; box-shadow: var(--shadow-md);
+}
+/* 빈 필수 칸 (v3.48) — 올리려다 비었으면 그 단계로 데려와 빨간 테두리와 한 줄 */
+.field.is-missing .input, .field.is-missing .textarea, .field.is-missing .select,
+.field.is-missing .choice-btn, .field.is-missing .media-pick { border-color: var(--color-danger); border-width: 2px; }
+.field__miss { margin: 6px 0 0; color: var(--color-danger); font-size: 16px; font-weight: 700; }
+
+@media (max-width: 720px) {
+  /* 폰 · 단계로 쓸 때 — [이전 · 다음] 을 화면 아래에 붙이고 아래 탭은 숨긴다 (v3.48).
+     예전에는 머리가 길어 3 · 5단계에서 입력칸도 [다음] 도 첫 화면에 없었다. */
+  body:has(.rf[data-mode="step"]) .tabbar { display: none; }
+  .rf[data-mode="step"] { padding-bottom: 112px; }
+  .rf[data-mode="step"] .wz-bar {
+    position: fixed; left: 0; right: 0; bottom: 0; margin: 0; z-index: 50;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+  body:has(.rf[data-mode="step"]) .toasts { bottom: calc(104px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* 홈 (v3.48) — 받은 때 · 빈 접수 줄도 자리를 지킨다 (늦게 떠도 화면이 밀리지 않게) */
+.door__counts > .door__asof { grid-column: 1 / -1; background: none; padding: 0; font-size: 15px; font-weight: 600; color: var(--color-muted); }
+.door__row--quiet { color: var(--color-muted); cursor: default; }
+.door__row--quiet b { font-weight: 700; }
