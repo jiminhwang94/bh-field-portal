@@ -9,6 +9,27 @@ import { testMode } from '../mode.js';
 export const CATEGORY_TYPES = ['ERROR_CODE', 'HARDWARE_SOP', 'SOFTWARE_CMD'];
 export const FIELD_TYPES = ['TEXT', 'TEXTAREA', 'NUMBER', 'DROPDOWN', 'MEDIA'];
 
+/**
+ * 시트에서 온 아이디가 안전한 모양인가 (v3.45.1).
+ *
+ * 아이디는 화면 HTML 속성 · 주소에 그대로 들어간다. 시트의 'ID(고치지 마세요)' 칸은 누구나
+ * 고칠 수 있어서, 따옴표 · 꺾쇠가 든 값이 오면 화면에 코드가 끼어들 수 있다.
+ * 앱 · 시트가 만드는 아이디는 영문 · 숫자 · _ · - 뿐이다. 아니면 빈 값으로 본다 —
+ * 빈 아이디는 받는 쪽이 이미 이름으로 맞추거나 새로 짓는다.
+ */
+export function safeId(value) {
+  const text = String(value === undefined || value === null ? '' : value).trim();
+  return /^[A-Za-z0-9_-]{1,64}$/.test(text) ? text : '';
+}
+
+/** 시트에서 받은 줄들의 아이디를 safeId 로 고친다 (제자리에서 · 같은 배열을 돌려준다) */
+export function cleanIds(rows) {
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (row && typeof row === 'object' && 'id' in row) row.id = safeId(row.id);
+  }
+  return rows;
+}
+
 export function newId() {
   if (crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g, '');
   return 'x' + Math.random().toString(36).slice(2) + Date.now().toString(36);

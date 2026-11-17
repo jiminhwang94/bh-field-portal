@@ -42,7 +42,7 @@ const labelKey = (f) => String((f && f.fieldLabel) || '').replace(/\s/g, '');
 async function mergeWithSheet(local, changes) {
   // 시트를 못 읽으면 올리지 않는다 (오류를 넘겨 대기열에 남긴다). 기기 것을 통째로
   // 올리면 다른 사람이 지운 항목이 되살아나고 남이 고친 항목이 덮인다.
-  const sheet = (await callAppsScript({ fields: 'pull' }, 60000)).items || [];
+  const sheet = store.cleanIds((await callAppsScript({ fields: 'pull' }, 60000)).items || []);
   if (!sheet.length) return local;
 
   // **시트 순서를 그대로 둔다.** 아래에서 시트 줄 차례로 담기 때문에, 내가
@@ -109,7 +109,7 @@ export function pullFields() {
 
 async function pullFieldsNow() {
   const result = await callAppsScript({ fields: 'pull' }, 60000);
-  const rows = result.items || [];
+  const rows = store.cleanIds(result.items || []);        // 시트 아이디는 안전한 모양만 (v3.45.1)
   if (!rows.length) return { changed: 0, added: 0, removed: 0 };
   // 받는 사이에 고친 것도 지키도록 시트를 받은 **뒤에** 내 대기분을 본다.
   const queued = (await store.outbox()).some((op) => op.type === 'fieldsheet-push');

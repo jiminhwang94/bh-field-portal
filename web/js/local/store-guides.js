@@ -2,7 +2,7 @@
 // (store.js 가 전부 다시 내보낸다 — 밖에서는 store.js 만 부른다)
 import * as idb from './idb.js';
 import { testMode } from '../mode.js';
-import { CATEGORY_TYPES, byText, getMeta, newId, now, queueGuideSheetPushIfOn, setMeta } from './store-core.js';
+import { CATEGORY_TYPES, byText, getMeta, newId, now, queueGuideSheetPushIfOn, safeId, setMeta } from './store-core.js';
 
 // -------------------------------------------------------------- 가이드
 
@@ -287,8 +287,9 @@ export async function setGuideCats(map) {
   const clean = {};
   for (const [robot, list] of Object.entries(map || {})) {
     const items = (Array.isArray(list) ? list : [])
-      .filter((c) => c && c.id && String(c.name || '').trim())
-      .map((c) => ({ id: String(c.id), name: String(c.name).trim(),
+      // 항목 아이디는 주소(#/guides/m/로봇/아이디)에 들어간다 — 안전한 모양만 받는다 (v3.45.1)
+      .filter((c) => c && safeId(c.id) && String(c.name || '').trim())
+      .map((c) => ({ id: safeId(c.id), name: String(c.name).trim(),
                      form: CATEGORY_TYPES.includes(c.form) ? c.form : 'HARDWARE_SOP' }));
     if (items.length) clean[robot] = items;
   }

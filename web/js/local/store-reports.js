@@ -148,6 +148,9 @@ export async function pruneOrphanMedia() {
   let deleted = 0;
   for (const media of await idb.getAll('media')) {
     if (used.has(media.filename)) continue;
+    // 드라이브 사진을 담아 둔 것(drive-…)은 따로 관리한다 — 1GB · 오래 안 본 것부터 (drivemedia.js).
+    // 만든 시각이 없어 '아주 오래된 안 쓰는 파일' 로 보여, 리포트 하나만 지워도 통째로 지워졌다 (v3.45.1)
+    if (String(media.filename || '').startsWith('drive-')) continue;
     // 방금 올려 아직 리포트에 담기지 않은 파일은 남긴다(10분).
     const age = Date.now() - new Date(media.createdAt || 0).getTime();
     if (age < 600000) continue;
