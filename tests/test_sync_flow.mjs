@@ -64,6 +64,17 @@ export const STATUS_VALUES = ['조치 완료', '모니터링', '조치 진행 �
 export const DEFAULT_STATUS = '조치 진행 중';
 export const callAppsScript = (payload) => globalThis.__server(payload);
 export const uploadReport = (report) => globalThis.__server({ upload: report });
+// 진짜와 같은 규칙 — 받은 뒤 바뀌었으면(stale) 다시 받아 합쳐서 올린다 (v3.47)
+export async function pushMerged(attempt) {
+  for (let tries = 0; ; tries += 1) {
+    let base = '';
+    try {
+      return await attempt((v) => { base = String(v || ''); }, () => (base ? { base } : {}));
+    } catch (err) {
+      if (!(err && err.stale) || tries >= 2) throw err;
+    }
+  }
+}
 `;
 
 registerHooks({

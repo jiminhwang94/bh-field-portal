@@ -7,7 +7,7 @@
 // 시트에 적힌 **순서가 곧 리포트 시트의 열 순서**다.
 import * as idb from './local/idb.js';
 import * as store from './local/store.js';
-import { callAppsScript } from './sheets.js';
+import { callAppsScript, pushMerged } from './sheets.js';
 import { sheetRead } from './sync.js';
 
 /**
@@ -16,17 +16,21 @@ import { sheetRead } from './sync.js';
  * 따르고, 내가 새로 만든 항목은 뒤에 붙는다.
  */
 export async function pushFields(changes = null) {
-  const items = await mergeWithSheet(await store.listFields(), changes);
-  return callAppsScript({
-    fields: 'push',
-    items: items.map((f) => ({
-      id: f.id,
-      fieldLabel: f.fieldLabel,
-      fieldType: f.fieldType,
-      options: f.options || '',
-      isRequired: !!f.isRequired,
-    })),
-  }, 60000);
+  // 받은 뒤 그 사이 다른 기기가 올렸으면 시트가 거절한다 — 다시 받아 합친다 (v3.47)
+  return pushMerged(async (useBase, base) => {
+    const items = await mergeWithSheet(await store.listFields(), changes, useBase);
+    return callAppsScript({
+      fields: 'push',
+      ...base(),
+      items: items.map((f) => ({
+        id: f.id,
+        fieldLabel: f.fieldLabel,
+        fieldType: f.fieldType,
+        options: f.options || '',
+        isRequired: !!f.isRequired,
+      })),
+    }, 60000);
+  });
 }
 
 /**
@@ -39,10 +43,12 @@ export async function pushFields(changes = null) {
  */
 const labelKey = (f) => String((f && f.fieldLabel) || '').replace(/\s/g, '');
 
-async function mergeWithSheet(local, changes) {
+async function mergeWithSheet(local, changes, useBase = (/** @type {any} */ _version) => {}) {
   // 시트를 못 읽으면 올리지 않는다 (오류를 넘겨 대기열에 남긴다). 기기 것을 통째로
   // 올리면 다른 사람이 지운 항목이 되살아나고 남이 고친 항목이 덮인다.
-  const sheet = store.cleanIds((await callAppsScript({ fields: 'pull' }, 60000)).items || []);
+  const pulled = await callAppsScript({ fields: 'pull' }, 60000);
+  useBase(pulled.version);
+  const sheet = store.cleanIds(pulled.items || []);
   if (!sheet.length) return local;
 
   // **시트 순서를 그대로 둔다.** 아래에서 시트 줄 차례로 담기 때문에, 내가

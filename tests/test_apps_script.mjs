@@ -1161,6 +1161,15 @@ call({ changed: true });
 check('같은 날 두 번은 복사하지 않는다',
       backupDir().files.filter((f) => f.name === `테스트 시트 백업 ${todayText}` && !f.trashed).length === backups.length);
 check('30일 지난 백업은 휴지통으로 (드라이브 휴지통에서 30일 더 되살릴 수 있다)', oldBackup.trashed === true);
+// 다른 요청이 공용 잠금을 쥐고 있어도 백업은 한다 — 백업이 잠금을 쥐면 그동안 저장이 실패한다 (v3.47)
+env.scriptProps.delete('LAST_BACKUP_DAY');
+for (const f of backupDir().files) f.trashed = true;
+env.lockBusy = true;
+call({ changed: true });
+env.lockBusy = false;
+check('백업은 공용 잠금 없이 한다 (저장을 막지 않는다)',
+      backupDir().files.some((f) => f.name === `테스트 시트 백업 ${todayText}` && !f.trashed));
+check('백업 중 표시는 끝나면 지운다', !env.scriptProps.has('BACKUP_RUNNING_AT'));
 
 console.log('── 운영: 기기 탭 · 최소 버전');
 const devTab = () => ss.getSheetByName('기기');
@@ -1544,6 +1553,95 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
         JSON.stringify(it3.causes) === '["커넥터 접촉 불량","모터 과부하","와이어 꼬임"]', JSON.stringify(it3.causes));
   w = call({ work: 'push', ops: [{ op: 'item-upsert', item: { ...it3, causes: ['커넥터 접촉 불량'] } }] });
   check('새 앱이 목록을 보내면 그것이 새 목록 (줄이기도 된다)', w.items.find((x) => x.id === 'w3c').causes.length === 1);
+}
+
+// ────────────────────────────────────────────────────────────────────
+// 탭이 커져도 리포트 올리기 · 상태 바꾸기가 느려지지 않는다 (v3.47)
+// 예전에는 올릴 때 탭 전체를 서너 번 읽어, 1000줄이면 칸 약 10만 개를 잠금 안에서 읽었다.
+// ────────────────────────────────────────────────────────────────────
+{
+  console.log('[칸 읽기] 600줄 · 32칸 탭에 올리기 · 상태 바꾸기');
+  const H = ['작성일시', '작성자', '리포트 번호', '고객사 리포트', '매장명', '상태'];
+  while (H.length < 32) H.splice(H.length - 1, 0, `칸${H.length}`);
+  call({ sheetName: '2098-03', headers: H, row: H.map((h) => (h === '작성일시' ? '2098-03-01 08:00' : h === '매장명' ? '첫점' : '')) });
+  const tab = ss.getSheetByName('2098-03');
+  const rows = [];
+  for (let i = 0; i < 600; i += 1) {
+    const d = String(1 + (i % 28)).padStart(2, '0');
+    rows.push(H.map((h) => (h === '작성일시' ? `2098-03-${d} 09:${String(i % 60).padStart(2, '0')}`
+      : h === '리포트 번호' ? `P9803${d}-${String(1 + Math.floor(i / 28)).padStart(2, '0')}`
+        : h === '매장명' ? `매장${i}` : h === '상태' ? '진행 중' : 'x')));
+  }
+  tab.getRange(tab.getLastRow() + 1, 1, rows.length, H.length).setValues(rows);
+
+  env.cellReads.count = 0;
+  const up = call({ sheetName: '2098-03', headers: H, autoNumber: { label: '리포트 번호', date: '980315' },
+    row: H.map((h) => (h === '작성일시' ? '2098-03-15 18:00' : h === '매장명' ? '새점' : '')) });
+  const appendReads = env.cellReads.count;
+  // 15일 자 줄은 21개 (P980315-01 ~ -21) — 다음은 22
+  check('번호는 그대로 맞게 매긴다 (그날 마지막 번호 다음)', up.reportNumber === 'P980315-22', up.reportNumber);
+  check('600줄 탭에 올려도 칸을 1만 개 넘게 읽지 않는다 (예전 약 6만)', appendReads < 10000, `${appendReads}칸`);
+
+  env.cellReads.count = 0;
+  const target = 3 + 300;                                   // 머리줄 · 첫 줄 다음 300번째
+  const line = tab.getRange(target, 1, 1, H.length).getDisplayValues()[0];
+  const st = call({ reports: 'status', sheetName: '2098-03', row: target + 1, status: '조치 완료',   // 줄 번호가 하나 밀려 와도
+    expect: { createdAt: line[0], store: line[H.indexOf('매장명')] } });
+  check('상태 바꾸기 — 같은 시각 줄이 여럿이어도 매장으로 그 줄을 찾아 바꾼다', st.ok === true
+        && tab.getRange(target, H.indexOf('상태') + 1).getDisplayValues()[0][0] === '조치 완료', JSON.stringify(st).slice(0, 120));
+  check('상태 바꾸기도 칸을 5천 개 넘게 읽지 않는다 (예전 약 2만)', env.cellReads.count < 5000, `${env.cellReads.count}칸`);
+}
+
+{
+  console.log('[받은 뒤 바뀜] 그 사이 다른 기기가 올렸으면 거절하고, 다시 받아 올리면 받는다 (v3.47)');
+  // 재고
+  call({ inventory: 'push', vehicles: ['지문차'], items: [{ vehicleName: '지문차', partName: '볼트', category: '', quantity: 1, minQuantity: 0 }] });
+  const inv1 = call({ inventory: 'pull' });
+  check('받기에 지문이 온다', typeof inv1.version === 'string' && inv1.version.length > 3, inv1.version);
+  call({ inventory: 'push', vehicles: ['지문차'], items: [...inv1.items, { vehicleName: '지문차', partName: '너트', category: '', quantity: 2, minQuantity: 0 }] });
+  const late = call({ inventory: 'push', base: inv1.version, vehicles: ['지문차'], items: inv1.items });
+  check('재고 — 받은 뒤 남이 올렸으면 거절 (너트를 지우지 않는다)', late.ok === false && late.stale === true
+        && call({ inventory: 'pull' }).items.some((i) => i.partName === '너트'), JSON.stringify(late).slice(0, 80));
+  const inv2 = call({ inventory: 'pull' });
+  check('재고 — 다시 받은 지문으로 올리면 받는다', call({ inventory: 'push', base: inv2.version, vehicles: inv2.vehicles, items: inv2.items }).ok !== false);
+  check('재고 — 지문 없이 올리면 예전처럼 받는다 (옛 앱)', call({ inventory: 'push', vehicles: inv2.vehicles, items: inv2.items }).ok !== false);
+  // 리포트 항목
+  const f1 = call({ fields: 'pull' });
+  call({ fields: 'push', items: [...f1.items, { id: 'fp1', fieldLabel: '지문 칸', fieldType: 'TEXT', options: '' }] });
+  check('리포트 항목 — 받은 뒤 바뀌었으면 거절', call({ fields: 'push', base: f1.version, items: f1.items }).stale === true);
+  const f2 = call({ fields: 'pull' });
+  check('리포트 항목 — 새 지문이면 받는다', call({ fields: 'push', base: f2.version, items: f2.items }).ok === true);
+  // 가이드
+  const g1 = call({ guides: 'pull' });
+  call({ guides: 'push', items: [...g1.items, { id: 'gfp1', categoryType: 'SOFTWARE_CMD', codeOrTitle: '지문 가이드', steps: [] }], models: g1.models || [] });
+  check('가이드 — 받은 뒤 바뀌었으면 거절', call({ guides: 'push', base: g1.version, items: g1.items, models: g1.models || [] }).stale === true);
+  const g2 = call({ guides: 'pull' });
+  check('가이드 — 새 지문이면 받는다', call({ guides: 'push', base: g2.version, items: g2.items, models: g2.models || [] }).ok === true);
+  // 운행일지 (차량마다)
+  const row = (id, km) => ({ id, date: '2098-04-01', weekday: '', dept: '', driverName: '', odoBefore: km, odoAfter: km + 5, distance: 5, fromPlace: 'A', toPlace: 'B', note: '' });
+  call({ driving: 'push', vehicleName: '지문차', info: {}, rows: [row('d1', 100)] });
+  const d1 = call({ driving: 'pull', vehicleName: '지문차' });
+  call({ driving: 'push', vehicleName: '지문차', info: {}, rows: [...d1.rows, row('d2', 105)] });
+  check('운행일지 — 받은 뒤 남이 적었으면 거절 (그 기록을 지우지 않는다)',
+        call({ driving: 'push', base: d1.version, vehicleName: '지문차', info: {}, rows: d1.rows }).stale === true
+        && call({ driving: 'pull', vehicleName: '지문차' }).rows.length === 2);
+  const d2 = call({ driving: 'pull', vehicleName: '지문차' });
+  check('운행일지 — 새 지문이면 받는다', call({ driving: 'push', base: d2.version, vehicleName: '지문차', info: {}, rows: d2.rows }).ok !== false);
+}
+
+{
+  console.log('[변경기록] 5000줄을 넘으면 오래된 줄을 한 번에 지운다');
+  const log = ss.getSheetByName('변경기록');
+  const width = log.getLastColumn();
+  const filler = [];
+  for (let i = 0; i < 5300 - log.getLastRow(); i += 1) filler.push(new Array(width).fill('옛 기록'));
+  if (filler.length) log.getRange(log.getLastRow() + 1, 1, filler.length, width).setValues(filler);
+  env.deleteRowCalls.count = 0;
+  env.deleteRowsCalls.count = 0;
+  call({ work: 'push', ops: [{ op: 'cat-add', kind: '로봇 이슈', name: '기록 정리 검사' }] });
+  check('한 줄씩 지우지 않고 한 번에 지운다', env.deleteRowsCalls.count >= 1 && env.deleteRowCalls.count === 0,
+        `몰아서 ${env.deleteRowsCalls.count}번 · 한 줄씩 ${env.deleteRowCalls.count}번`);
+  check('남은 줄은 5000줄 안팎', log.getLastRow() - 2 <= 5001, `${log.getLastRow() - 2}줄`);
 }
 
 console.log('='.repeat(62));
