@@ -382,16 +382,21 @@ function isHeaderRow(cells) {
   return String((cells || [])[0] || '').trim() === REPORT_FIRST_HEADER;
 }
 
-/** 탭 전체를 읽어 항목 묶음의 경계를 찾는다. 반환: [{ row, headers }] */
+/**
+ * 항목 묶음의 경계를 찾는다. 반환: [{ row, headers }]
+ *
+ * A열만 읽어 항목 줄을 찾고, 그 줄들만 끝까지 읽는다 (v3.47). 예전에는 탭 전체를 읽었는데
+ * 리포트 하나 올릴 때 이것이 두세 번 불려, 한 달 1000줄이면 칸 10만 개를 읽으며 잠금을 쥐었다.
+ */
 function headerBlocks(sheet) {
   var lastRow = sheet.getLastRow();
   var lastCol = Math.max(sheet.getLastColumn(), 1);
   var out = [];
   if (lastRow < 1) return out;
-  var values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
-  for (var r = 0; r < values.length; r++) {
-    if (!isHeaderRow(values[r])) continue;
-    var head = values[r].slice();
+  var firsts = sheet.getRange(1, 1, lastRow, 1).getValues();
+  for (var r = 0; r < firsts.length; r++) {
+    if (!isHeaderRow(firsts[r])) continue;
+    var head = sheet.getRange(r + 1, 1, 1, lastCol).getValues()[0].slice();
     while (head.length && String(head[head.length - 1]).trim() === '') head.pop();
     for (var i = 0; i < head.length; i++) head[i] = String(head[i] || '').trim();
     out.push({ row: r + 1, headers: head });
@@ -617,6 +622,33 @@ function invLayout(header) {
   return { hasCat: hasCat, fixed: hasCat ? 3 : INV_FIXED, catCol: hasCat ? 1 : -1, minCol: hasCat ? 2 : 1 };
 }
 
+/* ----------------------------------------------------------- 받은 뒤 바뀌었나 (v3.47)
+ *
+ * 재고 · 가이드 · 리포트 항목 · 운행일지는 앱이 '시트를 받아 → 내 변경과 합쳐 → 탭을 통째로 올린다'.
+ * 받기와 올리기 사이(몇 초)에 다른 태블릿이 먼저 올리면, 나중에 올린 쪽이 그것을 조용히 덮었다.
+ * 그래서 받을 때 탭 내용의 지문(version)을 주고, 올릴 때 그 지문(base)을 돌려받는다.
+ * 그 사이 탭이 바뀌었으면 거절(stale)한다 — 앱이 다시 받아 합친 뒤 올린다.
+ * base 가 없으면(옛 앱) 예전처럼 받는다.
+ */
+function fingerprint(obj) {
+  var text = JSON.stringify(obj === undefined ? null : obj);
+  var h = 5381;
+  for (var i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+  return String(h >>> 0) + '-' + text.length;
+}
+
+function staleReply() {
+  return json({ ok: false, stale: true,
+                error: '그 사이 다른 기기가 먼저 바꿨습니다. 다시 받아 합친 뒤 올립니다.' });
+}
+
+/** 재고 탭 지문 — 받기 · 올리기가 같은 모양으로 센다 */
+function inventoryVersion(sheet) {
+  if (!sheet) return fingerprint(null);
+  var inv = readInventory(sheet);
+  return fingerprint({ vehicles: inv.vehicles, items: inv.items });
+}
+
 function handleInventory(ss, body) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -624,6 +656,7 @@ function handleInventory(ss, body) {
     var sheet = ss.getSheetByName(INV_SHEET_NAME);
 
     if (body.inventory === 'push') {
+      if (body.base && body.base !== inventoryVersion(sheet)) return staleReply();
       if (!sheet) sheet = ss.insertSheet(INV_SHEET_NAME);
       var invBefore = readInventory(sheet);
       writeInventory(sheet, body.vehicles || [], body.items || []);
@@ -643,8 +676,10 @@ function handleInventory(ss, body) {
     }
 
     // pull
-    if (!sheet) return json({ ok: true, exists: false, vehicles: [], items: [] });
-    return json(readInventory(sheet));
+    if (!sheet) return json({ ok: true, exists: false, vehicles: [], items: [], version: inventoryVersion(null) });
+    var pulled = readInventory(sheet);
+    pulled.version = fingerprint({ vehicles: pulled.vehicles, items: pulled.items });
+    return json(pulled);
   } finally {
     lock.releaseLock();
   }
@@ -880,16 +915,20 @@ var FIELD_HEADER = ['항목명', '종류', '선택지', '필수', FIELD_ID_HEADE
 var FIELD_WIDTHS = [200, 140, 280, 70, 200];
 
 function handleFields(ss, body) {
+  var fieldItems = function () {
+    var tab = ss.getSheetByName(FIELD_SHEET);
+    return tab ? readFieldSheet(tab) : [];
+  };
   if (body.fields === 'pull') {
-    var sh = ss.getSheetByName(FIELD_SHEET);
-    if (!sh) return json({ ok: true, items: [] });
-    return json({ ok: true, items: readFieldSheet(sh) });
+    var items = fieldItems();
+    return json({ ok: true, items: items, version: fingerprint(items) });
   }
   if (body.fields !== 'push') return json({ ok: false, error: '알 수 없는 요청입니다.' });
 
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    if (body.base && body.base !== fingerprint(fieldItems())) return staleReply();
     // count 는 **실제로 적은 줄 수** 다 (같은 이름은 합쳐지므로 보낸 수와 다를 수 있다)
     var written = writeFieldSheet(ss, body.items || []);
     logChange(ss, body, '리포트 항목', FIELD_SHEET, '항목 ' + written + '개로 다시 씀');
@@ -1064,8 +1103,13 @@ function handleDriving(ss, body) {
 }
 
 function handleDrivingPull(ss, body) {
-  var want = String(body.vehicleName || '').trim();
-  var wantYear = String(body.year || '').trim();
+  var got = collectDriving(ss, String(body.vehicleName || '').trim(), String(body.year || '').trim());
+  return json({ ok: true, rows: got.rows, info: got.info, options: readDrivingOptions(ss),
+                version: fingerprint({ rows: got.rows, info: got.info }) });
+}
+
+/** 그 차량(없으면 모든 차량)의 운행 기록 · 차량 정보 */
+function collectDriving(ss, want, wantYear) {
   var sheets = ss.getSheets();
   var rows = [];
   var info = {};
@@ -1083,12 +1127,16 @@ function handleDrivingPull(ss, body) {
       rows.push(list[j]);
     }
   }
-  return json({ ok: true, rows: rows, info: info, options: readDrivingOptions(ss) });
+  return { rows: rows, info: info };
 }
 
 function handleDrivingPush(ss, body) {
   var vehicle = String(body.vehicleName || '').trim();
   if (!vehicle) return json({ ok: false, error: '차량 이름이 없습니다.' });
+  if (body.base) {
+    var now = collectDriving(ss, vehicle, '');
+    if (body.base !== fingerprint({ rows: now.rows, info: now.info })) return staleReply();
+  }
   var rows = body.rows || [];
   var info = body.info || {};
 
@@ -1286,7 +1334,7 @@ function writeDrivingOptions(ss, depts, places) {
 
 function handleGuides(ss, body) {
   // 시트에서 고친 가이드를 앱으로 돌려준다 (v3.3 — 양방향)
-  if (body.guides === 'pull') {
+  var guideState = function () {
     var out = [];
     for (var t in GUIDE_SHEETS) {
       var sh = ss.getSheetByName(GUIDE_SHEETS[t]);
@@ -1294,7 +1342,12 @@ function handleGuides(ss, body) {
       out = out.concat(readGuideSheet(sh, t));
     }
     // models: 탭이 없으면 null — "아직 아무도 안 만들었다" 와 "비어 있다" 를 가른다.
-    return json({ ok: true, items: out, models: readGuideModels(ss), cats: readGuideCats(ss) });
+    return { items: out, models: readGuideModels(ss), cats: readGuideCats(ss) };
+  };
+  if (body.guides === 'pull') {
+    var state = guideState();
+    return json({ ok: true, items: state.items, models: state.models, cats: state.cats,
+                  version: fingerprint(state) });
   }
   // 가이드 단계 사진을 드라이브에 저장한다.
   //   { guides: 'media', categoryType, title, files: [{filename, mimeType, data}] }
@@ -1307,6 +1360,7 @@ function handleGuides(ss, body) {
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    if (body.base && body.base !== fingerprint(guideState())) return staleReply();
     var items = body.items || [];
     var counts = {};
     var diff = { added: [], changed: [], removed: [] };
@@ -2362,17 +2416,33 @@ function nextReportNumber(sheet, ymd, extra) {
     while ((m = re.exec(s)) !== null) max = Math.max(max, Number(m[1]) || 0);
   };
   for (var e = 0; extra && e < extra.length; e++) scan(extra[e]);
+  // 번호가 들어 있는 열(리포트 번호 · 고객사 리포트)만 읽는다 (v3.47 — 예전에는 탭의 모든 칸).
+  // 항목 묶음마다 열 자리가 다를 수 있어 묶음들의 열을 모두 모은다.
   var last = sheet.getLastRow();
   if (last >= 1 && sheet.getLastColumn() >= 1) {
-    var vals = sheet.getRange(1, 1, last, sheet.getLastColumn()).getDisplayValues();
-    for (var r = 0; r < vals.length; r++) for (var c = 0; c < vals[r].length; c++) scan(vals[r][c]);
+    var cols = [];
+    var blocks = headerBlocks(sheet);
+    for (var b = 0; b < blocks.length; b++) {
+      for (var h = 0; h < blocks[b].headers.length; h++) {
+        var label = String(blocks[b].headers[h] || '').replace(/\s/g, '');
+        if ((label.indexOf('리포트번호') >= 0 || label.indexOf('고객사') >= 0) && cols.indexOf(h + 1) < 0) cols.push(h + 1);
+      }
+    }
+    for (var ci = 0; ci < cols.length; ci++) {
+      var colVals = sheet.getRange(1, cols[ci], last, 1).getDisplayValues();
+      for (var r = 0; r < colVals.length; r++) scan(colVals[r][0]);
+    }
   }
   try {
     var cs = consumerReportSheet();
     if (cs && cs.getLastRow() >= 2) {
-      var cv = cs.getRange(1, 1, cs.getLastRow(), cs.getLastColumn()).getDisplayValues();
-      var iNum = cv[0].map(function (x) { return String(x || '').trim(); }).indexOf('리포트번호');
-      for (var k = 1; iNum >= 0 && k < cv.length; k++) scan(cv[k][iNum]);
+      // 머리줄로 '리포트번호' 열을 찾고 그 열만 읽는다 (소비자 시트는 달마다 나뉘지 않아 계속 커진다)
+      var top = cs.getRange(1, 1, 1, cs.getLastColumn()).getDisplayValues()[0];
+      var iNum = top.map(function (x) { return String(x || '').trim(); }).indexOf('리포트번호');
+      if (iNum >= 0) {
+        var nums = cs.getRange(2, iNum + 1, cs.getLastRow() - 1, 1).getDisplayValues();
+        for (var k = 0; k < nums.length; k++) scan(nums[k][0]);
+      }
     }
   } catch (err) { /* 소비자 시트에 못 닿으면 이 달 탭만 보고 매긴다 */ }
   var n = max + 1;
@@ -2830,6 +2900,7 @@ var ERROR_WIDTHS = [140, 130, 80, 140, 360, 420];
 var BACKUP_FOLDER_NAME = '시트 백업';
 var BACKUP_KEEP_DAYS = 30;
 var BACKUP_PROP = 'LAST_BACKUP_DAY';
+var BACKUP_RUNNING_PROP = 'BACKUP_RUNNING_AT';     // 백업 중 표시 (공용 잠금 대신 — v3.47)
 
 function nowText() {
   return Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
@@ -2868,7 +2939,7 @@ function logChange(ss, body, kind, target, detail) {
     appendRow(sheet, [nowText(), who(body), String(body.app || ''), kind, clip(target, 200), clip(detail, 900)]);
     var extra = sheet.getLastRow() - 2 - LOG_KEEP;
     if (extra > 200) {                       // 한 번에 몰아서 지운다 (줄 지우기는 느리다)
-      for (var i = 0; i < extra; i++) sheet.deleteRow(3);
+      sheet.deleteRows(3, extra);            // v3.47 — 예전에는 한 줄씩 200번, 리포트 잠금 안에서
     }
   } catch (err) { /* 기록 실패가 쓰기를 막으면 안 된다 */ }
 }
@@ -3092,7 +3163,7 @@ function handleErrors(ss, body) {
   var at = Math.max(sheet.getLastRow(), 2) + 1;
   sheet.getRange(at, 1, rows.length, ERROR_HEADER.length).setValues(rows);
   var extra = sheet.getLastRow() - 2 - 3000;
-  for (var d = 0; d < extra; d++) sheet.deleteRow(3);
+  if (extra > 0) sheet.deleteRows(3, extra);
   touchDevice(ss, body, { error: rows[rows.length - 1][4] });
   return json({ ok: true, saved: rows.length });
 }
@@ -3108,8 +3179,12 @@ function backupIfDue(ss) {
   var today = Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd');
   var props = PropertiesService.getScriptProperties();
   if (props.getProperty(BACKUP_PROP) === today) return null;
-  var lock = LockService.getScriptLock();
-  if (lock.tryLock && !lock.tryLock(0)) return null;     // 다른 요청이 하는 중
+  // 공용 잠금을 쓰지 않는다 (v3.47). 시트 통째 복사는 시트가 클수록 오래 걸리는데, 예전에는 그동안
+  // 공용 잠금을 쥐어 리포트 · 재고 저장이 '잠금 시간 초과' 로 실패할 수 있었다. 복사는 읽기만 하므로
+  // 다른 저장을 막을 까닭이 없다. 둘이 같이 백업하지 않도록 '백업 중' 표시(10분)만 둔다.
+  var running = Number(props.getProperty(BACKUP_RUNNING_PROP) || 0);
+  if (running && Date.now() - running < 10 * 60 * 1000) return null;
+  props.setProperty(BACKUP_RUNNING_PROP, String(Date.now()));
   try {
     if (props.getProperty(BACKUP_PROP) === today) return null;
     var root = mediaRoot(ss);
@@ -3131,7 +3206,7 @@ function backupIfDue(ss) {
   } catch (err) {
     return { error: String(err) };
   } finally {
-    if (lock.releaseLock) lock.releaseLock();
+    props.deleteProperty(BACKUP_RUNNING_PROP);
   }
 }
 
@@ -3152,24 +3227,30 @@ function resolveReportRow(sheet, rowIndex, expect) {
   var last = sheet.getLastRow();
   var width = sheet.getLastColumn();
   if (last < REPORT_DATA_ROW || width < 1) return -1;
-  var display = sheet.getRange(1, 1, last, width).getDisplayValues();
   var want = String(expect.createdAt).trim();
   var wantStore = String(expect.store || '').trim();
-  // 한 탭에 항목 묶음이 여럿일 수 있다 — 줄마다 자기 항목 줄로 열을 찾는다.
-  var cAt = -1, cStore = -1, found = [];
-  for (var r = 0; r < display.length; r++) {
-    var cells = display[r];
-    if (isHeaderRow(cells)) {
-      cAt = -1; cStore = -1;
-      for (var c = 0; c < cells.length; c++) {
-        var name = String(cells[c] || '').trim();
-        if (name === REPORT_FIRST_HEADER && cAt < 0) cAt = c;
-        if ((name.indexOf('매장') >= 0 || name.indexOf('식당') >= 0) && cStore < 0) cStore = c;
-      }
-      continue;
+  // 작성일시는 언제나 A열이다 (항목 줄의 첫 칸) — A열만 읽어 같은 시각인 줄을 찾고,
+  // 그 줄들만 매장을 확인한다 (v3.47 — 예전에는 상태 하나 바꿀 때도 탭 전체를 읽었다).
+  // 한 탭에 항목 묶음이 여럿일 수 있어 매장 열은 그 줄의 묶음에서 찾는다.
+  var blocks = headerBlocks(sheet);
+  var storeColOf = function (rowNo) {
+    var block = null;
+    for (var b = 0; b < blocks.length; b++) if (blocks[b].row < rowNo) block = blocks[b];
+    if (!block) return -1;
+    for (var c = 0; c < block.headers.length; c++) {
+      var name = String(block.headers[c] || '').trim();
+      if (name.indexOf('매장') >= 0 || name.indexOf('식당') >= 0) return c + 1;
     }
-    if (cAt < 0 || String(cells[cAt] || '').trim() !== want) continue;
-    if (wantStore && cStore >= 0 && String(cells[cStore] || '').trim() !== wantStore) continue;
+    return -1;
+  };
+  var firsts = sheet.getRange(1, 1, last, 1).getDisplayValues();
+  var found = [];
+  for (var r = 0; r < firsts.length; r++) {
+    if (isHeaderRow(firsts[r]) || String(firsts[r][0] || '').trim() !== want) continue;
+    if (wantStore) {
+      var sc = storeColOf(r + 1);
+      if (sc >= 1 && String(sheet.getRange(r + 1, sc).getDisplayValues()[0][0] || '').trim() !== wantStore) continue;
+    }
     found.push(r + 1);
   }
   if (found.indexOf(rowIndex) >= 0) return rowIndex;   // 그 자리 그대로

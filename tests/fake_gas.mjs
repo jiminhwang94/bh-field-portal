@@ -14,6 +14,10 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 export function createFakeGas() {
+  const cellReads = { count: 0 };
+  let lockBusy = false;
+  const deleteRowCalls = { count: 0 };    // 한 줄씩 지운 횟수
+  const deleteRowsCalls = { count: 0 };   // 몰아서 지운 횟수
   // ─────────────────────────────────────────────── 가짜 스프레드시트
 
   class FakeRange {
@@ -37,6 +41,7 @@ export function createFakeGas() {
     }
     getValues() {
       const out = [];
+      cellReads.count += this.rows * this.cols;      // 서버가 칸을 얼마나 읽나 (v3.47 — 탭이 커져도 느려지지 않게)
       for (let r = 0; r < this.rows; r += 1) {
         const line = [];
         for (let c = 0; c < this.cols; c += 1) {
@@ -118,7 +123,14 @@ export function createFakeGas() {
     setRowHeight() { return this; }
     hideColumns() { return this; }
     insertImage() { throw new Error('테스트에서는 이미지 삽입을 쓰지 않습니다.'); }
-    deleteRow(row) {
+    // 여러 줄을 한 번에 — 실제 Sheet.deleteRows(시작, 개수). 한 줄씩 지우기는 느리다 (v3.47)
+    deleteRows(row, count) {
+      deleteRowsCalls.count += 1;
+      for (let i = 0; i < count; i += 1) this.deleteRow(row, true);
+      return this;
+    }
+    deleteRow(row, bulk = false) {
+      if (!bulk) deleteRowCalls.count += 1;
       const next = new Map();
       for (const [k, v] of this.cells) {
         const [r, c] = k.split(',').map(Number);
@@ -452,7 +464,12 @@ export function createFakeGas() {
       },
     },
     LockService: {
-      getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }),
+      // lockBusy = true → 다른 요청이 공용 잠금을 쥐고 있는 때 (v3.47 — 백업이 잠금 없이 도는지 본다)
+      getScriptLock: () => ({
+        waitLock() { if (lockBusy) throw new Error('Lock timeout: another process was holding the lock for too long.'); },
+        tryLock: () => !lockBusy,
+        releaseLock() {},
+      }),
     },
     // 6시간 보관 캐시 — 같은 수량 작업을 두 번 받았는지 · 기기 기록을 얼마 만에 했는지
     CacheService: {
@@ -515,10 +532,11 @@ export function createFakeGas() {
   }
 
   return {
-    gs, ss, consumerSS, call, findPath, allFiles, fetchCalls, driveUpdates, scriptProps, scriptCache, driveCalls,
+    gs, ss, consumerSS, call, findPath, allFiles, fetchCalls, driveUpdates, scriptProps, scriptCache, driveCalls, cellReads, deleteRowCalls, deleteRowsCalls,
     FakeSheet, FakeSpreadsheet,
     get driveTree() { return driveTree; },
     set blockSharing(v) { SHARED_DRIVE_BLOCKS_LINK_SHARING = v; },
+    set lockBusy(v) { lockBusy = v; },
     set searchLag(v) { SEARCH_LAG = v; },
     get sleptMs() { return sleptMs; },
     set fetchAnswer(v) { fetchAnswer = v; },

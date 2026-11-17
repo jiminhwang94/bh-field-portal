@@ -7,7 +7,7 @@
 // 부서 · 출발/도착지 선택지는 **팀 공통**이라 [운행일지 항목] 탭 한 곳에 둔다.
 import * as idb from './local/idb.js';
 import * as store from './local/store.js';
-import { callAppsScript } from './sheets.js';
+import { callAppsScript, pushMerged } from './sheets.js';
 import { sheetRead } from './sync.js';
 
 /**
@@ -20,14 +20,18 @@ import { sheetRead } from './sync.js';
 export async function pushDriving(vehicleName, changes = null) {
   const name = String(vehicleName || '').trim();
   if (!name) return null;
-  const rows = await mergeWithSheet(name, await store.listDriving(name), changes);
-  const info = await store.vehicleInfo(name);
-  return callAppsScript({
-    driving: 'push',
-    vehicleName: name,
-    info,
-    rows: rows.map(rowOut),
-  }, 60000);
+  // 받은 뒤 그 사이 다른 기기가 올렸으면 시트가 거절한다 — 다시 받아 합친다 (v3.47)
+  return pushMerged(async (useBase, base) => {
+    const rows = await mergeWithSheet(name, await store.listDriving(name), changes, useBase);
+    const info = await store.vehicleInfo(name);
+    return callAppsScript({
+      driving: 'push',
+      ...base(),
+      vehicleName: name,
+      info,
+      rows: rows.map(rowOut),
+    }, 60000);
+  });
 }
 
 const rowOut = (r) => ({
@@ -44,11 +48,12 @@ const rowOut = (r) => ({
   note: r.note || '',
 });
 
-async function mergeWithSheet(vehicleName, local, changes) {
+async function mergeWithSheet(vehicleName, local, changes, useBase = (/** @type {any} */ _version) => {}) {
   if (!changes || !changes.length) return local;
   // 시트를 못 읽으면 올리지 않는다 (오류를 넘겨 대기열에 남긴다). 기기 것을 통째로
   // 올리면 다른 사람이 적은 운행 기록이 지워진다.
   const res = await callAppsScript({ driving: 'pull', vehicleName }, 60000);
+  if (res) useBase(res.version);
   const sheet = (res && res.rows) || [];
   if (!sheet.length) return local;
 

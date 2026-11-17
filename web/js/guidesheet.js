@@ -8,7 +8,7 @@
 // 맨 뒤 숨김 ID 열로 같은 가이드를 알아본다. 그 칸이 비어 있으면 새 가이드로 본다.
 import * as idb from './local/idb.js';
 import * as store from './local/store.js';
-import { callAppsScript } from './sheets.js';
+import { callAppsScript, pushMerged } from './sheets.js';
 import { sheetRead } from './sync.js';
 
 /** 지난번 시트에 있던 가이드 ID — 다른 기기에서 지운 것을 알아보는 데 쓴다. */
@@ -41,10 +41,16 @@ async function modelsPending() {
  * 마지막에 올린 사람의 기기 내용이 다른 사람 변경을 통째로 덮어쓴다.
  */
 export async function pushGuides(changes = null) {
+  // 받은 뒤 그 사이 다른 기기가 올렸으면 시트가 거절한다 — 다시 받아 합친다 (v3.47)
+  return pushMerged((useBase, base) => pushGuidesOnce(changes, useBase, base));
+}
+
+async function pushGuidesOnce(changes, useBase, base) {
   // 합칠 때 시트를 한 번만 읽는다 — 가이드와 로봇 분류가 같은 응답에 들어 있다.
   const sheet = changes && changes.length
     ? await callAppsScript({ guides: 'pull' }, 60000) : null;
   if (sheet) store.cleanIds(sheet.items);                 // 시트 아이디는 안전한 모양만 (v3.45.1)
+  if (sheet) useBase(sheet.version);
   const conflicts = [];
   const guides = mergeWithSheet(await idb.getAll('guides'), changes, sheet, conflicts);
   const models = mergeModels(await store.listGuideModels(), changes, sheet);
@@ -70,7 +76,7 @@ export async function pushGuides(changes = null) {
     })),
     updatedAt: g.updatedAt || '',
   }));
-  const result = await callAppsScript({ guides: 'push', items, models, ...(cats ? { cats } : {}) }, 60000);
+  const result = await callAppsScript({ guides: 'push', items, models, ...(cats ? { cats } : {}), ...base() }, 60000);
   await store.setMeta(SHEET_IDS_KEY, items.map((g) => g.id).filter(Boolean));
   await store.setGuideModels(models);
   if (conflicts.length) await rememberConflicts(conflicts);

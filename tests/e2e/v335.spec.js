@@ -85,15 +85,22 @@ test('새 리포트 단계식 — 접수 카드 → 로봇 → 문제 → 사진
     .toContain('단계식 조치');
 });
 
-test('빈 필수 칸으로 올리면 [확인] 단계에서 어느 단계가 비었는지 보인다', async ({ page }) => {
+test('빈 필수 칸으로 올리면 그 칸이 있는 단계로 데려가 칸을 표시한다 (v3.48)', async ({ page }) => {
   await stepMode(page);
   await openApp(page, '#/report/new');
+  await expect(page.locator('#btn-topaction')).toBeHidden();             // 단계로 쓸 때 위 [업로드] 는 없다
   await pick(page, '고객사 리포트', 'P260912-01');
-  await page.locator('#btn-topaction').click();                          // 위의 [구글 시트로 업로드]
+  await page.locator('[data-act="step-go"][data-go="check"]').first().click();
   await expect(page.locator('.wz-ask h2')).toHaveText('확인하고 올리기');
-  await expect(page.locator('.wz-check__sec.is-missing').first()).toContainText('로봇');
-  await page.locator('.wz-check__sec.is-missing [data-act="step-go"]').first().click();
+  await expect(page.locator('.wz-check__sec.is-missing').first()).toContainText('로봇');   // [확인] 은 그대로 알려 준다
+  await page.locator('.wz-bar__next').click();                           // 마지막 단계의 [구글 시트로 업로드]
   await expect(page.locator('.wz-ask h2')).toHaveText('어느 로봇인가요?');
+  const serial = page.locator('#reportForm .field', { has: page.locator('label', { hasText: '로봇 시리얼' }) });
+  await expect(serial).toHaveClass(/is-missing/);
+  await expect(serial.locator('.field__miss')).toHaveText('이 칸이 비었어요');
+  await expect(serial.locator('input')).toHaveAttribute('aria-invalid', 'true');
+  await serial.locator('input').fill('SN-1');                            // 적기 시작하면 표시가 거둬진다
+  await expect(serial).not.toHaveClass(/is-missing/);
 });
 
 test('쓰다 둔 리포트는 홈의 [이어 쓰기] 로 그대로 다시 연다', async ({ page }) => {

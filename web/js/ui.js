@@ -20,17 +20,69 @@ export const $ = (sel, root = document) => root.querySelector(sel);
 /** @returns {any[]} */
 export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+/**
+ * 알림 (v3.48).
+ *  · 화면 아래 주 동작 바 바로 위에 뜬다 — 위에 띄우면 화면 제목 · 첫 카드를 가렸다.
+ *  · 한 번에 둘까지 — 더 오면 오래된 것부터 뺀다.
+ *  · 오류는 [닫기] 를 누를 때까지 남는다. 로봇 부품을 든 채로 4초 안에 읽을 수는 없다.
+ */
+const TOAST_MAX = 2;
 export function toast(message, type = '') {
   const root = $('#toasts');
+  if (!root) return;
   const el = document.createElement('div');
   el.className = `toast${type ? ' toast--' + type : ''}`;
-  el.textContent = message;
-  root.appendChild(el);
-  setTimeout(() => {
+  el.setAttribute('role', type === 'err' ? 'alert' : 'status');
+  const text = document.createElement('span');
+  text.className = 'toast__text';
+  text.textContent = message;
+  el.appendChild(text);
+  const fade = () => {
     el.style.transition = 'opacity .25s ease';
     el.style.opacity = '0';
     setTimeout(() => el.remove(), 260);
-  }, type === 'err' ? 4600 : 2600);
+  };
+  if (type === 'err') {
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'toast__close';
+    close.textContent = '닫기';
+    close.addEventListener('click', () => el.remove());
+    el.appendChild(close);
+  }
+  root.appendChild(el);
+  while (root.children.length > TOAST_MAX) root.firstElementChild.remove();
+  if (type !== 'err') setTimeout(fade, 2600);
+}
+
+/**
+ * 되돌릴 수 있는 알림 (v3.48) — "사진을 뺐어요 · [되돌리기]" 를 6초.
+ * 장갑 낀 손이 사진 모서리 ✕ 를 스치기만 해도 현장 사진이 사라졌다.
+ */
+export function undoToast(message, onUndo, ms = 6000) {
+  const root = $('#toasts');
+  if (!root) return;
+  const el = document.createElement('div');
+  el.className = 'toast toast--undo';
+  el.setAttribute('role', 'status');
+  const text = document.createElement('span');
+  text.className = 'toast__text';
+  text.textContent = message;
+  const undo = document.createElement('button');
+  undo.type = 'button';
+  undo.className = 'toast__close';
+  undo.textContent = '되돌리기';
+  let done = false;
+  undo.addEventListener('click', () => {
+    if (done) return;
+    done = true;
+    el.remove();
+    onUndo();
+  });
+  el.append(text, undo);
+  root.appendChild(el);
+  while (root.children.length > TOAST_MAX) root.firstElementChild.remove();
+  setTimeout(() => { done = true; el.remove(); }, ms);
 }
 
 export function closeModal() {

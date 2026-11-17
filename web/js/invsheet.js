@@ -6,7 +6,7 @@
 //  - 재고 화면 열기      → 시트 내용을 받아와 기기에 반영
 //    (시트에서 직접 고친 차량 이름·품목·수량도 이때 내려온다)
 import * as store from './local/store.js';
-import { callAppsScript } from './sheets.js';
+import { callAppsScript, pushMerged } from './sheets.js';
 import { sheetRead } from './sync.js';
 
 export const isEnabled = () => store.sheetInventoryOn();
@@ -39,19 +39,23 @@ export function pullInventory() {
  * 재고는 ID 가 아니라 **(차량, 부품명)** 으로 같은 줄을 알아본다.
  */
 export async function pushInventory(changes = null) {
-  const mine = await store.collectInventoryState();
-  const state = await mergeWithSheet(mine, changes);
-  const result = await callAppsScript({ inventory: 'push', ...state }, 60000);
-  await store.applyInventorySheet(result);
-  return result;
+  // 받은 뒤 그 사이 다른 기기가 올렸으면 시트가 거절한다 — 다시 받아 합친다 (v3.47)
+  return pushMerged(async (useBase, base) => {
+    const mine = await store.collectInventoryState();
+    const state = await mergeWithSheet(mine, changes, useBase);
+    const result = await callAppsScript({ inventory: 'push', ...state, ...base() }, 60000);
+    await store.applyInventorySheet(result);
+    return result;
+  });
 }
 
-async function mergeWithSheet(mine, changes) {
+async function mergeWithSheet(mine, changes, useBase = (/** @type {any} */ _version) => {}) {
   if (!changes || !changes.length) return mine;
   // 시트를 못 읽으면 **올리지 않는다** (오류를 그대로 넘겨 대기열에 남긴다).
   // 예전에는 기기 내용을 통째로 올렸다. 그러면 그사이 다른 사람이 지운 품목이
   // 되살아나고, 다른 사람이 바꾼 수량이 내 옛 값으로 덮였다.
   const sheet = await callAppsScript({ inventory: 'pull' }, 30000);
+  if (sheet) useBase(sheet.version);
   if (!sheet || sheet.exists === false) return mine;
 
   const key = (v, p) => store.qtyKey(String(v || '').trim(), String(p || '').trim());

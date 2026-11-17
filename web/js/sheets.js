@@ -253,6 +253,8 @@ async function postDirect(endpoint, payload, timeout = 120000) {
     if (Array.isArray(result.missing)) /** @type {any} */ (err).missing = result.missing;
     // 다른 기기가 그 줄을 지우거나 옮겼다 — 다시 보내도 같은 답이다 (대기열이 '못 보냄' 으로 뺀다)
     if (result.conflict) /** @type {any} */ (err).conflict = true;
+    // 받은 뒤 그 사이 다른 기기가 먼저 올렸다 — 다시 받아 합치면 된다 (pushMerged 가 알아서)
+    if (result.stale) /** @type {any} */ (err).stale = true;
     // 시트가 받아서 '안 된다' 고 답했다 — 곧바로 다시 보내도 같다 (대기열이 1 · 5 · 30분 뒤에 다시)
     /** @type {any} */ (err).answered = true;
     throw err;
@@ -310,6 +312,26 @@ export async function callAppsScript(payload, timeout = 60000) {
       '· 웹 앱 URL 이 /exec 로 끝나는지',
       "· Apps Script 배포의 [액세스 권한] 이 '모든 사용자' 인지 확인하세요.",
     ].join(String.fromCharCode(10))), { network: true });
+  }
+}
+
+/**
+ * '시트를 받아 → 내 변경과 합쳐 → 통째로 올리기' 를 한 번에 (v3.47).
+ *
+ * 받을 때 온 지문(version)을 올릴 때 base 로 돌려준다. 그 사이 다른 기기가 먼저 올렸으면 시트가
+ * 거절(stale)하므로, 다시 받아 합쳐서 올린다 (세 번까지). 예전에는 나중에 올린 쪽이 먼저 올린
+ * 사람의 변경을 조용히 덮었다.
+ *
+ *   attempt(useBase) — 받아서 합치고 올린다. useBase(version) 로 받은 지문을 알려 준다.
+ */
+export async function pushMerged(attempt) {
+  for (let tries = 0; ; tries += 1) {
+    let base = '';
+    try {
+      return await attempt((version) => { base = String(version || ''); }, () => (base ? { base } : {}));
+    } catch (err) {
+      if (!(err && err.stale) || tries >= 2) throw err;
+    }
   }
 }
 
