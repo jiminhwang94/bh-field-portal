@@ -33,7 +33,7 @@ permissions:
 jobs:
   # main 에 합쳐질 때 — 새 버전이면 태그를 붙이고 만든다. 태그 · 손으로 부른 때는 그대로 만든다.
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # latest 가 26.04 로 바뀌자 Playwright 가 chromium 을 못 깔았다 (2026-11)
     outputs:
       go: ${{ steps.check.outputs.go }}
     steps:
@@ -59,7 +59,7 @@ jobs:
   build:
     needs: gate
     if: needs.gate.outputs.go == 'yes'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # latest 가 26.04 로 바뀌자 Playwright 가 chromium 을 못 깔았다 (2026-11)
 
     steps:
       - uses: actions/checkout@v4

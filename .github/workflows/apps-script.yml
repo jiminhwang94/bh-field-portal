@@ -38,7 +38,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # latest 가 26.04 로 바뀌자 Playwright 가 chromium 을 못 깔았다 (2026-11)
     steps:
       - uses: actions/checkout@v4
 

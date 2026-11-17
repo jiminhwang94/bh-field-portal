@@ -10,7 +10,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # latest 가 26.04 로 바뀌자 Playwright 가 chromium 을 못 깔았다 (2026-11)
     strategy:
       fail-fast: false
       matrix:
@@ -43,7 +43,7 @@ jobs:
   # 실제 브라우저(크로미움)로 화면을 눌러 보는 검사. 가짜 시트 서버를 띄우므로
   # 팀 시트에는 아무것도 적히지 않는다.
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # latest 가 26.04 로 바뀌자 Playwright 가 chromium 을 못 깔았다 (2026-11)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -71,7 +71,7 @@ jobs:
   # 태그를 올려야 도는 배포 빌드(android.yml)에서야 컴파일 오류를 알면 늦다.
   # 서명 · 업로드 · 시트 기록은 하지 않는다 — 임시 키로 debug 빌드만.
   apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # latest 가 26.04 로 바뀌자 Playwright 가 chromium 을 못 깔았다 (2026-11)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
