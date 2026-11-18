@@ -1,8 +1,9 @@
 // 기기 저장소 — 차량 · 재고 · 품목 순서 · 재고 ↔ 시트 변환.
 // (store.js 가 전부 다시 내보낸다 — 밖에서는 store.js 만 부른다)
 import * as idb from './idb.js';
-import { testMode } from '../mode.js';
-import { byText, enqueue, getMeta, newId, now, outbox, qtyKey, queueSheetPushIfOn, serialize, setMeta } from './store-core.js';
+import {
+  byText, enqueue, getMeta, newId, now, qtyKey, queueSheetPushIfOn, serialize, setMeta
+} from './store-core.js';
 
 // -------------------------------------------------------------- 차량
 

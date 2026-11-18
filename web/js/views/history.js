@@ -1,21 +1,18 @@
 // 리포트 이력 — 목록 · 표 상세 · 상태 바꾸기 · 사진 보기 / 기기 안 리포트 상세. 작성은 views/report.js
 import { api } from '../api.js';
-import { MEDIA_FILE_LIMIT, MEDIA_TOTAL_LIMIT, MEDIA_FILE_LIMIT_TEXT, MEDIA_TOTAL_LIMIT_TEXT } from '../sheets.js';
 import {
   $, closeModal, confirmDialog, copyText, h, hydrateMedia, loading, openSheet,
   toast, when,
 } from '../ui.js';
 import { reportToText, shareReport } from '../share.js';
-import {
-  cachedRequestNumbers, describeFiles, explain as explainError, findVisits,
-  previewUrl, pullRequestNumbers, thumbUrl,
-} from '../reportsheet.js';
+import { describeFiles, explain as explainError, previewUrl, thumbUrl } from '../reportsheet.js';
 
-import { ICON, pastMemoHtml, seedFromEntry, TRACK, trackOf, warnPrivateVideo } from './report-common.js';
+import { pastMemoHtml, seedFromEntry, TRACK, trackOf, warnPrivateVideo } from './report-common.js';
 import {
   guidesForCode, findWorks, isCodeShaped, sameRobot, valueOf, issueOf, issuesOf, isIssueLabel,
   loadEntries, repeatCount, robotPast, serialOf,
 } from '../insights.js';
+import { openDays } from '../insights.js';
 
 /** 상세에서 오류 코드 → 가이드를 잇는 데 쓴다 (기기 안 가이드, 화면을 열 때 한 번 받는다) */
 let knownGuides = [];
@@ -32,10 +29,10 @@ const workOf = (entry) => issueOf(entry);
 
 // ------------------------------------------------------------ 이력 목록
 const STATUS = {
-  DRAFT: ['badge', '저장됨 (업로드 안 함)'],
-  QUEUED: ['badge badge--warn', '업로드 대기 (연결되면 자동)'],
-  UPLOADED: ['badge badge--ok', '구글 시트 업로드 완료'],
-  FAILED: ['badge badge--danger', '업로드 실패'],
+  DRAFT: ['badge', '기기에만 저장 (아직 안 올림)'],
+  QUEUED: ['badge badge--warn', '올릴 차례 (연결되면 자동)'],
+  UPLOADED: ['badge badge--ok', '시트에 올림'],
+  FAILED: ['badge badge--danger', '못 올림'],
 };
 
 /** 상태마다 모양이 다른 아이콘 — 색을 못 가려도 모양으로 읽힌다 (홈과 같은 그림). */
@@ -51,11 +48,6 @@ const stIcon = (cls) => `<svg class="st-icon" viewBox="0 0 24 24" fill="none" st
 
 /** 끝나지 않은 채 이만큼 지나면 '늦음' 으로 눈에 띄게 (홈과 같은 기준) */
 const OVERDUE_DAYS = 7;
-function openDays(entry) {
-  const at = new Date(String(entry.createdAt || entry.date || '').replace(' ', 'T'));
-  if (Number.isNaN(at.getTime())) return 0;
-  return Math.floor((Date.now() - at.getTime()) / 86400000) + 1;
-}
 
 /** 끝나지 않은 건이 며칠째인가 — '오늘' · 'N일째'. 끝난 건은 빈 글자. */
 function ageText(entry) {
@@ -529,8 +521,11 @@ export async function reportListView(view, params = null) {
     // 받지 못해서 빈 것을 "리포트가 없습니다" 라고 하지 않는다 — 위 알림 하나로 충분하다 (v3.46)
     if (!list.length && data.error && !query && !filter) return '';
     if (!list.length) {
+      // 빈 화면에도 다음 할 일 (v3.49)
       return `<div class="empty">${
-        query || filter ? '조건에 맞는 리포트가 없습니다.' : '이 달에 기록된 리포트가 없습니다.'
+        query || filter
+          ? '조건에 맞는 리포트가 없습니다.<div class="empty__acts"><button class="btn btn-secondary" data-act="filter-clear" type="button">거르기 풀기</button></div>'
+          : '이 달에 기록된 리포트가 없습니다.<div class="empty__acts"><a class="btn btn-primary" href="#/report/new">새 리포트 쓰기</a></div>'
       }</div>`;
     }
     return `<div class="hist-rows">
@@ -657,7 +652,6 @@ export async function reportListView(view, params = null) {
           <span class="page-head__spacer"></span>
           <select class="select" id="histMonth" aria-label="월 선택"></select>
           <a class="btn btn-secondary" href="#/stats">통계</a>
-          <button class="btn btn-secondary" data-act="refresh" type="button">시트에서 받기</button>
         </div>
         <div class="hist-filter">
           <div id="histTop"></div>
@@ -708,6 +702,15 @@ export async function reportListView(view, params = null) {
       paint();
       return;
     }
+    if (act === 'filter-clear') {
+      filter = null;
+      query = '';
+      overdueOnly = false;
+      const box = $('#histQ');
+      if (box) /** @type {HTMLInputElement} */ (box).value = '';
+      paint();
+      return;
+    }
     if (act === 'filter') {
       const value = btn.dataset.value || null;
       filter = filter === value ? null : value;
@@ -720,20 +723,6 @@ export async function reportListView(view, params = null) {
       const entry = selected();
       if (entry) showSheetEntry(entry, () => paint());
       return;
-    }
-    if (act === 'refresh') {
-      btn.disabled = true;
-      btn.textContent = '받는 중…';
-      months = await api.sheetMonths(true);
-      if (!months.includes(month)) months = [month, ...months];
-      await load({ refresh: true });
-      waiting = false;
-      paintMonths();
-      paint();
-      btn.disabled = false;
-      btn.textContent = '시트에서 받기';
-      toast(data.fromCache ? '연결이 안 돼 기존 내용을 유지합니다.' : '시트에서 받았습니다.',
-            data.fromCache ? 'err' : 'ok');
     }
   }
 
@@ -802,7 +791,6 @@ export async function reportDetailView(view, reportId) {
   const [report, settings] = await Promise.all([
     api.getReport(reportId), api.getSettings(),
   ]);
-  const sheetsReady = !!settings.sheetsReady;
   const [cls, label] = STATUS[report.status] || STATUS.DRAFT;
 
   view.innerHTML = `
@@ -823,7 +811,7 @@ export async function reportDetailView(view, reportId) {
       <div class="row" style="margin-bottom:16px">
         ${report.status === 'DRAFT' ? `<a class="btn btn-primary" href="#/report/new?draft=${h(report.id)}">이어 쓰기</a>` : ''}
         <button class="btn btn--primary btn--sm" data-act="upload" type="button">
-          ${report.status === 'UPLOADED' ? ' 구글 시트에 다시 업로드' : ' 구글 시트로 업로드'}
+          ${report.status === 'UPLOADED' ? ' 시트에 다시 올리기' : ' 시트에 올리기'}
         </button>
         <button class="btn btn--ghost btn--sm" data-act="share" type="button">공유</button>
         <button class="btn btn--ghost btn--sm" data-act="copy" type="button">텍스트 복사</button>
@@ -859,13 +847,15 @@ export async function reportDetailView(view, reportId) {
 
     if (act === 'upload') {
       if (report.status === 'UPLOADED') {
-        const ok = await confirmDialog('다시 업로드',
-          '이미 업로드된 리포트입니다. 구글 시트에 같은 내용이 한 줄 더 추가됩니다.',
-          '업로드', false);
+        const ok = await confirmDialog('다시 올리기',
+          '이미 올린 리포트입니다. 구글 시트에 같은 내용이 한 줄 더 추가됩니다.',
+          '올리기', false);
         if (!ok) return;
+        // 일부러 한 번 더 — 시트가 '이미 받은 리포트' 로 알아보지 않게 고유 번호를 새로 (v3.49)
+        await api.markReuploadRound(report.id);
       }
       btn.disabled = true;
-      btn.textContent = '업로드 중…';
+      btn.textContent = '올리는 중…';
       try {
         const result = await api.uploadReportToSheet(report.id);
         if (result.queued) {
@@ -881,7 +871,7 @@ export async function reportDetailView(view, reportId) {
       } catch (err) {
         toast(err.message, 'err');
         btn.disabled = false;
-        btn.textContent = ' 구글 시트로 업로드';
+        btn.textContent = ' 시트에 올리기';
       }
     }
     if (act === 'share') {
@@ -893,7 +883,7 @@ export async function reportDetailView(view, reportId) {
     }
     if (act === 'del') {
       const ok = await confirmDialog('리포트 삭제',
-        '이 리포트를 앱에서 삭제합니다. 이미 업로드된 구글 시트 내용은 남아 있습니다.',
+        '이 리포트를 앱에서 삭제합니다. 이미 올린 시트 내용은 남아 있습니다.',
         '삭제', true);
       if (!ok) return;
       await api.deleteReport(report.id);

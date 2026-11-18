@@ -1,6 +1,6 @@
 // 리포트 공유: 카카오톡 · 메일 · 메모 등 기기 공유 시트로 보내기
 // (기본 전달 경로는 구글 시트 업로드이고, 이건 즉시 전달이 필요할 때의 보조 수단)
-import { $, h, closeModal, copyText, openSheet, toast } from './ui.js';
+import { $, h, copyText, openSheet, toast } from './ui.js';
 
 /** 리포트를 사람이 읽는 텍스트로 만든다. */
 export function reportToText(report, { withHeader = true } = {}) {

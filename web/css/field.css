@@ -11,14 +11,11 @@
 .btn { min-height: 60px; }
 .btn--sm { min-height: 52px; }
 .page-head .btn, .toolbar .btn, .form-actions .btn { min-height: var(--touch-glove); }
-.form-actions .btn { font-size: 18px; }
-.form-actions .btn { min-width: 160px; }
+
 .topbar .btn { min-height: 56px; }
-.input, .select { min-height: 56px; font-size: 18px; }
-.textarea, textarea.input { font-size: 18px; }
+
 /* 알림은 아래 주 동작 바(다음 · 올리기) **바로 위**에 (v3.48).
    위쪽에 두면 화면 제목 · 첫 카드를 가렸고, 맨 아래에 두면 그 버튼을 덮었다. */
-.toasts { top: auto; bottom: calc(112px + env(safe-area-inset-bottom, 0px)); }
 
 /* ══ 2. 홈 — 세 개의 문 ══════════════════════════════════════════════════ */
 .home3 {
@@ -299,12 +296,9 @@ a.past__item:hover { box-shadow: inset 0 0 0 2px var(--memo-border); color: var(
 .hd2 > .past { margin: 4px 20px 0; }
 
 /* ══ 5. 이력 카드 — 카드 한 장에 무엇이 있었는지 ═══════════════════════ */
-.hist-split { grid-template-columns: 420px minmax(0, 1fr); }
-.hist-row { gap: 6px; padding: 14px 16px 14px 20px; position: relative; }
+
 .hist-row::before { content: ""; position: absolute; left: 6px; top: 12px; bottom: 12px; width: 5px; border-radius: 3px; background: var(--track); }
-.hist-row__date { font-size: 15px; }
-.hist-row__status { font-size: 15px; }
-.hist-row__store { font-size: 21px; letter-spacing: -0.02em; }
+
 .hist-row__robot { font-size: 15px; font-weight: 600; color: var(--color-muted); }
 .hist-row__code { font-family: var(--font-mono); font-weight: 700; color: var(--color-text); }
 .hist-row__story { display: grid; gap: 2px; font-size: 16px; }
@@ -314,8 +308,6 @@ a.past__item:hover { box-shadow: inset 0 0 0 2px var(--memo-border); color: var(
   align-self: flex-start; margin-top: 4px; padding: 4px 12px; border-radius: 10px;
   background: var(--memo-tint); color: var(--memo-ink); font-size: 15px; font-weight: 800;
 }
-.hd-guide { min-height: 56px; }
-.hd-guide b { white-space: nowrap; }
 
 /* ══ 6. 가이드 — 한 단계씩 ═════════════════════════════════════════════ */
 .gd-ctx { margin: 0; font-size: 16px; font-weight: 700; color: var(--memo-ink); }
@@ -377,7 +369,7 @@ iframe.gs-img, video.gs-img { height: 340px; }
 }
 .tab:hover { background: var(--color-surface); color: var(--color-text); }
 .tab[aria-current="page"] { background: var(--color-accent-tint); color: var(--color-accent); font-weight: 800; box-shadow: inset 4px 0 0 var(--color-accent); }
-.tab[data-tab="new"] { background: var(--color-accent); color: var(--color-on-accent); font-weight: 800; }
+.tab[data-tab="new"] { font-weight: 800; }
 .tab[data-tab="new"]:hover, .tab[data-tab="new"][aria-current="page"] { background: var(--color-accent-hover); color: var(--color-on-accent); box-shadow: none; }
 .tab[data-tab="driving"], .tab[data-tab="inventory"] { height: 56px; font-size: 16px; }
 .tab[data-tab="driving"] { margin-top: 18px; }
@@ -386,24 +378,14 @@ iframe.gs-img, video.gs-img { height: 340px; }
 }
 
 /* ── 상단바 — 뒤로 · 상태 표시 · 새로고침. 채운 버튼은 그 화면의 주 동작(올리기)만 */
-.topbar .btn--icon {
-  background: var(--color-bg); color: var(--color-text);
-  box-shadow: inset 0 0 0 2px var(--color-border); border-radius: 16px;
-}
+
 .btn-update { background: var(--color-bg); color: var(--color-text); border-color: var(--color-bg); box-shadow: inset 0 0 0 2px var(--color-border); }
 .btn-update:hover { background: var(--color-surface); color: var(--color-text); border-color: var(--color-surface); }
 .btn-update.has-new { background: var(--color-accent); color: var(--color-on-accent); box-shadow: var(--shadow-accent); }
-.test-banner {
-  position: static; transform: none; flex: none; max-width: 220px;
-  padding: 0 16px; height: 44px; display: inline-flex; align-items: center; border-radius: 22px;
-  font-size: 14px; box-shadow: none;
-}
+
 html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 
 /* ── 화면 머리 */
-.page-head__title { font-size: 30px; font-weight: 800; letter-spacing: -0.03em; }
-.page-head__meta { font-size: 16px; }
-.crumb { font-size: 16px; font-weight: 700; }
 
 /* ── 카드 · 줄 — 그림자 대신 선 */
 .panel, .veh-tabs, .rband, .guide-cat, .assign-list, .hist-rows, .hist-panel, .gd-head, .gd-box, .gd-progress,
@@ -412,30 +394,25 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 }
 .rf[data-mode="all"] .report-form { box-shadow: none; border: 2px solid var(--color-border); }
 .h2-alert { border-left: 6px solid var(--st-swap); }
-.store-sum__tile { border-top: 6px solid var(--track, var(--color-border)); }
-.store-visit a { border-left: 6px solid var(--track, var(--color-border)); }
+
 .panel, .settings-list .panel { border: 2px solid var(--color-border); border-radius: 20px; padding: 22px 24px; }
-.panel__title { font-size: 19px; font-weight: 800; }
+
 .panel.panel--fold { padding: 0; }          /* 접는 칸은 머리줄이 칸 전체를 누르는 자리라 안쪽 여백을 따로 둔다 */
-.panel--fold > summary { min-height: 72px; padding: 0 24px; cursor: pointer; }
+
 /* 가이드 편집의 명령어 칸 — 접었다 폈다 */
 .cmd-fold > summary { gap: 12px; }
 .cmd-fold__hint { margin-left: auto; font-size: 16px; font-weight: 700; color: var(--color-accent); }
 .cmd-fold > summary::after { margin-left: 8px; }
-.sx-card { border-radius: 20px; }
-.rows > .row, .list > .item, .rows > .item, .list > .row {
-  box-shadow: none; border: 2px solid var(--color-border); border-radius: 16px; min-height: 72px;
-}
+
 .rows > .row:hover, .list > .item:hover, .rows > .item:hover, .list > .row:hover { background: var(--color-bg); border-color: var(--color-accent); }
 .row__title, .item__title { font-size: 18px; font-weight: 700; }
-.row__meta, .item__sub { font-size: 15px; }
+
 .empty { font-size: 18px; line-height: 1.7; }
 
 /* ── 고르기 — 세그먼트 · 차량 탭: 고른 것은 잉크로 채운다 */
-.seg { padding: 5px; border-radius: 16px; gap: 5px; }
-.seg__btn { min-height: 52px; font-size: 17px; font-weight: 700; border-radius: 12px; }
+
 .seg__btn.is-on { background: var(--color-text); color: var(--color-bg); box-shadow: none; }
-.veh-tabs { padding: 4px; }
+
 .veh-tab { min-height: 56px; font-size: 18px; font-weight: 700; border-radius: 12px; }
 
 /* ── 입력칸 — 테두리를 또렷하게 */
@@ -444,25 +421,19 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .field > label, .field > .label { font-size: 17px; font-weight: 700; }
 
 /* ── 창 (확인 · 시트) */
-.modal__box { border-radius: 24px; padding: 28px; }
-.modal__title { font-size: 24px; font-weight: 800; }
+
 .modal__box .btn { min-height: 60px; }
 
 /* ── 가이드 첫 화면 — 로봇마다 색 상자 대신 흰 카드 (강조색은 하나) */
 .rband { min-height: 150px; }
-.rband__id { background: var(--color-bg); border-right: 2px solid var(--color-border); }
+
 .rband__main, .rband__main:hover { color: var(--color-text); }
-.rband__kicker { color: var(--color-muted); opacity: 1; }
-.rband__name { font-size: 36px; }
-.rband__meta { color: var(--color-text-2); opacity: 1; }
-.rband__more { background: var(--color-surface); color: var(--color-text); }
+
 .rband__more:hover { background: var(--color-surface-2); }
-.rcat { background: var(--color-surface); }
+
 .rcat:hover { box-shadow: inset 0 0 0 3px var(--color-accent); }
 
 /* ── 표 (운행일지 · 재고) */
-.table th { font-size: 15px; font-weight: 800; color: var(--color-text-2); }
-.table td { font-size: 17px; }
 
 /* ══ 9. 화면별 다시 짠 것 — 이력 · 가이드 · 운행일지 · 재고 (v3.35) ══════════ */
 
@@ -487,7 +458,6 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .hist-card__guide i { margin-left: auto; font-style: normal; font-size: 22px; }
 .hist-card__guide:hover { background: var(--color-accent-tint-2); color: var(--color-accent); }
 .hist-sheet .hd2 { margin: -4px 0 0; }
-.hist-search { min-width: 320px; }
 
 /* ── 가이드 첫 화면: '무엇을 고치나요?' 큰 찾기 + 최근 이력에 나온 코드 */
 .gh-find {
@@ -510,7 +480,7 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .gh-code:hover { box-shadow: inset 0 0 0 3px var(--color-accent); color: var(--color-text); }
 .gh-sub { margin: 6px 0 0; font-size: 19px; font-weight: 800; color: var(--color-text-2); }
 .guide-row { min-height: 84px; }
-.guide-row .row__code { font-size: 20px; }
+
 .gd-more { font-size: 24px; }
 .gd-more-menu .btn { min-height: 64px; }
 
@@ -570,9 +540,10 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 /* ── 차량 재고: 줄에서 바로 −/+, 맨 위 '보충 필요' 띠, 상세는 창 */
 .inv-vehicles { align-self: flex-start; max-width: 100%; }
 .inv-alert {
-  width: 100%; min-height: 72px; border-radius: 18px; padding: 10px 22px; cursor: pointer; text-align: left;
+  width: 100%; border-radius: 18px; padding: 10px 22px; cursor: pointer; text-align: left;
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font: inherit;
   background: var(--color-danger-tint); border: 2px solid var(--color-danger-border); color: var(--color-danger);
+  min-height: 60px;
 }
 .inv-alert b { font-size: 20px; font-weight: 800; }
 .inv-alert span { font-size: 16px; font-weight: 600; color: var(--color-text-2); }
@@ -618,13 +589,6 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 /* 차량 이름은 두 줄로 꺾지 않는다 (글자를 크게 쓰는 태블릿에서 '스타리아 / 5868' 로 쪼개졌다) */
 .inv-head .inv-vehicles { flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .inv-head .inv-vehicles .veh-tab { flex: none; white-space: nowrap; }
-.inv-alert { min-height: 60px; }
-.inv-filter {
-  /* 화면 위쪽 여백(.screen 24px)까지 올라가 붙는다 — 그 틈으로 지나가는 카드가 비치지 않는다.
-     예전에는 위로 24px 끌어올려(margin) 붙였는데, 그 자리가 바로 위 '보충 필요' 띠를 덮어 아래가 잘렸다 (v3.42.2) */
-  position: sticky; top: -24px; z-index: 5; align-items: center;
-  margin: 0 -4px; padding: 8px 4px; background: var(--color-page);
-}
 
 .inv-filter .inv-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
 .inv-filter .inv-chips::-webkit-scrollbar { display: none; }
@@ -709,14 +673,14 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
   .tab { min-width: 0; height: 64px; font-size: 15px; box-shadow: none; }
   .tab[aria-current="page"] { box-shadow: none; }
   .tab__label { white-space: nowrap; }
-  .topbar { gap: 8px; }
+
   .topbar .btn { min-height: 48px; padding: 0 12px; font-size: 15px; border-radius: 12px; }
   .topbar .btn--icon { min-width: 48px; min-height: 48px; }
   .test-banner { height: 36px; padding: 0 10px; font-size: 15px; }
   .topbar__brand, .btn-patch { display: none; }   /* 폰 상단바는 뒤로 · 테스트 · 올리는 중 · 새로고침만 */
   .topbar > * { flex-shrink: 0; }
   .topbar .topbar__spacer { flex-shrink: 1; }
-  .rcat__name { font-size: 14px; }
+  .rcat__name { font-size: 14px; word-break: keep-all; }
   .drv-hero { grid-template-columns: minmax(0, 1fr); }
   .drv-hero__add { grid-row: auto; grid-column: auto; min-width: 0; width: 100%; }
   .drv-hero__stats { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -822,3 +786,49 @@ html[data-test-mode] body { box-shadow: inset 0 0 0 3px var(--test-amber); }
 .door__counts > .door__asof { grid-column: 1 / -1; background: none; padding: 0; font-size: 15px; font-weight: 600; color: var(--color-muted); }
 .door__row--quiet { color: var(--color-muted); cursor: default; }
 .door__row--quiet b { font-weight: 700; }
+
+/* ══ v3.49 — 다음 목록 (28 ~ 34) ══════════════════════════════════════════ */
+/* 29 · 왼쪽 메뉴의 [새 리포트] — 늘 진하게 채워져 지금 있는 화면보다 더 '고른 것' 처럼 보였다.
+   이제 파란 테두리로 '주 동작' 만 알리고, 그 화면에 있을 때만 다른 메뉴처럼 칠한다. */
+.tab[data-tab="new"] { background: transparent; color: var(--color-accent); box-shadow: inset 0 0 0 2px var(--color-accent); }
+.tab[data-tab="new"]:hover { background: var(--color-accent-tint); color: var(--color-accent); box-shadow: inset 0 0 0 2px var(--color-accent); }
+.tab[data-tab="new"][aria-current="page"] { background: var(--color-accent-tint); color: var(--color-accent); box-shadow: inset 0 0 0 2px var(--color-accent); }
+
+/* 28 · 차량 이름 · '＋ 차량' 을 두 줄로 꺾지 않는다 (폰에서 '스타리아 / 5868', '차 / 량') — 모자라면 옆으로 민다 */
+
+.veh-tab { white-space: nowrap; flex: 1 0 auto; }
+.nowrap { white-space: nowrap; }
+/* 28 · 위 상태 칩이 길어져도 [새로고침] 을 밀어내지 않는다 */
+.topbar .sync { min-width: 0; flex: 0 1 auto; }
+.topbar #sync-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .btn-update { flex: none; }
+
+/* 홈 · 파란 [새 리포트] 안의 '아직 받지 못했어요' — 회색 글자가 파란 바탕에서 거의 안 보였다 (v3.48 의 실수) */
+.door--new .door__row--quiet { color: var(--color-on-accent-muted); }
+.door--new .door__row--quiet b { color: var(--color-on-accent); }
+
+/* 30 · [관리 ⋯] 메뉴 — 단계식 새 리포트의 [⋯] 와 같은 모양 */
+.more-menu > summary { min-width: 0; font-size: 17px; letter-spacing: 0; white-space: nowrap; }
+.rf-more__menu .btn { width: 100%; justify-content: flex-start; }
+
+/* 33 · 가로 태블릿에서 오른쪽 칸(명령어 [복사]) 이 아래 바에 가려 끝까지 내려가지 않았다 —
+   화면보다 긴 칸이 붙어 있으면(sticky) 아랫부분에 닿을 수 없다 */
+.gd--step .gd-side { position: static; }
+
+/* 34 · 빈 화면 — 다음 할 일 버튼 · 0건 항목은 [＋ 작성] */
+.empty__acts { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.rcat--empty .rcat__foot span { color: var(--color-accent); font-weight: 800; }
+.rcat--empty .rcat__n { color: var(--color-muted); }
+
+@media (max-width: 720px) {
+  /* 28 · 이력 상태 거르기 — 다섯 칸이 세 줄을 차지했다. 폰에서는 한 줄로 옆으로 민다 */
+
+  .hist-tiles.hist-chips { flex-wrap: nowrap; }      /* .hist-chips 의 줄 바꿈이 따라와 다시 세 줄이 됐다 */
+  .hist-tile { flex: 0 0 auto; min-width: 112px; }
+
+}
+/* 32 · 차량 탭마다 보충 필요 숫자 — 왼쪽 메뉴의 숫자(모든 차량 합)가 어디서 왔는지 보인다 */
+.veh-tab__low {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 26px; padding: 0 7px;
+  margin-left: 6px; border-radius: 13px; background: var(--color-danger); color: #fff; font-size: 15px; font-weight: 800;
+}

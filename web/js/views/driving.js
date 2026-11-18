@@ -13,6 +13,7 @@ import { $, h, closeModal, confirmDialog, loading, openSheet, toast } from '../u
 import * as store from '../local/store.js';
 import { deviceName } from '../syncnow.js';
 import { choseong } from '../insights.js';
+import { fold } from '../text.js';
 
 const VEHICLE_KEY = 'bh_driving_vehicle';
 
@@ -68,7 +69,6 @@ export async function drivingView(view) {
   let info = { model: '', plate: '' };
   let lastOdo = null;
   let month = '';                 // '' = 전체, 'YYYY-MM' = 그 달만
-  const sheetMode = await store.sheetInventoryOn();
 
   async function reload() {
     vehicles = (await api.listVehicles()).items;
@@ -122,7 +122,8 @@ export async function drivingView(view) {
     if (!list.length) {
       return `<div class="empty">${month
         ? `${h(month)} 에 적힌 운행 기록이 없습니다.`
-        : '운행 기록이 없습니다. 위의 [오늘 운행 기록]으로 적으세요.'}</div>`;
+        : '운행 기록이 없습니다.'}
+        <div class="empty__acts"><button class="btn btn-primary" data-act="add" type="button">＋ 오늘 운행 기록</button></div></div>`;
     }
     return `<div class="drv-list">${list.map(logCard).join('')}</div>`;
   }
@@ -142,8 +143,6 @@ export async function drivingView(view) {
           <span class="page-head__meta">국세청 법인 차량 운행 일지 서식</span>
           <span class="page-head__spacer"></span>
           ${current ? `
-            ${sheetMode ? `
-              <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
             <button class="btn btn-secondary" data-act="manage-options" type="button">항목 관리</button>` : ''}
         </div>
 
@@ -160,7 +159,7 @@ export async function drivingView(view) {
             <div class="drv-hero__id">
               <h2>${h(current)}</h2>
               <p>①차종 <b>${h(info.model) || '미등록'}</b> · ②자동차등록번호 <b>${h(info.plate) || '미등록'}</b></p>
-              <p class="muted">법인명 ${h(COMPANY.name)} · 사업자등록번호 ${h(COMPANY.bizNo)}
+              <p class="muted">법인명 ${h(COMPANY.name)} · 사업자등록번호 <span class="nowrap">${h(COMPANY.bizNo)}</span>
                 <button class="link-btn" data-act="edit-vehicle" type="button">차량 정보 수정</button></p>
             </div>
             <div class="drv-hero__stats">
@@ -211,20 +210,6 @@ export async function drivingView(view) {
     if (act === 'edit') { openEditor(rows.find((r) => r.id === id)); return; }
     if (act === 'manage-options') { openOptionManager(); return; }
     if (act === 'edit-vehicle') { openVehicleInfo(); return; }
-
-    if (act === 'sheet-refresh') {
-      btn.disabled = true;
-      btn.textContent = '받는 중…';
-      try {
-        await api.pullDriving(current);
-        await reload();
-        toast('시트에서 운행 일지를 받았습니다.', 'ok');
-      } catch (err) {
-        toast(err.message, 'err');
-        render();
-      }
-      return;
-    }
 
     if (act === 'del') {
       const row = rows.find((r) => r.id === id);
@@ -279,17 +264,16 @@ export async function drivingView(view) {
     return [...new Set(names)];
   }
 
-  const squash = (t) => String(t || '').toLowerCase().replace(/\s+/g, '');
 
   /** 친 글자와 비슷한 곳 — 이름 일부, 또는 초성만 쳐도 ('ㅇㅈ' → 언주사무실) */
   function similarPlaces(typed) {
-    const want = squash(typed);
+    const want = fold(typed);
     if (!want) return [];
     const byCho = /^[ㄱ-ㅎ]+$/.test(want);
     return allPlaces()
-      .filter((p) => squash(p) !== want)
-      .filter((p) => (byCho ? squash(choseong(p)) : squash(p)).includes(want))
-      .sort((a, b) => Number(!squash(a).startsWith(want)) - Number(!squash(b).startsWith(want)))
+      .filter((p) => fold(p) !== want)
+      .filter((p) => (byCho ? fold(choseong(p)) : fold(p)).includes(want))
+      .sort((a, b) => Number(!fold(a).startsWith(want)) - Number(!fold(b).startsWith(want)))
       .slice(0, MATCH_PLACES);
   }
 

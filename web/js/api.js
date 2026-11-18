@@ -78,6 +78,8 @@ export const api = {
       items: names.map((name) => ({
         name,
         itemCount: items.filter((i) => i.vehicleName === name).length,
+        // 보충이 필요한 품목 수 — 차량 탭에 붙인다. 왼쪽 메뉴 숫자(모든 차량 합)와 맞아떨어지게 (v3.49)
+        lowCount: items.filter((i) => i.vehicleName === name && i.minQuantity > 0 && i.quantity < i.minQuantity).length,
       })),
     };
   },
@@ -158,10 +160,6 @@ export const api = {
     flushSoon();
     return value;
   },
-  pullDriving: async (vehicle) => {
-    const drivesheet = await import('./drivesheet.js');
-    return drivesheet.pullDriving(vehicle || null);
-  },
 
   // ------------------------------------------------------------------ 리포트
   listReports: async () => ({ items: await store.listReports() }),
@@ -226,6 +224,12 @@ export const api = {
   createReport: (payload) => store.saveReport(payload),
   updateReport: (id, payload) => store.saveReport(payload, id),
   deleteReport: (id) => store.deleteReport(id),
+
+  /** 이미 올린 리포트를 일부러 한 번 더 올릴 때 — 고유 번호(uploadIdOf)가 바뀐다 */
+  async markReuploadRound(id) {
+    const report = await store.getReport(id);
+    if (report) await store.markReport(id, { uploadRound: (Number(report.uploadRound) || 0) + 1 });
+  },
 
   /** 시트 업로드 — 오프라인이면 대기열에 넣고 온라인 복귀 시 자동 전송 */
   async uploadReportToSheet(id) {

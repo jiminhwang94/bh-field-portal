@@ -7,34 +7,29 @@
 
 /* 8-가. 바탕은 연한 회청, 카드는 흰색. 레일과 상단바는 흰색 '틀' 이 된다. */
 
-.panel { background: var(--color-bg); }
-
 .veh-tab.is-active { box-shadow: none; }
 .toolbar .input, .field .input, .field .select, .field .textarea { background: var(--color-bg); }
-.stat { background: var(--color-bg); border: 1px solid var(--color-border); }
+
 .stat.is-active { background: var(--color-accent-tint); }
 
 /* 추가 1. 이력 · 가이드 목록의 줄도 재고 표처럼 줄마다 카드로.
    `.row` 는 패널 안 버튼 묶음에도 쓰는 이름이라 **목록(.rows/.list) 안의 줄에만** 건다 —
    전체에 걸었더니 설정의 버튼 줄까지 상자가 되어 "상자 안의 상자" 가 생겼다. */
-.rows, .list { gap: var(--space-2); }
+
 .rows > .row, .list > .item, .rows > .item, .list > .row {
   background: var(--color-bg);
-  min-height: 64px; padding: 12px 18px;
+  padding: 12px 18px;
+  box-shadow: none;
+  border: 2px solid var(--color-border);
+  border-radius: 16px;
+  min-height: 72px;
 }
 .rows > .row:hover, .list > .item:hover { background: var(--color-surface); }
 
 /* 2-가 · 3-가. 눌리는 것은 전부 48px 이상. 상단바 뒤로는 56px. */
 
-.btn--icon { min-width: 48px; min-height: 48px; }
-.topbar .btn--icon { font-size: 26px; border-radius: var(--radius-md); }
 .topbar .btn--icon[hidden] { display: none; }
 
-.row__code { min-height: 48px; display: inline-flex; align-items: center; }
-.qty__btn { min-width: 48px; min-height: 48px; }
-.media-tile__del {
-  top: 4px; right: 4px; width: 44px; height: 44px; font-size: 18px;
-}
 /* 링크 안에 버튼을 두지 않는다 — 열기는 타일을 덮는 링크 한 장, 지우기는 그 위의 버튼. */
 .media-tile__open { position: absolute; inset: 0; z-index: 2; }
 
@@ -48,6 +43,8 @@
   color: var(--color-accent);
   border-radius: var(--radius-lg);
   font: inherit; font-size: 16px; font-weight: 600; cursor: pointer;
+  border: 0;
+  background: var(--st-doing-soft);
 }
 
 .media-pick__tile:active { background: var(--color-accent); color: var(--color-on-accent); }

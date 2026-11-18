@@ -43,6 +43,7 @@ test('차량 재고 [순서 바꾸기] — 분류를 ▼ 로 내리고 [완료] 
   await seed(sheet);                                       // 소모품(2) · 케이블(1)
   await openApp(page, '#/inventory');
   await expect(page.locator('.inv-pick').first()).toBeVisible({ timeout: 15000 });
+  await page.locator('.more-menu > summary').click();                   // v3.49 — [관리 ⋯] 안에 있다
   await page.locator('[data-act="order-start"]').click();
   const cats = page.locator('.ord-row--cat .ord-name');
   await expect(cats.first()).toContainText('소모품');
@@ -76,8 +77,10 @@ test('[패치 내용] — 새로고침 옆, 안 본 새 버전이면 점 · 열�
   await expect(notes.locator('.patch-note').first()).toHaveClass(/is-current/);
   const version = await page.evaluate(async () => (await import('/js/version.js')).APP_VERSION);
   await expect(notes.locator('.patch-note').first()).toContainText(`v${version}`);         // 맨 위가 지금 버전
-  await expect(notes).toContainText('이슈 유형');                                           // 지난 버전도 아래에 남는다
-  await expect(notes).toContainText('10월 23일');
+  // 지난 버전도 아래에 남는다 — 최근 12개까지 (v3.49 부터 release.py 가 자른다)
+  const count = await notes.locator('.patch-note').count();
+  expect(count).toBeGreaterThan(1);
+  expect(count).toBeLessThanOrEqual(12);
   await page.locator('#modalRoot [data-act="close"]').click();
   await expect(btn).not.toHaveClass(/has-new/);
   await page.reload();

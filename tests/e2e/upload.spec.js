@@ -63,7 +63,7 @@ test('올리다 아예 끊기면 기기에 남았다가, 다음에 남은 조각
   await fillReport(page, video);
   await page.locator('#reportForm button[type=submit]').click();
   // 다시 해 보다(1 · 3 · 6초) 결국 실패 — '실패' 로 멈추지 않고 기기 대기열에 남는다
-  await expect(page.locator('#view')).toContainText('업로드 대기', { timeout: 30000 });
+  await expect(page.locator('#view')).toContainText('올릴 차례', { timeout: 30000 });
   expect([...sent].sort()).toEqual([0, 1]);         // 3개씩 동시에 — 차례는 섞일 수 있다
   blocked = false;
   await page.evaluate(async () => {

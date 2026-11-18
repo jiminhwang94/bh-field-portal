@@ -142,11 +142,11 @@ test('가이드 — 한 단계씩 [다 했어요] 로 넘기고, 끝나면 그 �
   await expect(page.locator('.hist-row').first()).toBeVisible({ timeout: 15000 });
   await openApp(page, '#/guides');
   await openApp(page, `#/guides/${GUIDES[0].id}?store=${encodeURIComponent('옥동식 서초점')}&serial=SN-0009`);
-  await expect(page.locator('.gs-no')).toHaveText('1 / 2');
+  await expect(page.locator('.gs-no')).toHaveText(/^1 \/ \d+ 단계/);
   await expect(page.locator('.gs-instr')).toContainText('커넥터 CN3');
   await expect(page.locator('#gdPast .past__warn')).toContainText('3번째');  // 이번이 E-101 세 번째
   await page.locator('[data-act="done-next"]').click();
-  await expect(page.locator('.gs-no')).toHaveText('2 / 2');
+  await expect(page.locator('.gs-no')).toHaveText('2 / 2 단계');
   await expect(page.locator('.gs-item.is-done')).toHaveCount(1);
   await expect(page.locator('[data-act="done-next"]')).toHaveText('완료');    // 마지막 단계는 [완료]
   await expect(page.locator('[data-act="write-report"]')).toHaveCount(0);   // [이 작업으로 리포트 쓰기] 는 뺐다 (v3.43.1)
@@ -157,7 +157,7 @@ test('가이드 — 한 단계씩 [다 했어요] 로 넘기고, 끝나면 그 �
   await expect(page).toHaveURL(/#\/guides\/m\/Gen\.1$/);
   // 다시 열면 처음부터 — 마친 기록이 남지 않는다
   await openApp(page, `#/guides/${GUIDES[0].id}`);
-  await expect(page.locator('.gs-no')).toHaveText('1 / 2');
+  await expect(page.locator('.gs-no')).toHaveText(/^1 \/ \d+ 단계/);
   await expect(page.locator('.gs-item.is-done')).toHaveCount(0);
 });
 
@@ -223,7 +223,7 @@ test('이력 카드 아래 [가이드] · 가이드 첫 화면에 최근 이력�
   await openApp(page, '#/guides');
   await expect(page.locator('.gh-code').first()).toContainText('E-101');
   await page.locator('.gh-code').first().click();
-  await expect(page.locator('.gs-no')).toHaveText('1 / 2');
+  await expect(page.locator('.gs-no')).toHaveText(/^1 \/ \d+ 단계/);
 });
 
 test('오류 코드 가이드 제목 — 맨 앞이 코드 모양일 때만 파란 코드 칸으로 나눈다', async ({ page, sheet }) => {
@@ -267,6 +267,6 @@ test('가이드 단계에 여러 줄을 쓰면 시트를 다녀와도 한 단계
   await page.locator('#btn-update').click();
   await page.waitForTimeout(1500);
   await page.reload();
-  await expect(page.locator('.gs-no')).toHaveText('1 / 1');
+  await expect(page.locator('.gs-no')).toHaveText(/^1 \/ \d+ 단계/);
   await expect(page.locator('.gs-instr')).toContainText('나사 4개를 푼다');
 });

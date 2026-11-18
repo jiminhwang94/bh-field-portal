@@ -20,6 +20,17 @@ export function createFakeGas() {
   const deleteRowsCalls = { count: 0 };   // 몰아서 지운 횟수
   // ─────────────────────────────────────────────── 가짜 스프레드시트
 
+  /**
+   * 구글 시트가 글을 받아 칸에 넣는 방식 (v3.49) — ' 로 시작하면 ' 를 떼고 글자로,
+   * = · + · - 로 시작하는 글(숫자가 아닌)은 수식으로 읽다 #ERROR! 가 된다.
+   */
+  function asSheetsStores(v) {
+    if (typeof v !== 'string' || !v) return v;
+    if (v.startsWith("'")) return v.slice(1);
+    if (/^[=+-]/.test(v) && !/^[+-]?\d[\d,]*(\.\d+)?$/.test(v)) return '#ERROR!';
+    return v;
+  }
+
   class FakeRange {
     constructor(sheet, row, col, rows, cols) {
       Object.assign(this, { sheet, row, col, rows, cols });
@@ -35,7 +46,7 @@ export function createFakeGas() {
             'The number of columns in the data does not match the number of '
             + `columns in the range. (${line.length} vs ${this.cols})`);
         }
-        line.forEach((v, c) => this.sheet._set(this.row + r, this.col + c, v));
+        line.forEach((v, c) => this.sheet._set(this.row + r, this.col + c, asSheetsStores(v)));
       });
       return this;
     }
@@ -54,7 +65,7 @@ export function createFakeGas() {
     getDisplayValues() {
       return this.getValues().map((line) => line.map((v) => String(v ?? '')));
     }
-    setValue(v) { this.sheet._set(this.row, this.col, v); return this; }
+    setValue(v) { this.sheet._set(this.row, this.col, asSheetsStores(v)); return this; }
     getValue() { return this.sheet._get(this.row, this.col); }
     /**
      * 실제 Apps Script 의 Range 에 있는 메서드다. 가짜에 없으면 이것을 쓰는
@@ -389,6 +400,8 @@ export function createFakeGas() {
       getProperty: (k) => (scriptProps.has(k) ? scriptProps.get(k) : null),
       setProperty(k, v) { scriptProps.set(k, String(v)); return this; },
       deleteProperty(k) { scriptProps.delete(k); return this; },
+      getProperties: () => Object.fromEntries(scriptProps),
+      getKeys: () => [...scriptProps.keys()],
     }),
   };
 
@@ -482,7 +495,7 @@ export function createFakeGas() {
       }),
     },
     ContentService: {
-      createTextOutput: (text) => ({ _text: text, setMimeType() { return this; } }),
+      createTextOutput: (text) => ({ _text: text, getContent() { return this._text; }, setMimeType() { return this; } }),
       MimeType: { JSON: 'application/json' },
     },
     DriveApp: makeDrive(),
@@ -521,7 +534,7 @@ export function createFakeGas() {
              GUIDE_HEADER: GUIDE_HEADER, GUIDE_SHEETS: GUIDE_SHEETS,
              RELEASE_HEADER: RELEASE_HEADER, compareVersions: compareVersions,
              readInventory: readInventory,
-             isReleasePublic: isReleasePublic };
+             isReleasePublic: isReleasePublic, onEdit: onEdit };
   `;
   const factory = new Function(...Object.keys(sandbox), wrapper);
   const gs = factory(...Object.values(sandbox));

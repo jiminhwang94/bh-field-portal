@@ -16,10 +16,7 @@ import {
   canInstallDirectly, installApp, installStateLabel, isStandalone,
   showManualGuide,
 } from '../install.js';
-import {
-  deviceName, getSyncState, syncSummaryText, refreshState, runRefresh,
-  setDeviceName,
-} from '../syncnow.js';
+import { deviceName, getSyncState, syncSummaryText, refreshState, setDeviceName } from '../syncnow.js';
 
 /**
  * 드라이브 남은 용량 안내.
@@ -265,7 +262,7 @@ export async function settingsView(view) {
         </div>
         <ul class="muted" style="line-height:1.9;padding-left:20px;margin:0">
           <li>가이드 열람·검색·수정, 리포트 작성, 재고 수정은 <strong>인터넷 없이 전부</strong> 됩니다.</li>
-          <li>오프라인에서 누른 시트 업로드와 재고 수량 변경은 <strong>대기열에 쌓였다가
+          <li>오프라인에서 누른 시트 올리기와 재고 수량 변경은 <strong>대기열에 쌓였다가
               연결되면 자동 처리</strong>됩니다.</li>
           <li>한 번 본 가이드 사진은 기기에 담아 두어 다음부터 <strong>바로</strong> 뜨고, 오프라인에서도 보입니다.
               1GB 를 넘으면 오래 안 본 사진부터 저절로 지웁니다. 영상은 담지 않습니다.</li>

@@ -26,8 +26,6 @@ from urllib.parse import urlparse, unquote
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(BASE_DIR, "web")
 # 예전 서버 API 로 올라간 가이드 사진이 남아 있을 수 있어 읽기 전용으로 내준다.
-MEDIA_DIR = os.path.join(
-    os.environ.get("BH_DATA_DIR") or os.path.join(BASE_DIR, "data"), "media")
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
@@ -80,9 +78,6 @@ class Handler(BaseHTTPRequestHandler):
                 # 앱은 더 이상 서버 API 를 부르지 않는다. 옛 버전이 부르면 분명히 알려 준다.
                 self._error(404, "이 서버에는 API 가 없습니다. 자료는 구글 시트에 있습니다.")
                 return
-            if path.startswith("/media/"):
-                self._serve_media(path[len("/media/"):])
-                return
             self._serve_static(path)
         except BrokenPipeError:
             pass
@@ -132,17 +127,6 @@ class Handler(BaseHTTPRequestHandler):
         # 화면 파일은 매번 서버에 확인한다 — 새 버전을 올렸는데 옛 파일이 남으면
         # 화면 절반만 바뀐 채 열려 원인을 찾기 어렵다. (오프라인 캐시는 서비스워커가 맡는다)
         self._send(200, body, ctype, {"Cache-Control": "no-cache"})
-
-    def _serve_media(self, filename):
-        filename = os.path.basename(filename)
-        target = self._resolve(MEDIA_DIR, filename)
-        if target is None or not os.path.isfile(target):
-            self._error(404, "파일을 찾을 수 없습니다.")
-            return
-        ctype = mimetypes.guess_type(target)[0] or "application/octet-stream"
-        with open(target, "rb") as handle:
-            body = handle.read()
-        self._send(200, body, ctype, {"Cache-Control": "max-age=86400"})
 
 
 def local_ip():

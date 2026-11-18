@@ -6,7 +6,7 @@
 //
 // 데이터(가이드·재고·리포트)는 IndexedDB 에 있으므로 여기서 다루지 않는다.
 
-const CACHE = 'bh-shell-v3.48.0';
+const CACHE = 'bh-shell-v3.49.0';
 
 // 앱을 여는 데 필요한 파일 전부.
 // ⚠️ 화면 파일(js/css)을 추가하면 **이 목록에도 반드시 추가**해야 오프라인에서 열린다.
@@ -16,14 +16,14 @@ const SHELL = [
   './js/app.js', './js/api.js', './js/sync.js', './js/sheets.js',
   './js/invsheet.js', './js/guidesheet.js', './js/reportsheet.js',
   './js/net.js', './js/install.js', './js/syncnow.js', './js/pending.js', './js/fieldsheet.js',
-  './js/drivemedia.js', './js/update.js', './js/drivesheet.js', './js/connect.js', './js/changes.js',
+  './js/drivemedia.js', './js/bloburls.js', './js/text.js', './js/update.js', './js/drivesheet.js', './js/connect.js', './js/changes.js',
   './js/share.js', './js/ui.js', './js/mode.js', './js/errlog.js', './js/version.js', './js/mediaupload.js', './js/insights.js', './js/worksheet.js', './js/patchnotes.js',
   './js/local/idb.js', './js/local/store.js', './js/local/store-core.js', './js/local/store-guides.js',
   './js/local/store-inventory.js', './js/local/store-fields.js', './js/local/store-driving.js',
   './js/local/store-reports.js', './js/local/store-work.js',
   './js/views/guides.js', './js/views/guide-page.js', './js/views/inventory.js', './js/views/fields.js',
   './js/views/driving.js',
-  './js/views/report.js', './js/views/report-common.js', './js/views/history.js', './js/views/store.js', './js/views/stats.js', './js/views/work.js', './js/workpicker.js', './js/views/settings.js',
+  './js/views/report.js', './js/views/report-common.js', './js/views/report-parts.js', './js/views/report-partspicker.js', './js/views/history.js', './js/views/store.js', './js/views/stats.js', './js/views/work.js', './js/workpicker.js', './js/views/settings.js',
   './icons/icon-192.png', './icons/apple-touch-icon.png',
   './fonts/PretendardVariable.woff2',   // 현장은 오프라인이라 서체도 담아 둔다
 ];
@@ -33,7 +33,8 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE)
       // 파일 하나가 없어도 설치가 실패하지 않도록 개별로 담는다.
       .then((cache) => Promise.all(
-        SHELL.map((url) => cache.add(url).catch(() => null))))
+        // cache: 'reload' — 브라우저의 HTTP 저장분이 아니라 서버에서 새로 받아 담는다
+        SHELL.map((url) => cache.add(new Request(url, { cache: 'reload' })).catch(() => null))))
       .then(() => self.skipWaiting()),
   );
 });
@@ -101,21 +102,25 @@ self.addEventListener('fetch', (event) => {
   // API 는 캐시하지 않는다 (오래된 값이 보이면 안 된다).
   if (url.pathname.startsWith('/api/')) return;
 
-  // 화면 파일: 캐시 우선 + 뒤에서 갱신
+  // 화면 파일: **서버 먼저**, 안 되면 저장분 (v3.49).
+  //
+  // 예전에는 저장분을 먼저 내주고 뒤에서 갱신했다. 그래서 PC 폴더를 새 버전으로 바꿔도
+  // 첫 번째 다시 열기는 옛 화면이었고, 그 사이 나중에 불러오는 파일만 새것이라 옛것과
+  // 새것이 섞일 수 있었다. 서버(PC · APK 안 파일)는 가까워서 먼저 물어도 느리지 않다.
+  // 오프라인이거나 3초 안에 답이 없으면 저장분을 쓴다 — 현장에서 화면이 열리는 것은 그대로다.
   event.respondWith((async () => {
-    const cached = await caches.match(request, { ignoreSearch: true });
-    const network = fetch(request).then((res) => {
+    const network = fetch(request, { cache: 'no-cache' }).then((res) => {
       if (res && res.ok) {
         const copy = res.clone();
         caches.open(CACHE).then((cache) => cache.put(request, copy));
       }
       return res;
     }).catch(() => null);
-
-    if (cached) {
-      network;                       // 갱신은 뒤에서 조용히
-      return cached;
-    }
+    const slow = new Promise((resolve) => setTimeout(() => resolve('slow'), 3000));
+    const first = await Promise.race([network, slow]);
+    if (first && first !== 'slow' && first.ok) return first;
+    const cached = await caches.match(request, { ignoreSearch: true });
+    if (cached) return cached;
     const fresh = await network;
     if (fresh) return fresh;
     // 화면 이동(네비게이션)인데 캐시가 없으면 첫 화면이라도 보여 준다.

@@ -19,9 +19,9 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.FieldPortal"
-        android:usesCleartextTraffic="true">
-        <!-- usesCleartextTraffic: 사무실 서버가 사내망 http 주소라서 필요하다.
-             (구글 시트 전송은 https 로 나간다) -->
+        android:usesCleartextTraffic="false">
+        <!-- usesCleartextTraffic=false (v3.49): 예전에는 사무실 서버(사내망 http)에 닿으려고 켜 두었다.
+             이제 화면은 APK 안(https://appassets…), 자료는 구글(https)뿐이라 암호화 안 된 연결은 막는다. -->
 
         <activity
             android:name=".MainActivity"

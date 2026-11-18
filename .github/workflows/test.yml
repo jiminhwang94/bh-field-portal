@@ -27,7 +27,7 @@ jobs:
       # test_sync_flow.mjs 는 module.registerHooks 를 쓴다 (Node 22.15 이상)
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
 
       - name: 문법 검사 (외부 의존성 없음)
         run: python -m compileall -q server.py tools tests
@@ -51,7 +51,7 @@ jobs:
           python-version: '3.12'
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version-file: '.nvmrc'
       - name: Playwright 준비
         run: |
           npm ci
@@ -63,6 +63,49 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-report
+          path: |
+            playwright-report/
+            test-results/
+
+  # 보이는 모습이 얼마나 바뀌었나 (v3.49) — PR 마다 main 과 PR 을 **같은 크로미움** 으로 재어 비교한다.
+  # 기준 파일을 커밋해 두면 개발 PC(엣지 · 윈도 글꼴)와 CI(리눅스)가 달라 늘 어긋났다.
+  # 일부러 바꾼 화면도 차이로 나오므로 **참고용**이다 — 실패해도 합치기를 막지 않는다.
+  # CSS 를 정리만 했는데 차이가 나오면 그게 사고다 (실패하면 보고서를 받아 본다).
+  style-diff:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - name: main 쪽 받기 (기준)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 기준 재기
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          STYLE_SNAPSHOT=write npx playwright test styles --project=tablet
+          cp tests/e2e/.style-baseline.json "$RUNNER_TEMP/style-baseline.json"
+      - name: PR 쪽 받기
+        uses: actions/checkout@v4
+        with:
+          clean: true
+      - name: PR 을 기준과 비교
+        run: |
+          npm ci
+          cp "$RUNNER_TEMP/style-baseline.json" tests/e2e/.style-baseline.json
+          npx playwright test styles --project=tablet
+      - name: 달라진 곳 보고서
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: style-diff
           path: |
             playwright-report/
             test-results/

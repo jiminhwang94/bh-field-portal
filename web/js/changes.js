@@ -102,7 +102,8 @@ export function paintUpdateButton() {
  */
 export function initChangeWatch() {
   checkChanges({ absorb: true });
-  setInterval(() => checkChanges(), GAP_MS);
+  // 앱이 뒤로 가 있으면 묻지 않는다 (v3.49 — 배터리 · 데이터). 돌아오면 아래에서 바로 묻는다
+  setInterval(() => { if (!document.hidden) checkChanges(); }, GAP_MS);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') checkChanges();
   });

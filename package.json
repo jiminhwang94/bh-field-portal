@@ -1,6 +1,7 @@
 {
   "name": "bh-field-portal",
   "private": true,
+  "engines": { "node": ">=24" },
   "description": "현장 포털 — 개발용 도구만 (앱 자체는 외부 라이브러리 없이 돈다)",
   "scripts": {
     "test": "python tools/run_tests.py",

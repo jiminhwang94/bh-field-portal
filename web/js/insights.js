@@ -3,6 +3,7 @@
 // 전부 **기기에 받아 둔 사본**으로 계산한다 (오프라인에서도 된다). 없는 달은 시트에서
 // 한 번 받아 오고, 그 뒤로는 사본을 쓴다.
 import { api } from './api.js';
+import { fold } from './text.js';
 
 /** 오류 코드 비교용 — 'E-101' · 'e101' · 'E 101' 을 같은 것으로 본다 */
 export const normCode = (value) => String(value || '').toUpperCase().replace(/[\s_-]+/g, '').trim();
@@ -287,8 +288,7 @@ export function choseong(text) {
     return c >= 0xac00 && c <= 0xd7a3 ? CHO[Math.floor((c - 0xac00) / 588)] : ch;
   }).join('');
 }
-const squash = (t) => String(t || '').toLowerCase().replace(/\s+/g, '');
-const onlyCho = (t) => /^[ㄱ-ㅎ]+$/.test(squash(t));
+const onlyCho = (t) => /^[ㄱ-ㅎ]+$/.test(fold(t));
 
 /** 리포트 칸에 들어가는 글자 — '로봇 이슈 › 하드웨어 교체 › 로더 교체' */
 export const workPath = (it) => `${it.kind} › ${it.cat} › ${it.name}`;
@@ -297,24 +297,24 @@ export const workPath = (it) => `${it.kind} › ${it.cat} › ${it.name}`;
 export function findWork(text, list) {
   const raw = String(text || '').trim();
   if (!raw || !list) return null;
-  const last = squash(raw.split('›').pop());
-  return (list.items || []).find((it) => squash(it.name) === last || (it.aliases || []).some((a) => squash(a) === last))
+  const last = fold(raw.split('›').pop());
+  return (list.items || []).find((it) => fold(it.name) === last || (it.aliases || []).some((a) => fold(a) === last))
     || null;
 }
 
 /** 검색어에 맞나 — 이름 · 별칭 · 대분류, 초성만 쳐도 */
 export function matchWork(q, it) {
-  const want = squash(q);
+  const want = fold(q);
   if (!want) return true;
   const hay = [it.name, ...(it.aliases || []), it.cat];
-  if (onlyCho(want)) return hay.some((h) => squash(choseong(h)).includes(want));
-  return hay.some((h) => squash(h).includes(want));
+  if (onlyCho(want)) return hay.some((h) => fold(choseong(h)).includes(want));
+  return hay.some((h) => fold(h).includes(want));
 }
 
 /** 리포트의 로봇 모델 'Gen.1(D1)' 과 가이드의 로봇 'Gen.1' 이 같은 줄기인가 */
 export const sameRobot = (reportModel, guideModel) => {
-  const a = squash(reportModel).replace(/[^a-z0-9가-힣]/g, '');
-  const b = squash(guideModel).replace(/[^a-z0-9가-힣]/g, '');
+  const a = fold(reportModel).replace(/[^a-z0-9가-힣]/g, '');
+  const b = fold(guideModel).replace(/[^a-z0-9가-힣]/g, '');
   return Boolean(a && b) && (a.startsWith(b) || b.startsWith(a));
 };
 

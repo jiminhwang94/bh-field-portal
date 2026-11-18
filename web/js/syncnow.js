@@ -13,7 +13,7 @@
 // 정상일 때 숫자가 보이면 무언가 잘못됐다는 뜻이 되어 신호가 분명하다.
 import * as sync from './sync.js';
 import * as store from './local/store.js';
-import { confirmDialog, promptDialog, toast } from './ui.js';
+import { promptDialog, toast } from './ui.js';
 
 const NAME_KEY = 'bh_device_name';
 const LAST_SYNC_KEY = 'lastSyncAt';
@@ -221,13 +221,12 @@ export async function runRefresh(btn, { quiet = false } = {}) {
     ]);
   }
 
-  // 새 버전이 나왔는지 (사람이 누른 새로고침이면 4분 규칙을 건너뛴다)
-  if (onSheet) {
-    try {
-      const update = await import('./update.js');
-      await update.checkForUpdate({ force: !quiet });
-    } catch { /* 안내는 있으면 좋은 것 — 없어도 새로고침은 끝난다 */ }
-  }
+  // 새 버전이 나왔는지 (사람이 누른 새로고침이면 4분 규칙을 건너뛴다).
+  // 시트가 없어도 묻는다 — 브라우저는 이 주소의 폴더에 묻는다 (v3.49 · update.js)
+  try {
+    const update = await import('./update.js');
+    await update.checkForUpdate({ force: !quiet });
+  } catch { /* 안내는 있으면 좋은 것 — 없어도 새로고침은 끝난다 */ }
 
   await store.setMeta('dirty', false);   // 예전 버전이 남긴 표시를 지운다
   await store.setMeta(LAST_SYNC_KEY, store.now());
@@ -308,7 +307,7 @@ export function initSyncButton() {
   // 보내기 시작 · 끝 — 칩의 '올리는 중' 을 그때그때 맞춘다
   window.addEventListener('bh-sending', () => { paint().catch(() => {}); });
   // 칩(올릴 건수·오프라인 표시)만 주기로 맞춘다. **화면은 건드리지 않는다.**
-  setInterval(refreshState, 60 * 1000);
+  setInterval(() => { if (!document.hidden) refreshState(); }, 60 * 1000);   // 뒤로 가 있으면 쉰다 (v3.49)
   sync.onNetChange(() => refreshState());
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') refreshState();

@@ -12,9 +12,9 @@
 import { api } from './api.js';
 import { $, closeModal, h, openSheet, toast } from './ui.js';
 import { findWorks, matchWork, workPath, workUsage } from './insights.js';
+import { noSpace } from './text.js';
 
 const KINDS = ['로봇 이슈', '로봇 외 이슈'];
-const squash = (t) => String(t || '').replace(/\s/g, '');
 
 /**
  * @param {{ value?: string, robotModel?: string, onPick: (paths: string[], items: any[]) => void }} opts
@@ -139,7 +139,7 @@ export async function openWorkPicker({ value = '', robotModel = '', onPick }) {
     if (!name) { toast('이름을 적어 주세요.', 'err'); return; }
     if (key.startsWith('item:')) {
       const it = list.items.find((x) => x.id === key.slice(5));
-      if (it && squash(it.name) !== squash(name)) {
+      if (it && noSpace(it.name) !== noSpace(name)) {
         // 옛 이름은 별칭으로 남긴다 — 예전 리포트가 계속 이 항목으로 셈된다
         list = await api.workOps([{ op: 'item-upsert', item: { ...it, name, aliases: [...it.aliases, it.name] } }]);
         toast(`'${name}' 으로 바꿨습니다.`, 'ok');
@@ -228,7 +228,7 @@ export async function openWorkPicker({ value = '', robotModel = '', onPick }) {
     if (act === 'wk-add') {
       const name = /** @type {HTMLInputElement} */ ($('#wkNew')).value.trim();
       if (!name) { toast('이슈 유형 이름을 적어 주세요.', 'err'); return; }
-      const dup = list.items.find((it) => it.kind === kind && it.cat === cat && squash(it.name) === squash(name));
+      const dup = list.items.find((it) => it.kind === kind && it.cat === cat && noSpace(it.name) === noSpace(name));
       const it = dup || await api.addWorkItem(kind, cat, name);
       list = await api.workList();
       /** @type {HTMLInputElement} */ ($('#wkNew')).value = '';

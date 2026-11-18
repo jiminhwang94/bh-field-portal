@@ -1,7 +1,6 @@
 // 기기 저장소 — 차량 운행 일지 · 부서/장소 선택지 · 차량 정보.
 // (store.js 가 전부 다시 내보낸다 — 밖에서는 store.js 만 부른다)
 import * as idb from './idb.js';
-import { testMode } from '../mode.js';
 import { byText, enqueue, getMeta, newId, now, setMeta, sheetInventoryOn } from './store-core.js';
 
 // ═══════════════════════════════════════════════════════════════════

@@ -12,7 +12,6 @@
 // 목록을 손으로 밀어 내리다 손잡이를 잡으면 순서가 바뀌었다. 이제 평소 목록에는 손잡이가
 // 없고, 순서 모드에서 큰 ↑↓ 로 옮긴 뒤 [완료] 를 한 번 누른다 (품목 목록과 순서는 차량 공용).
 import { api } from '../api.js';
-import { isEnabled as sheetInvEnabled, pullInventory } from '../invsheet.js';
 import {
   $, h, closeModal, confirmDialog, loading, openSheet, promptDialog, toast,
 } from '../ui.js';
@@ -24,7 +23,6 @@ const LOW = '__low';                          // 칩 [부족만]
 
 export async function inventoryView(view) {
   loading(view);
-  const sheetMode = await sheetInvEnabled();
   let vehicles = (await api.listVehicles()).items;   // [{name, itemCount}]
   let current = localStorage.getItem(VEHICLE_KEY);
   if (!vehicles.some((v) => v.name === current)) {
@@ -293,7 +291,7 @@ export async function inventoryView(view) {
     if (!low.length) return '';
     return `
       <button class="inv-alert${chip === LOW ? ' is-on' : ''}" data-act="chip" data-chip="${h(LOW)}" type="button">
-        <b>보충 필요 <span class="tnum">${low.length}</span>종</b>
+        <b>이 차량 보충 필요 <span class="tnum">${low.length}</span>종</b>
         <span>${h(low.slice(0, 3).map((i) => i.partName).join(' · '))}${low.length > 3 ? ' 외' : ''}</span>
         <i aria-hidden="true">${chip === LOW ? '전체 보기 ›' : '부족만 보기 ›'}</i>
       </button>`;
@@ -310,6 +308,14 @@ export async function inventoryView(view) {
     if (chips) chips.innerHTML = chipsHtml();
     const alert = $('#invAlert');
     if (alert) alert.innerHTML = alertHtml();
+    // 지금 차량 탭의 보충 숫자도 맞춘다 (탭은 다시 그리지 않는다)
+    const tab = view.querySelector('.inv-vehicles .veh-tab.is-active');
+    if (tab) {
+      const n = items.filter(isLow).length;
+      let low = tab.querySelector('.veh-tab__low');
+      if (n && !low) { low = document.createElement('span'); low.className = 'veh-tab__low tnum'; tab.append(' ', low); }
+      if (low) { low.textContent = String(n); low.setAttribute('aria-label', `보충 필요 ${n}종`); low.hidden = !n; }
+    }
   }
 
   function paintPanel() {
@@ -339,12 +345,15 @@ export async function inventoryView(view) {
     // 보충이 필요한 것은 맨 위 '보충 필요' 띠가 알려 준다.
     if (!items.some((i) => i.id === selectedId)) selectedId = null;
 
+    // 지금 차량은 화면의 수량으로 센다 (+/− 를 누르면 바로 맞게)
+    const lowOf = (v) => (v.name === current ? items.filter(isLow).length : (v.lowCount || 0));
     const vehicleTabs = `
       <div class="veh-tabs inv-vehicles" role="tablist" aria-label="차량">
-        ${vehicles.map((v) => `
+        ${vehicles.map((v) => ({ ...v, lowCount: lowOf(v) })).map((v) => `
           <button class="veh-tab ${v.name === current ? 'is-active' : ''}" data-act="vehicle"
                   role="tab" aria-selected="${v.name === current}"
-                  data-name="${h(v.name)}" type="button">${h(v.name)}</button>`).join('')}
+                  data-name="${h(v.name)}" type="button">${h(v.name)}${v.lowCount
+                    ? ` <span class="veh-tab__low tnum" aria-label="보충 필요 ${v.lowCount}종">${v.lowCount}</span>` : ''}</button>`).join('')}
         <button class="veh-tab veh-tab--manage" data-act="manage-vehicles"
                 type="button" aria-label="차량 추가 · 삭제">＋ 차량</button>
       </div>`;
@@ -374,11 +383,16 @@ export async function inventoryView(view) {
           <span class="page-head__spacer"></span>
           ${current ? `
             <!-- 버튼은 한 묶음으로 — 따로 줄을 바꾸면 차량 탭 옆에 하나만 남아 들쭉날쭉했다 (v3.42.2) -->
+            <!-- 관리 버튼은 [관리 ⋯] 안에 (v3.49) — 현장에서 재고 화면은 수량을 보고 ±만 누른다.
+                 받기는 위 [새로고침] 하나가 한다 -->
             <div class="inv-head__acts">
-              ${sheetMode ? `
-                <button class="btn btn-secondary" data-act="sheet-refresh" type="button">시트에서 받기</button>` : ''}
-              ${items.length > 1 ? '<button class="btn btn-secondary" data-act="order-start" type="button">순서 바꾸기</button>' : ''}
-              <button class="btn btn-secondary" data-act="add-item" type="button">＋ 품목 추가</button>
+              <details class="rf-more more-menu">
+                <summary class="btn btn-secondary" aria-label="재고 관리">관리 ⋯</summary>
+                <div class="rf-more__menu">
+                  <button class="btn btn-secondary" data-act="add-item" type="button">＋ 품목 추가</button>
+                  ${items.length > 1 ? '<button class="btn btn-secondary" data-act="order-start" type="button">순서 바꾸기</button>' : ''}
+                </div>
+              </details>
             </div>` : ''}
         </div>
         ${current ? `<div id="invAlert">${alertHtml()}</div>` : ''}
@@ -477,20 +491,6 @@ export async function inventoryView(view) {
       return;
     }
     if (act === 'manage-vehicles') { openVehicleManager(); return; }
-
-    if (act === 'sheet-refresh') {
-      btn.disabled = true;
-      btn.textContent = '받는 중…';
-      try {
-        await pullInventory();
-        await reload();
-        toast('시트에서 최신 재고를 받았습니다.', 'ok');
-      } catch (err) {
-        toast(err.message, 'err');
-        render();
-      }
-      return;
-    }
 
     if (act === 'inc' || act === 'dec') {
       const item = items.find((i) => i.id === id);
