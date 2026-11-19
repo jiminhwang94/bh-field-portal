@@ -52,4 +52,16 @@ async function pick(page, label, value) {
   await box.locator(`[data-value="${value}"]`).first().click();
 }
 
-module.exports = { test, expect, openApp, pick, SHEET };
+/**
+ * [새로고침] 을 누르고 **끝날 때까지** 기다린다.
+ * 끝나면 화면을 한 번 새로 그린다 — 그 전에 거르기 · 입력을 하면 다시 그리면서 풀린다.
+ * (CI 처럼 느린 곳에서 그 순서가 뒤집혀 시험이 흔들렸다)
+ */
+async function refreshAndWait(page) {
+  await page.locator('#btn-update').click();
+  await expect(page.locator('#btn-update')).toBeEnabled({ timeout: 20000 });
+  await expect(page.locator('#btn-update')).not.toHaveText('받는 중…', { timeout: 20000 });
+  await page.waitForTimeout(300);                 // 다시 그리기(hashchange)가 끝나게
+}
+
+module.exports = { test, expect, openApp, pick, refreshAndWait, SHEET };

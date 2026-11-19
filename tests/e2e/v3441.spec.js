@@ -1,5 +1,5 @@
 // v3.44.1 — 위 [새로고침] 이 운행일지 · 이슈 유형도 받는다
-const { test, expect, openApp } = require('./fixtures.js');
+const { test, expect, openApp, refreshAndWait } = require('./fixtures.js');
 const { seed } = require('./seed.js');
 
 // v3.44.1 — 위 [새로고침] 이 운행일지도 받는다 (예전에는 운행일지 화면의 [시트에서 받기] 를 눌러야 했다)
@@ -17,7 +17,7 @@ test('위 [새로고침] — 다른 태블릿이 올린 운행 기록 · 이슈 
   }] });
   await sheet.call({ work: 'push', ops: [{ op: 'cat-add', kind: '로봇 이슈', name: '새로고침분류' }] });
   await expect(page.locator('.drv-card')).toHaveCount(0);
-  await page.locator('#btn-update').click();
+  await refreshAndWait(page);
   await expect(page.locator('.drv-card__route')).toContainText('다른기기출발', { timeout: 15000 });
   await expect.poll(async () => page.evaluate(async () => {
     const store = await import('/js/local/store.js');
