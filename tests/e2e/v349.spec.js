@@ -24,14 +24,17 @@ test('답을 못 받고 다시 보내도 한 줄 (같은 리포트를 두 번 �
     return route.continue();
   });
 
-  await page.context().setOffline(true);
+  // 칸은 온라인에서 채우고 올리기 직전에만 끊는다 — 켜자마자 끊으면 리포트 항목을 받기 전이라
+  // 빠른 CI 에서는 입력칸이 안 생겼다 (기기에 저장 → 대기열 → 다시 연결해 올리기는 그대로)
   await openApp(page, '#/report/new?fresh=1');
+  await expect(field(page, '매장명')).toBeVisible({ timeout: 15000 });
   await field(page, '매장명').fill('끊김점');
   await field(page, '로봇 시리얼').fill('SN-CUT-1');
   await pick(page, '로봇 모델', 'Gen.1(D1)');
   await field(page, '증상 요약').fill('끊김점 증상');
   await field(page, '조치 내용').fill('끊김점 조치');
   await pick(page, '처리 결과', '완료');
+  await page.context().setOffline(true);
   await page.locator('#reportForm button[type=submit]').click();
   await expect(page).toHaveURL(/#\/reports\/[0-9a-z]+$/);
   await page.context().setOffline(false);

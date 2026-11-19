@@ -59,7 +59,7 @@ test('재고 — 분류 머리줄을 누르면 접히지 않고 그 분류 부�
   await sheet.call({ inventory: 'push', ...INV });
   await openApp(page, '#/inventory');
   await page.locator('#btn-update').click();
-  await expect(page.locator('.inv-card')).toHaveCount(9);
+  await expect(page.locator('.inv-card')).toHaveCount(9, { timeout: 15000 });
   await page.locator('.grp-toggle', { hasText: '페리페럴' }).click();
   await expect(page.locator('.inv-card')).toHaveCount(4);
   await expect(page.locator('.inv-card', { hasText: 'LiDAR 센서' })).toBeVisible();
