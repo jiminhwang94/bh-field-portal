@@ -5,6 +5,10 @@
  * "숫자 자리에 글자를 넣는다" 같은 실수를 실행 전에 잡는다. 처음 켰을 때 실제로
  * [이어서 작성] 버튼이 없는 이름(NEW_DRAFT_KEY)을 불러 아무 일도 안 하던 것을 잡았다.
  *
+ * v3.49 부터 코드 검사도 겸한다 (jsconfig.json): 쓰지 않는 import · 변수, 닿지 않는 코드,
+ * switch 의 빠진 break 를 잡는다. ESLint 를 따로 들이지 않고 이미 있는 검사기로 한다
+ * (새 패키지를 받지 않아도 되고, 검사기가 하나라 규칙이 갈리지 않는다).
+ *
  * 실행: node tests/test_typecheck.mjs   (npm install 을 안 했으면 건너뛴다)
  */
 import { existsSync } from 'node:fs';

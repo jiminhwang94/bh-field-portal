@@ -120,7 +120,7 @@ export function initNetStatus() {
     if (document.visibilityState === 'visible') sync.runPendingWork().then(paint);
   });
   sync.runPendingWork().then(paint);
-  setInterval(paint, 5000);
+  setInterval(() => { if (!document.hidden) paint(); }, 5000);   // 뒤로 가 있으면 쉰다 (v3.49)
   // 올린 지 14일 지난 리포트의 기기 사본 · 사진 · 영상을 치운다 (v3.46 — 켤 때 한 번, 조용히)
   setTimeout(() => { store.pruneUploadedReports(14).catch(() => {}); }, 15000);
 }

@@ -54,6 +54,7 @@ test('평소 목록에는 끌기 손잡이가 없다 — 손으로 밀어도 순
 
 test('[순서 바꾸기] — 품목 ↑↓ · [취소] 는 버리고 [완료] 는 시트까지 저장', async ({ page, sheet }) => {
   await openInventory(page, sheet);
+  await page.locator('.more-menu > summary').click();                   // v3.49 — [관리 ⋯] 안에 있다
   await page.locator('[data-act="order-start"]').click();
   await expect(page.locator('.inv-filter')).toHaveCount(0);                  // 거르기 · 수량 버튼은 치운다
   await expect(page.locator('.inv-step')).toHaveCount(0);
@@ -67,6 +68,7 @@ test('[순서 바꾸기] — 품목 ↑↓ · [취소] 는 버리고 [완료] �
   await page.locator('[data-act="order-cancel"]').click();
   await expect(page.locator('.inv-card .inv-pick__name').first()).toHaveText('그리퍼 실리콘 패드');
 
+  await page.locator('.more-menu > summary').click();                   // v3.49 — [관리 ⋯] 안에 있다
   await page.locator('[data-act="order-start"]').click();
   await row('가스게이지').locator('[data-dir="-1"]').click();
   await page.locator('.ord-row--cat', { hasText: '케이블' }).locator('[data-dir="-1"]').click();
@@ -94,7 +96,7 @@ test('제목 줄 — 버튼은 한 묶음 · 보충 필요 띠가 거르기 줄�
     await openApp(page, '#/inventory');
     await page.locator('#btn-update').click();
     await expect(page.locator('.inv-alert')).toBeVisible({ timeout: 15000 });
-    const tops = await page.locator('.inv-head__acts .btn').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
+    const tops = await page.locator('.inv-head__acts .btn:visible').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
     expect(new Set(tops).size, `${w} 버튼이 한 줄`).toBe(1);
     const alertBottom = await page.locator('.inv-alert').evaluate((e) => e.getBoundingClientRect().bottom);
     const filterTop = await page.locator('.inv-filter').evaluate((e) => e.getBoundingClientRect().top);

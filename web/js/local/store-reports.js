@@ -1,7 +1,6 @@
 // 기기 저장소 — 리포트 · 사진.
 // (store.js 가 전부 다시 내보낸다 — 밖에서는 store.js 만 부른다)
 import * as idb from './idb.js';
-import { testMode } from '../mode.js';
 import { byText, newId, now } from './store-core.js';
 
 // ------------------------------------------------------------- 리포트
@@ -15,6 +14,8 @@ const reportOut = (r) => ({
   createdAt: r.createdAt, updatedAt: r.updatedAt,
   // 작성일시를 사람이 정했나 (v3.45 — 지난 작업을 나중에 쓸 때)
   dated: Boolean(r.dated),
+  // [다시 올리기] 를 누른 횟수 — 시트가 같은 리포트로 알아보는 번호에 들어간다 (v3.49)
+  uploadRound: Number(r.uploadRound) || 0,
 });
 
 /** 'YYYY-MM-DDTHH:MM(:SS)' 만 받는다. 아니면 빈 문자열. */

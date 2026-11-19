@@ -103,5 +103,66 @@ def main(path):
         print(f"  남김: {key}  {' '.join(ctx)}")
 
 
+# ── --all (v3.49): web/css 여섯 파일을 한 흐름으로 ─────────────────────────────
+# 화면 검사가 재는 것은 13개 화면 · 4개 너비의 **평소 모습** 이다. 누름 · 고름 · 열림 같은 상태
+# (:hover · .is-on · [open] · [aria-…] · 고대비 등) 는 재지 못하므로 그런 선택자는 합치지 않는다.
+UNSEEN = (":", "is-", "has-", "[", "hc", "theme")
+
+
+def visible_only(keys):
+    return [k for k in keys if not any(x in k[1] for x in UNSEEN)]
+
+
+class Stream:
+    def __init__(self):
+        import re
+        self.re = re
+        self.names, self.before, _, _ = t.tidy_all(ROOT)
+        self.text = "".join(f"{t.MARK}{n} */{t.NL}{x}" for n, x in zip(self.names, self.before))
+
+    def write(self, text):
+        parts = self.re.split(self.re.escape(t.MARK) + r"([a-z0-9_-]+\.css) \*/" + t.NL, text)
+        files = dict(zip(parts[1::2], parts[2::2]))
+        assert list(files) == self.names
+        for n, x in files.items():
+            io.open(os.path.join(ROOT, "web", "css", n), "w", encoding="utf-8", newline=t.NL).write(x)
+
+
+def main_all():
+    stream = Stream()
+    original = stream.text
+    keys = visible_only(scattered(original))
+    print(f"흩어진 선택자 (평소 모습만) {len(keys)}개")
+    accepted = []
+
+    def attempt(group):
+        stream.write(force_merge(original, accepted + group))
+        ok = same_styles()
+        print(f"  {'같음' if ok else '다름'}  {len(group)}개  {', '.join(k[1][:28] for k in group[:4])}{' …' if len(group) > 4 else ''}", flush=True)
+        return ok
+
+    def solve(group):
+        if not group:
+            return
+        if attempt(group):
+            accepted.extend(group)
+            return
+        if len(group) == 1:
+            return
+        mid = len(group) // 2
+        solve(group[:mid])
+        solve(group[mid:])
+
+    solve(keys)
+    final = force_merge(original, accepted)
+    stream.write(final)
+    print(f"모은 것 {len(accepted)} / {len(keys)} · 줄 수 {original.count(chr(10))} → {final.count(chr(10))}")
+    for ctx, key in [k for k in keys if k not in accepted]:
+        print(f"  남김: {key}  {' '.join(ctx)}")
+
+
 if __name__ == "__main__":
-    main(sys.argv[1])
+    if "--all" in sys.argv:
+        main_all()
+    else:
+        main(sys.argv[1])

@@ -24,6 +24,7 @@ import { initNetStatus, ensureFirstData, catchUpFromSheet } from './net.js';
 import { initUpdateBanner, initVersionGate } from './update.js';
 import { initErrorLog } from './errlog.js';
 import { paintTestBanner } from './mode.js';
+import { openDays } from './insights.js';
 
 const view = $('#view');
 const HEX = '[0-9a-f]{6,}';
@@ -296,11 +297,6 @@ function asOfText(iso) {
 /** 끝나지 않은 채 이만큼 지나면 홈 · 이력에서 눈에 띄게 알린다. */
 const OVERDUE_DAYS = 7;
 /** 작성한 날부터 며칠째인가 (작성일 = 1일째) */
-function openDays(entry) {
-  const at = new Date(String(entry.createdAt || entry.date || '').replace(' ', 'T'));
-  if (Number.isNaN(at.getTime())) return 0;
-  return Math.floor((Date.now() - at.getTime()) / 86400000) + 1;
-}
 const agoText = (min) => (min < 60 ? `${min}분 전` : min < 1440 ? `${Math.floor(min / 60)}시간 전` : `${Math.floor(min / 1440)}일 전`);
 
 /** 보충이 필요한 품목 수와 그 차량 수 — 모든 차량. */

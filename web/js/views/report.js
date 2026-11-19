@@ -1,23 +1,20 @@
 // 현장 리포트 작성 (동적 폼) / 구글 시트 업로드. 이력 · 상세는 views/history.js
 import { api } from '../api.js';
-import { MEDIA_FILE_LIMIT, MEDIA_TOTAL_LIMIT, MEDIA_FILE_LIMIT_TEXT, MEDIA_TOTAL_LIMIT_TEXT, preuploadMedia } from '../sheets.js';
+import { MEDIA_FILE_LIMIT_TEXT, preuploadMedia } from '../sheets.js';
+import { $, h, hydrateMedia, loading, openSheet, promptDialog, toast, undoToast } from '../ui.js';
+import { cachedRequestNumbers, findVisits, pullRequestNumbers } from '../reportsheet.js';
+import { SEED_KEY, pastMemoHtml, trackOf, warnPrivateVideo } from './report-common.js';
 import {
-  $, closeModal, confirmDialog, copyText, h, hydrateMedia, loading, openSheet, promptDialog,
-  toast, undoToast, when,
-} from '../ui.js';
-import { reportToText, shareReport } from '../share.js';
-import {
-  cachedRequestNumbers, describeFiles, explain as explainError, findVisits,
-  previewUrl, pullRequestNumbers, thumbUrl,
-} from '../reportsheet.js';
-
-import { ICON, SEED_KEY, pastMemoHtml, trackOf, warnPrivateVideo } from './report-common.js';
+  choiceHtml, keptTile, mediaPickHtml, mediaTile, nowLocal, shrinkImage, tooBigReason, whenText,
+} from './report-parts.js';
+import { partsPicker } from './report-partspicker.js';
 import { showSheetEntry } from './history.js';
 import {
-  guidesForCode, parseParts, partsText, findWorks, splitIssues, sameRobot, isIssueLabel,
+  guidesForCode, findWorks, splitIssues, sameRobot, isIssueLabel,
   cachedEntries, isCodeShaped, normCode, robotPast, serialOf, valueOf,
   issueNames, mergeSymptom, freeSymptom, parse3c, build3c, pastPicks, CAUSE_UNKNOWN,
 } from '../insights.js';
+import { noSpace } from '../text.js';
 
 // ------------------------------------------------------------ 단계식 (v3.35 A안)
 //
@@ -35,7 +32,6 @@ export const STEPS = [
   { key: 'fix', short: '조치 · 결과', ask: '무엇을 했나요?', hint: '증상마다 조치를 고르고 처리 결과를 고릅니다' },
   { key: 'check', short: '확인', ask: '확인하고 올리기', hint: '빈 필수 칸은 [고치기] 로 그 단계로 갑니다' },
 ];
-const squashLabel = (t) => String(t || '').replace(/\s/g, '');
 /** 오늘 날짜로 만든 리포트 번호 예시 — 'P261028-01' (실제 번호는 올릴 때 시트가 차례를 매긴다) */
 export function sampleReportNumber(date = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
@@ -43,7 +39,7 @@ export function sampleReportNumber(date = new Date()) {
 }
 /** 이 칸은 몇 번째 단계에 묻나 — 이름표로 정한다 */
 export function stepOf(field) {
-  const l = squashLabel(field.fieldLabel);
+  const l = noSpace(field.fieldLabel);
   if (l.includes('리포트번호') || l.includes('고객사') || l.includes('매장') || l.includes('식당')) return 'visit';
   if (l.includes('시리얼') || l.includes('모델') || l.includes('로봇')) return 'robot';
   if (isIssueLabel(field.fieldLabel) || l.includes('오류코드') || l.includes('증상')) return 'problem';
@@ -62,9 +58,6 @@ const CHOICE_MAX = 8;
 // 옛 버전이 남겨 둔 칸은 화면을 열 때 지운다.
 const OLD_DRAFT_KEYS = ['bh_report_draft', 'bh_report_edit_draft'];
 
-const ICON_CAMERA = ICON('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>');
-const ICON_VIDEO = ICON('<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/>');
-const ICON_ALBUM = ICON('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.5"/>');
 
 // ------------------------------------------------------------ 작성 화면
 //
@@ -177,7 +170,7 @@ export async function reportFormView(view) {
     (f) => f.fieldLabel.replace(/\s/g, '').includes('리포트번호'));
   // 고객사 리포트 (v3.39) — 접수 카드는 이 칸에서 고른다. 이 칸이 있으면 리포트 번호는
   // 올릴 때 시트가 매긴다 (P + 작성일 + 차례). 없으면(옛 항목 구성) 예전처럼 번호 칸에서 고른다.
-  const customerField = fields.find((f) => squashLabel(f.fieldLabel).includes('고객사'));
+  const customerField = fields.find((f) => noSpace(f.fieldLabel).includes('고객사'));
   const ticketField = customerField || numberField;
   const autoNumber = Boolean(customerField && numberField);
   // 오류 코드를 적으면 그 가이드를 바로 보여 준다 · 사용 부품은 차량 재고에서 고른다
@@ -188,8 +181,8 @@ export async function reportFormView(view) {
   const modelField = fields.find((f) => f.fieldLabel.replace(/\s/g, '').includes('로봇모델'));
   // 3C — 증상(이슈 유형을 이 칸 안에서 고른다) → 원인 → 조치 (v3.42)
   const symptomField = fields.find((f) => f.fieldLabel.includes('증상'));
-  const causeField = fields.find((f) => squashLabel(f.fieldLabel) === '원인');
-  const actionField = fields.find((f) => f.fieldLabel.includes('조치') && !squashLabel(f.fieldLabel).includes('처리'));
+  const causeField = fields.find((f) => noSpace(f.fieldLabel) === '원인');
+  const actionField = fields.find((f) => f.fieldLabel.includes('조치') && !noSpace(f.fieldLabel).includes('처리'));
   // 이슈 유형 목록 (원인 · 조치 목록이 여기 있다) — 고르기 창에서 바뀌면 다시 읽는다
   let workList = workField ? await api.workList() : { cats: [], items: [] };
   const allGuides = codeField || workField ? (await api.listGuides()).items : [];
@@ -211,56 +204,6 @@ export async function reportFormView(view) {
   let pastEntries = [];
   cachedEntries(3).then((list) => { pastEntries = list; paintRobotHints(); repaint3c(); }).catch(() => {});
 
-  function mediaTile(fieldId, media, idx) {
-    const isVideo = (media.mime || '').startsWith('video/');
-    return `
-      <div class="media-tile">
-        ${isVideo
-          ? `<video data-media="${h(media.url)}" muted playsinline></video>`
-          : `<img data-media="${h(media.url)}" alt="${h(media.originalName || '첨부')}" loading="lazy" />`}
-        <button class="media-tile__del" data-act="del-media" data-field="${fieldId}" data-idx="${idx}" type="button" aria-label="첨부 삭제">✕</button>
-        <div class="media-tile__name">${h(media.originalName || media.filename)}</div>
-      </div>`;
-  }
-
-  /** 이미 드라이브에 있는 첨부 — 새로 올리지 않고 링크만 유지한다. */
-  /**
-   * 이미 올라가 있는 첨부.
-   * 예전에는 <a> 안에 ✕ 버튼이 들어 있었다 — 링크 안의 버튼은 브라우저마다
-   * 어느 쪽이 눌리는지 달라서 "인식 범위가 이상하다" 로 느껴졌다. 열기는 타일을
-   * 덮는 링크 한 장, 지우기는 그 위에 따로 올린 버튼으로 나눈다.
-   */
-  function keptTile(fieldId, link, idx) {
-    return `
-      <div class="media-tile">
-        ${link.id
-          ? `<img src="${h(thumbUrl(link.id, 300))}" alt="${h(link.label)}"
-                  loading="lazy" onerror="this.classList.add('is-broken')" />`
-          : ''}
-        <span class="media-tile__none">올라간 첨부</span>
-        <a class="media-tile__open" href="${h(link.url)}" target="_blank" rel="noopener"
-           aria-label="${h(link.label || '첨부')} 열기"></a>
-        <button class="media-tile__del" data-act="del-kept" data-field="${fieldId}"
-                data-idx="${idx}" type="button" aria-label="첨부 빼기">✕</button>
-        <span class="media-tile__name">${h(link.label || '이미 올림')}</span>
-      </div>`;
-  }
-
-  /**
-   * 첨부 붙이기 — 카메라 · 비디오 · 앨범 타일 셋.
-   * 예전에는 글자 버튼 셋이라 입력칸 사이에서 글자처럼 보였다. 첨부는 리포트에서
-   * 가장 자주 하는 일인데 가장 약하게 그려져 있었다.
-   */
-  function mediaPickHtml(fieldId) {
-    const tile = (act, label, icon) => `
-      <button class="media-pick__tile" data-act="${act}" data-field="${fieldId}" type="button">
-        ${icon}<span>${label}</span></button>`;
-    return `<div class="media-pick">
-      ${tile('capture', '사진 촬영', ICON_CAMERA)}
-      ${tile('record', '영상 촬영', ICON_VIDEO)}
-      ${tile('pick', '앨범 · 파일', ICON_ALBUM)}
-    </div>`;
-  }
 
   /**
    * 목록이 바뀐 뒤 리포트 번호 칸을 다시 그린다 (그 칸 하나만).
@@ -321,16 +264,6 @@ export async function reportFormView(view) {
       </div>`;
   }
 
-  /** 고르기 칸 — 큰 버튼 한 줄. 목록에 없는 옛 값은 잃지 않게 끝에 하나 더 둔다. */
-  function choiceHtml(field, opts, current) {
-    const extra = current && !opts.includes(current) ? [current] : [];
-    return `
-      <div class="choice-row" role="radiogroup" aria-label="${h(field.fieldLabel)}">
-        ${[...opts, ...extra].map((o) => `
-          <button class="choice-btn${current === o ? ' is-on' : ''}" data-act="choose" data-field="${field.id}"
-                  data-value="${h(o)}" type="button" role="radio" aria-checked="${current === o}">${h(o)}</button>`).join('')}
-      </div>`;
-  }
 
   /** 번호를 고르면 그 접수의 매장명을 (매장명 칸이 비어 있을 때만) 같이 채운다. */
   // 고객사 리포트를 고를 때마다 매장명을 그 리포트 매장으로 바꾼다 (v3.42.3 — 전에는 처음 고른 것만 들어갔다).
@@ -432,7 +365,7 @@ export async function reportFormView(view) {
   function stepperHtml() {
     const s = cur();
     const v = (f) => (f ? String(values[f.id].value || '').trim() : '');
-    const model = fields.find((f) => squashLabel(f.fieldLabel).includes('모델'));
+    const model = fields.find((f) => noSpace(f.fieldLabel).includes('모델'));
     const ctx = [];
     if (stepAt > 0) {
       if (v(storeField)) ctx.push({ step: 'visit', text: v(storeField) });
@@ -490,25 +423,12 @@ export async function reportFormView(view) {
         <span class="wz-bar__count tnum">${stepAt + 1} / ${steps.length}</span>
         ${last
           ? `<button class="btn btn-secondary" data-act="save-draft" type="button">임시보관</button>
-             <button class="btn btn-primary wz-bar__next" type="submit">${editingLink ? '시트에 저장' : '구글 시트로 업로드'}</button>`
+             <button class="btn btn-primary wz-bar__next" type="submit">${editingLink ? '시트에 저장' : '시트에 올리기'}</button>`
           : `<button class="btn btn-primary wz-bar__next" data-act="step-next" type="button">다음 · ${h(next.short)} ›</button>
-             <button type="submit" hidden>${editingLink ? '시트에 저장' : '구글 시트로 업로드'}</button>`}
+             <button type="submit" hidden>${editingLink ? '시트에 저장' : '시트에 올리기'}</button>`}
       </div>`;
   }
 
-  /** 지금 시각 'YYYY-MM-DDTHH:MM' (datetime-local 칸 모양) */
-  const nowLocal = () => {
-    const d = new Date();
-    const p = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-  };
-  const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
-  /** '2026-11-05T14:00' → '11월 5일 (목) 14:00' */
-  const whenText = (v) => {
-    const [d, t] = String(v).split('T');
-    const [y, m, day] = d.split('-').map(Number);
-    return `${m}월 ${day}일 (${WEEK[new Date(y, m - 1, day).getDay()]}) ${t || ''}`.trim();
-  };
 
   /** 작성일시 줄 — 평소엔 '지금', 지난 작업이면 그 날짜와 그 날짜로 붙을 것들 */
   function whenHtml() {
@@ -585,7 +505,7 @@ export async function reportFormView(view) {
             ${step ? checkHtml() + stepBarHtml() : `
             <div class="form-actions">
               <button class="btn btn-secondary" data-act="save-draft" type="button">임시보관</button>
-              <button class="btn btn-primary" type="submit">${editingLink ? '시트에 저장' : '구글 시트로 업로드'}</button>
+              <button class="btn btn-primary" type="submit">${editingLink ? '시트에 저장' : '시트에 올리기'}</button>
             </div>`}`
             : '<div class="empty">입력 항목이 없습니다. <a class="link" href="#/fields">항목 설정</a>에서 먼저 항목을 만드세요.</div>'}
         </form>
@@ -737,7 +657,6 @@ export async function reportFormView(view) {
   }
 
   // ─── 오류 코드 → 가이드 · 사용 부품 ← 차량 재고 ───────────────────────────
-  const MY_VEHICLE_KEY = 'bh_my_vehicle';
   function fieldBox(field) {
     return field ? document.querySelector(`#reportForm [data-field-id="${field.id}"]`) : null;
   }
@@ -956,166 +875,13 @@ export async function reportFormView(view) {
         <b>가이드</b> ${h(g.codeOrTitle)}${g.robotModel ? ` · ${h(g.robotModel)}` : ''} <span aria-hidden="true">보기 ›</span>
       </button>`).join('');
   }
-  function myVehicle() {
-    const names = [...new Set(inventory.map((i) => i.vehicleName))];
-    const saved = localStorage.getItem(MY_VEHICLE_KEY);
-    return names.includes(saved) ? saved : names[0] || '';
-  }
-  // ─── 사용 부품 (B안) — 칸에는 넣은 부품 알약만, [부품 추가] 창에서 분류 · 수량을 고른다
-  const PART_CATS_KEY = 'bh_report_part_cats';     // 리포트에 보일 재고 분류 (기기마다)
-  const NO_CAT = '분류 없음';
-  let sheetCat = '';
-  let catPicking = false;
-  const catOf = (i) => String(i.category || '').trim() || NO_CAT;
-  function allCats() {
-    const out = [];
-    for (const i of inventory) if (!out.includes(catOf(i))) out.push(catOf(i));
-    return out;
-  }
-  /** 내가 고른 분류. 아직 안 골랐으면 전부 */
-  function shownCats() {
-    let saved = [];
-    try { saved = JSON.parse(localStorage.getItem(PART_CATS_KEY) || '[]') || []; } catch { saved = []; }
-    const all = allCats();
-    const mine = all.filter((c) => saved.includes(c));
-    return mine.length ? mine : all;
-  }
-  function chosenParts() {
-    return parseParts(values[partsField.id].value);
-  }
-  function setParts(list) {
-    values[partsField.id].value = partsText(list.filter((x) => x.n > 0));
-    const input = /** @type {HTMLInputElement} */ (document.querySelector(`#reportForm [data-input="${partsField.id}"]`));
-    if (input) input.value = values[partsField.id].value;
-    paintPartsHelper();
-  }
-  function changePart(name, delta) {
-    const list = chosenParts();
-    const hit = list.find((x) => x.name === name);
-    if (hit) hit.n = Math.max(0, hit.n + delta);
-    else if (delta > 0) list.push({ name, n: delta });
-    setParts(list);
-  }
-  /** 칸 — 넣은 부품 알약(✕ 로 빼기) + [부품 추가] */
-  function paintPartsHelper() {
-    const box = $('#partsHelper');
-    if (!box || !partsField) return;
-    const list = chosenParts();
-    box.innerHTML = `
-      <div class="parts-field">
-        ${list.map((x) => `
-          <span class="part-pill">${h(x.name)}${x.n > 1 ? ` <b class="tnum">×${x.n}</b>` : ''}
-            <button class="part-pill__x" data-act="part-remove" data-part="${h(x.name)}" type="button"
-                    aria-label="${h(x.name)} 빼기">✕</button></span>`).join('')}
-        <button class="parts-add" data-act="open-parts" type="button">＋ 부품 추가</button>
-      </div>
-      ${list.length ? `<span class="hint">올리면 ${h(myVehicle())} 재고에서 뺍니다</span>` : ''}`;
-    const sheetBody = document.getElementById('partsSheet');
-    if (sheetBody) paintPartsSheet(sheetBody);
-  }
-  /** [부품 추가] 창 — 차량 · 분류 탭(고른 것만) · 품목마다 −/+ · 목록에 없는 부품 */
-  function paintPartsSheet(body) {
-    const vehicles = [...new Set(inventory.map((i) => i.vehicleName))];
-    const car = myVehicle();
-    const cats = shownCats();
-    if (!cats.includes(sheetCat)) sheetCat = cats[0] || '';
-    const counts = new Map(chosenParts().map((x) => [x.name, x.n]));
-    const items = inventory.filter((i) => i.vehicleName === car && catOf(i) === sheetCat);
-    const picked = (c) => inventory.some((i) => i.vehicleName === car && catOf(i) === c && counts.get(i.partName));
-    body.innerHTML = `
-      ${vehicles.length > 1 ? `<div class="ps-row">
-        ${vehicles.map((v) => `<button class="ps-chip${v === car ? ' is-on' : ''}" data-act="pick-car" data-car="${h(v)}" type="button">${h(v)}</button>`).join('')}
-      </div>` : `<p class="muted ps-car">${h(car)} 재고</p>`}
-      ${catPicking ? `
-        <div class="ps-cats">
-          <p class="muted">리포트에 보일 분류를 고르세요 · 이 기기에만 저장됩니다</p>
-          ${allCats().map((c) => `
-            <label class="ps-check"><input type="checkbox" data-act="toggle-cat" data-cat="${h(c)}"
-              ${shownCats().includes(c) && localStorage.getItem(PART_CATS_KEY) ? 'checked' : ''} /> ${h(c)}</label>`).join('')}
-          <button class="btn btn-secondary btn--sm" data-act="cats-done" type="button">선택</button>
-        </div>` : `
-        <div class="ps-tabs" role="tablist">
-          ${cats.map((c) => `<button class="ps-tab${c === sheetCat ? ' is-on' : ''}" data-act="part-cat" data-cat="${h(c)}"
-              role="tab" aria-selected="${c === sheetCat}" type="button">${h(c)}${picked(c) ? ' <i aria-hidden="true">●</i>' : ''}</button>`).join('')}
-          <button class="ps-gear" data-act="cats-pick" type="button">보일 분류 고르기</button>
-        </div>
-        <div class="ps-list">
-          ${items.length ? items.map((i) => {
-            const n = counts.get(i.partName) || 0;
-            const over = n > i.quantity;
-            return `
-              <div class="ps-item${n ? ' is-on' : ''}">
-                <span class="ps-item__name">${h(i.partName)}
-                  <small class="${over ? 'ps-over' : 'muted'}">재고 ${i.quantity}${over ? ' · 재고보다 많음' : ''}</small></span>
-                <span class="ps-step">
-                  <button data-act="part-dec" data-part="${h(i.partName)}" type="button" aria-label="${h(i.partName)} 하나 빼기" ${n ? '' : 'disabled'}>−</button>
-                  <b class="tnum">${n}</b>
-                  <button data-act="part-inc" data-part="${h(i.partName)}" type="button" aria-label="${h(i.partName)} 하나 넣기">+</button>
-                </span>
-              </div>`;
-          }).join('') : '<p class="muted">이 분류에 품목이 없습니다.</p>'}
-        </div>
-        <div class="ps-free">
-          <input class="input" id="partFree" placeholder="목록에 없는 부품 이름" autocomplete="off" />
-          <button class="btn btn-secondary" data-act="part-free" type="button">넣기</button>
-        </div>`}
-      <button class="btn btn-primary btn--block" data-act="close" type="button">추가</button>`;
-  }
-  function openPartsSheet() {
-    catPicking = false;
-    openSheet('부품 추가', '<div id="partsSheet" class="parts-sheet"></div>');
-    const body = document.getElementById('partsSheet');
-    paintPartsSheet(body);
-    body.addEventListener('click', (ev) => {
-      const btn = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (ev.target).closest('[data-act]'));
-      if (!btn) return;
-      const act = btn.dataset.act;
-      if (act === 'pick-car') { localStorage.setItem(MY_VEHICLE_KEY, btn.dataset.car); paintPartsHelper(); }
-      if (act === 'part-cat') { sheetCat = btn.dataset.cat; paintPartsSheet(body); }
-      if (act === 'part-inc') changePart(btn.dataset.part, 1);
-      if (act === 'part-dec') changePart(btn.dataset.part, -1);
-      if (act === 'cats-pick') { catPicking = true; paintPartsSheet(body); }
-      if (act === 'cats-done') { catPicking = false; paintPartsSheet(body); }
-      if (act === 'part-free') {
-        const inp = /** @type {HTMLInputElement} */ (document.getElementById('partFree'));
-        const name = inp.value.trim();
-        if (name) changePart(name, 1);
-      }
-    });
-    body.addEventListener('change', (ev) => {
-      const box = /** @type {HTMLInputElement} */ (ev.target);
-      if (box.dataset.act !== 'toggle-cat') return;
-      const on = [...body.querySelectorAll('[data-act="toggle-cat"]')]
-        .filter((x) => /** @type {HTMLInputElement} */ (x).checked).map((x) => /** @type {HTMLElement} */ (x).dataset.cat);
-      try {
-        if (on.length) localStorage.setItem(PART_CATS_KEY, JSON.stringify(on));
-        else localStorage.removeItem(PART_CATS_KEY);       // 하나도 안 고르면 전부 보인다
-      } catch { /* 이번만 */ }
-    });
-  }
-  /** 새 리포트를 올릴 때 한 번만 — 고른 부품을 내 차량 재고에서 뺀다 */
-  async function deductParts(reportId) {
-    if (!partsField || editingLink) return;
-    const doneKey = `bh_parts_done_${reportId}`;
-    if (localStorage.getItem(doneKey)) return;
-    const car = myVehicle();
-    const used = parseParts(values[partsField.id].value);
-    const moved = [];
-    let low = 0;
-    for (const p of used) {
-      const item = inventory.find((i) => i.vehicleName === car && i.partName === p.name);
-      if (!item) continue;
-      const updated = await api.patchInventory(item.id, { delta: -p.n }).catch(() => null);
-      if (!updated) continue;
-      moved.push(`${p.name} ×${p.n}`);
-      if (item.minQuantity > 0 && updated.quantity < item.minQuantity) low += 1;
-    }
-    localStorage.setItem(doneKey, '1');
-    if (moved.length) {
-      window.dispatchEvent(new Event('bh-inventory-changed'));
-      toast(`재고에서 뺐습니다 (${car}): ${moved.join(', ')}${low ? ` · 보충 필요 ${low}건` : ''}`, 'ok');
-    }
-  }
+  // 사용 부품 — [부품 추가] 창 · 알약 · 올릴 때 재고 빼기 (v3.49: report-partspicker.js 로 옮김)
+  const parts = partsPicker({
+    inventory, partsField, editing: Boolean(editingLink),
+    get: () => values[partsField.id].value,
+    set: (text) => { values[partsField.id].value = text; },
+  });
+  const { paintPartsHelper, openPartsSheet, deductParts, chosenParts, setParts } = parts;
 
   /**
    * 같은 식당의 지난 방문을 보여 준다.
@@ -1201,32 +967,6 @@ export async function reportFormView(view) {
     });
   }
 
-  /**
-   * 태블릿 사진은 3~5MB 나 되므로, 올리기 전에 가로/세로 최대 1600px 로 줄인다.
-   * 화면 확인과 시트 삽입에는 충분하고 업로드가 훨씬 빨라진다.
-   */
-  async function shrinkImage(file) {
-    if (!file.type.startsWith('image/') || file.type === 'image/gif') return file;
-    try {
-      // 구형 태블릿에서 사진이 눕지 않도록 EXIF 방향을 반영한다
-      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-      const max = 1600;
-      const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
-      if (scale === 1 && file.size < 1.2 * 1024 * 1024) return file;
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.round(bitmap.width * scale);
-      canvas.height = Math.round(bitmap.height * scale);
-      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      bitmap.close && bitmap.close();
-      const blob = await new Promise((resolve) =>
-        canvas.toBlob(resolve, 'image/jpeg', 0.85));
-      if (!blob || blob.size >= file.size) return file;
-      const name = (file.name || 'photo').replace(/\.[^.]+$/, '') + '.jpg';
-      return new File([blob], name, { type: 'image/jpeg' });
-    } catch {
-      return file;      // 변환 실패 시 원본 그대로
-    }
-  }
 
   /** 이 리포트에 이미 붙어 있는(아직 안 올린) 첨부의 합계 바이트 */
   function attachedBytes() {
@@ -1237,26 +977,6 @@ export async function reportFormView(view) {
     return total;
   }
 
-  const mb = (n) => `${Math.round(n / 1048576)}MB`;
-
-  /**
-   * 파일이 시트로 올라갈 수 있는 크기인지 **고르는 순간** 확인한다.
-   * 넘으면 이유를 돌려준다. 예전에는 저장할 때 조용히 건너뛰어서, 현장에서
-   * 찍은 동영상이 빠진 것을 사무실에서야 알았다.
-   */
-  function tooBigReason(file) {
-    const isVideo = (file.type || '').startsWith('video/');
-    const what = isVideo ? '이 동영상은' : '이 파일은';
-    if (file.size > MEDIA_FILE_LIMIT) {
-      return `${what} ${mb(file.size)} 라 올릴 수 없습니다 (파일당 ${MEDIA_FILE_LIMIT_TEXT} 까지).`
-        + (isVideo ? ' 짧게 다시 찍거나 낮은 화질로 찍어 주세요.' : '');
-    }
-    if (attachedBytes() + file.size > MEDIA_TOTAL_LIMIT) {
-      return `${what} 더하면 리포트 전체가 ${MEDIA_TOTAL_LIMIT_TEXT} 를 넘습니다`
-        + ` (지금 ${mb(attachedBytes())} + ${mb(file.size)}). 첨부를 하나 빼거나 리포트를 나눠 주세요.`;
-    }
-    return '';
-  }
 
   async function uploadFiles(fieldId, fileList) {
     const files = Array.from(fileList || []);
@@ -1266,7 +986,7 @@ export async function reportFormView(view) {
       try {
         // 사진은 먼저 줄인다 — 줄인 뒤 크기로 판단해야 공정하다.
         const file = await shrinkImage(original);
-        const reason = tooBigReason(file);
+        const reason = tooBigReason(file, attachedBytes());
         if (reason) { toast(reason, 'err'); continue; }
         const media = await api.uploadMedia(file);
         values[fieldId].media.push({
@@ -1508,7 +1228,7 @@ export async function reportFormView(view) {
    * 둘은 같은 일을 하므로 늘 같은 모습이어야 한다. 예전에는 아래 것만
    * '올리는 중' 으로 바뀌어, 위 버튼은 멀쩡해 보이니 한 번 더 누르게 됐다.
    */
-  const idleLabel = () => (editingLink ? '시트에 저장' : '구글 시트로 업로드');
+  const idleLabel = () => (editingLink ? '시트에 저장' : '시트에 올리기');
   function setSubmitState(text, busy) {
     const buttons = [
       $('#reportForm button[type=submit]'),
@@ -1566,8 +1286,9 @@ export async function reportFormView(view) {
       }
       location.hash = `#/reports/${saved.id}`;
     } catch (err) {
-      toast(err.message, 'err');
-      toast('리포트는 저장되었습니다. [ 리포트]에서 다시 업로드할 수 있습니다.');
+      // 하나로 묶어 남긴다 (v3.49) — 예전 문구는 '[ 리포트]' 처럼 버튼 이름이 깨져 있었다.
+      // 옮겨 가는 화면(리포트 상세)에 [시트에 올리기] 가 있다.
+      toast(`${err.message}\n리포트는 기기에 저장했어요. 이 화면의 [시트에 올리기] 를 눌러 다시 올리세요.`, 'err');
       location.hash = `#/reports/${saved.id}`;
     }
     setSubmitState(idleLabel(), false);

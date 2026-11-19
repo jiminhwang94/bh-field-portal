@@ -1,7 +1,6 @@
 // 기기 저장소 — 가이드 · 가이드 로봇 분류.
 // (store.js 가 전부 다시 내보낸다 — 밖에서는 store.js 만 부른다)
 import * as idb from './idb.js';
-import { testMode } from '../mode.js';
 import { CATEGORY_TYPES, byText, getMeta, newId, now, queueGuideSheetPushIfOn, safeId, setMeta } from './store-core.js';
 
 // -------------------------------------------------------------- 가이드

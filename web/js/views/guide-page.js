@@ -1,13 +1,10 @@
 // 가이드 상세(한눈에 · 단계 체크) · 작성/수정. 목록 쪽은 views/guides.js
 import { api } from '../api.js';
-import {
-  $, $$, h, closeModal, confirmDialog, copyText, hydrateMedia, loading,
-  openSheet, promptDialog, toast, when,
-} from '../ui.js';
+import { $, $$, h, confirmDialog, copyText, hydrateMedia, loading, openSheet, toast, when } from '../ui.js';
 
 import {
-  CAT_SHORT, DONE_KEY, NONE_LABEL, guideCatOf, guideMediaEnabled, isStepVideo, isVideoFile, modelHref, modelKey, modelLabel,
-  row, splitTitle, stepMediaHtml, uploadGuidePhoto,
+  CAT_SHORT, DONE_KEY, NONE_LABEL, guideCatOf, guideMediaEnabled, isStepVideo, isVideoFile,
+  modelHref, modelKey, modelLabel, splitTitle, stepMediaHtml, uploadGuidePhoto
 } from './guides.js';
 
 /** 단계의 사진 · 영상 목록 (v3.40) — 예전 단계는 imageUrl 하나 */
@@ -114,7 +111,7 @@ export async function guideDetailView(view, guideId, query = null) {
       <article class="gs-card${done.has(String(at)) ? ' is-done' : ''}">
         ${mediaOf(s).length ? `<div class="gs-media">${stepGalleryHtml(s, 'gs-img step__img', `단계 ${at + 1} 참고 자료`)}</div>` : ''}
         <div class="gs-text">
-          <span class="gs-no tnum">${at + 1} / ${total}${done.has(String(at)) ? ' · 했음' : ''}</span>
+          <span class="gs-no tnum">${at + 1} / ${total} 단계${done.has(String(at)) ? ' · 했음' : ''}</span>
           <p class="gs-instr">${h(s.instruction).replace(/\n/g, '<br />')}</p>
           ${metric.length ? `<div class="tag-list">${metric.map((t) => `<span class="tag tag-accent">${h(t)}</span>`).join('')}</div>` : ''}
         </div>
@@ -176,7 +173,7 @@ export async function guideDetailView(view, guideId, query = null) {
         ${stepView ? `
           <div class="gs-bar">
             <button class="btn btn-secondary" data-act="prev-step" type="button"${at === 0 ? ' disabled' : ''}>‹ 이전 단계</button>
-            <span class="gs-bar__count tnum">${done.size} / ${total} 단계 했음</span>
+            <span class="gs-bar__count tnum">${done.size}개 했음</span>
             <button class="btn btn-primary gs-bar__next" data-act="done-next" type="button">${
               last ? '완료' : '다음 ›'}</button>
           </div>` : ''}

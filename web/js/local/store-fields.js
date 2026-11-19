@@ -1,7 +1,6 @@
 // 기기 저장소 — 리포트 입력 항목 · 기본 항목.
 // (store.js 가 전부 다시 내보낸다 — 밖에서는 store.js 만 부른다)
 import * as idb from './idb.js';
-import { testMode } from '../mode.js';
 import { FIELD_TYPES, getMeta, newId, now, queueFieldSheetPushIfOn, setMeta } from './store-core.js';
 
 // -------------------------------------------------- 리포트 입력 항목 설정

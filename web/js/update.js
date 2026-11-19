@@ -5,11 +5,16 @@
 // 사람이 개입할 지점은 그 탭이다: '공개' 를 N 으로 바꾸면 안내가 멈춘다.
 //
 // 어떻게 받나 — APK 안이면 bhupdate:<주소> 로 안드로이드 쪽에 넘겨 시스템
-// 다운로드 관리자가 받고 설치 화면을 연다. 브라우저면 새 탭으로 연다.
+// 다운로드 관리자가 받고 설치 화면을 연다.
+//
+// 브라우저(PC 의 http://localhost:8787 등)는 다르다 (v3.49). 화면 파일은 그 주소를 내주는
+// 폴더에서 온다 — APK 를 받아 봐야 소용없다. 그래서 브라우저에서는 **그 폴더의 version.js** 를
+// 물어, 지금 화면보다 새것이면 띠를 띄우고 [다시 열기] 로 옛 저장분(서비스 워커 캐시)을 비우고
+// 다시 연다. 예전에는 [업데이트] 가 APK 를 새 탭으로 열 뿐이라, 눌러도 화면이 그대로였다.
 import * as store from './local/store.js';
 import { APP_VERSION } from './api.js';
 import { callAppsScript } from './sheets.js';
-import { isOnline } from './sync.js';
+import { isOnline, isPackagedApp } from './sync.js';
 import { h, toast } from './ui.js';
 
 const META_KEY = 'latestRelease';
@@ -22,6 +27,7 @@ const CHECK_GAP_MS = 4 * 60 * 1000;      // 5분 주기 새로고침보다 조�
 let lastCheckAt = 0;
 let current = null;
 let installLink = null;
+let served = '';                  // 브라우저 — 이 주소를 내주는 폴더의 버전 ('' = 모름)
 
 /** '3.16.0' 과 '3.15.1' 을 숫자로 비교한다. 양수면 a 가 더 새롭다. */
 export function compareVersions(a, b) {
@@ -37,9 +43,41 @@ export function compareVersions(a, b) {
 /** 안드로이드 APK 안에서 돌고 있는가 (MainActivity 가 UA 에 표식을 붙인다). */
 export const isApk = () => /FieldPortalAPK\//.test(navigator.userAgent);
 
+/** 브라우저로 열었나 (APK 도 아니고 APK 안 화면 주소도 아니다) */
+export const isBrowser = () => !isApk() && !isPackagedApp();
+
 /** 이 정보가 지금 앱보다 새로운가 */
 export function hasNewer(info) {
+  if (isBrowser()) return Boolean(served) && compareVersions(served, APP_VERSION) > 0;
   return Boolean(info && info.url && compareVersions(info.version, APP_VERSION) > 0);
+}
+
+/** 브라우저 — 이 주소를 내주는 폴더의 화면 파일 버전 (저장분을 거치지 않고 직접 묻는다) */
+export async function servedVersion() {
+  try {
+    const res = await fetch(`./js/version.js?v=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return '';
+    const m = /APP_VERSION\s*=\s*'([0-9.]+)'/.exec(await res.text());
+    return m ? m[1] : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 브라우저 — 옛 화면 파일 저장분을 비우고 새로 연다.
+ * 서비스 워커도 새것을 받게 한 뒤 다시 연다 (안 비우면 첫 번째 다시 열기는 옛 화면이었다).
+ */
+export async function reloadToNewest() {
+  try {
+    const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration();
+    if (reg) await reg.update().catch(() => {});
+  } catch { /* 서비스 워커가 없어도 아래는 된다 */ }
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter((k) => k.startsWith('bh-shell-')).map((k) => caches.delete(k)));
+  } catch { /* 저장소를 못 열어도 다시 연다 */ }
+  location.reload();
 }
 
 /**
@@ -47,6 +85,11 @@ export function hasNewer(info) {
  * 실패해도 조용하다 — 업데이트 안내는 있으면 좋은 것이고, 없어도 앱은 돈다.
  */
 export async function checkForUpdate({ force = false } = {}) {
+  // 브라우저는 시트가 아니라 이 주소의 폴더에 묻는다 (인터넷이 없어도 PC 서버는 닿는다)
+  if (isBrowser()) {
+    served = await servedVersion();
+    paintBanner();
+  }
   if (!isOnline()) return current;
   if (!force && Date.now() - lastCheckAt < CHECK_GAP_MS) return current;
   if (!(await store.sheetInventoryOn())) return current;
@@ -78,6 +121,15 @@ export async function checkForUpdate({ force = false } = {}) {
 export function paintBanner() {
   const el = document.getElementById('update-banner');
   if (!el) return;
+  if (isBrowser()) {
+    // 브라우저 — 폴더에 새 화면 파일이 있을 때만. '나중에' 없이 [다시 열기] 하나 (누르면 바로 끝난다)
+    if (!hasNewer(current)) { el.hidden = true; return; }
+    el.innerHTML = `
+      <span class="update-banner__text">새 화면 <strong>v${h(served)}</strong> 이 있습니다 — 지금 화면은 v${h(APP_VERSION)}</span>
+      <button class="btn btn--sm btn--primary" data-act="reload" type="button">다시 열기</button>`;
+    el.hidden = false;
+    return;
+  }
   if (!hasNewer(current) || localStorage.getItem(SKIP_KEY(current.version))) {
     el.hidden = true;
     return;
@@ -95,6 +147,7 @@ export function paintBanner() {
 
 /** [업데이트] — APK 안이면 안드로이드에 넘기고, 브라우저면 새 탭으로 연다. */
 export function startUpdate(info = current) {
+  if (isBrowser()) { reloadToNewest(); return; }
   if (!info || !info.url) return;
   if (isApk()) {
     location.href = `bhupdate:${encodeURIComponent(info.url)}`;
@@ -110,8 +163,11 @@ export async function initUpdateBanner() {
   if (!el) return;
   current = (await store.getMeta(META_KEY, null)) || null;
   paintBanner();
+  // 브라우저 — 켤 때 한 번 폴더의 버전을 묻는다 (PC 서버만 닿으면 된다)
+  if (isBrowser()) servedVersion().then((v) => { served = v; paintBanner(); }).catch(() => {});
   el.addEventListener('click', (ev) => {
     const btn = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (ev.target).closest('[data-act]'));
+    if (btn && btn.dataset.act === 'reload') { reloadToNewest(); return; }
     if (!btn || !current) return;
     if (btn.dataset.act === 'update') startUpdate(current);
     if (btn.dataset.act === 'later') {
@@ -140,6 +196,20 @@ export async function loadInstallLink() {
 
 /** 설정 화면 한 줄: "최신 v3.16.0 [업데이트]" 또는 "최신입니다". */
 export function settingsLine() {
+  if (isBrowser()) {
+    // 브라우저 — 화면은 이 주소를 내주는 폴더에서 온다. 새로 나온 버전이 그 폴더에 없으면
+    // 아무리 눌러도 안 바뀐다 — 그것을 알려 준다.
+    if (hasNewer(current)) {
+      return `· 이 주소에 새 화면 <strong>v${h(served)}</strong>
+        <button class="btn btn--sm btn--primary" data-act="app-update" type="button"
+                style="margin-left:6px">다시 열기</button>`;
+    }
+    if (current && current.version && served && compareVersions(current.version, served) > 0) {
+      return `· 최신은 <strong>v${h(current.version)}</strong> — 이 주소를 내주는 PC 폴더가 v${h(served)} 입니다.
+        그 폴더를 새로 받은 뒤(git pull) 다시 열면 바뀝니다.`;
+    }
+    return served ? '· 이 주소의 최신 화면입니다' : '';
+  }
   if (!current || !current.version) return '';
   if (hasNewer(current)) {
     return `· 최신 <strong>v${h(current.version)}</strong>

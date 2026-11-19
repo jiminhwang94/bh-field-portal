@@ -1,5 +1,5 @@
 // 앱 설치(PWA) — 설정 화면의 [앱 설치] 버튼과 첫 방문 배너
-import { $, h, closeModal, openSheet, toast } from './ui.js';
+import { $, openSheet, toast } from './ui.js';
 
 const DISMISS_KEY = 'bh_install_banner_off';
 

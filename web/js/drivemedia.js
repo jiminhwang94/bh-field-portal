@@ -9,6 +9,7 @@
 // 그래서 그림이 실패하면 여기로 온다. Apps Script 웹 앱은 시트 주인 권한으로
 // 돌아가므로 파일을 읽을 수 있다. 바이트를 받아 blob 으로 만들어 끼운다.
 // 한 번 받은 것은 기기에 담아 두므로 다음부터는 즉시 뜨고 오프라인에서도 보인다.
+import { attach } from './bloburls.js';
 import * as idb from './local/idb.js';
 import { callAppsScript } from './sheets.js';
 
@@ -78,7 +79,7 @@ async function keepShown(el, id) {
  */
 export async function showDrivePhoto(el, id) {
   const kept = await fromDevice(id);
-  if (kept) { el.src = kept; return; }
+  if (kept) { el.src = kept; attach(el, kept); return; }
   el.crossOrigin = 'anonymous';               // 허락을 받아야 다 그린 그림을 담을 수 있다
   el.addEventListener('load', () => { keepShown(el, id); }, { once: true });
   el.addEventListener('error', async () => {
@@ -196,6 +197,7 @@ export async function reviveImage(el, id, size = 'thumb') {
   const url = await objectUrl(id, size);
   if (!url) return false;
   el.src = url;
+  attach(el, url);
   el.classList.remove('is-broken');
   return true;
 }

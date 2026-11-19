@@ -18,6 +18,7 @@
 검증은 화면 검사가 한다: npx playwright test styles  (계산된 스타일이 기준과 같은지)
 """
 import io
+import os
 import re
 import sys
 
@@ -339,6 +340,39 @@ def tidy(text):
     stats["없어진 규칙"] = sum(1 for _, r in flatten(nodes) if not r.decls())
     return render(nodes), stats
 
+
+MARK = "/*@@css-file "
+
+
+def tidy_all(root):
+    """--all (v3.49) — web/css 의 파일들을 index.html 이 읽는 차례로 **이어 붙여 한 흐름으로** 정리한다.
+
+    브라우저에게 여러 파일은 차례대로 이어진 스타일시트 하나와 같다. 그래서 파일을 넘나드는
+    덮어쓰기(base.css 의 .btn 을 focus.css · field.css 가 다시 정하는 것)도 위 두 규칙으로
+    그대로 증명된다. 정리한 뒤 표시 줄로 다시 갈라 각 파일에 쓴다.
+    """
+    index = io.open(os.path.join(root, "web", "index.html"), encoding="utf-8").read()
+    names = re.findall(r'href="/css/([a-z0-9_-]+\.css)"', index)
+    texts = [io.open(os.path.join(root, "web", "css", n), encoding="utf-8").read() for n in names]
+    stream = "".join(f"{MARK}{n} */{NL}{t}" for n, t in zip(names, texts))
+    out, stats = tidy(stream)
+    parts = re.split(re.escape(MARK) + r"([a-z0-9_-]+\.css) \*/" + NL, out)
+    result = dict(zip(parts[1::2], parts[2::2]))
+    assert list(result) == names, "파일 표시가 깨졌습니다"
+    return names, texts, result, stats
+
+
+if __name__ == "__main__" and "--all" in sys.argv:
+
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    names, before, after, stats = tidy_all(ROOT)
+    for k, v in stats.items():
+        print(f"{k}: {v}")
+    for n, a in zip(names, before):
+        print(f"{n}: {a.count(NL)} → {after[n].count(NL)}줄")
+        if "--dry" not in sys.argv:
+            io.open(os.path.join(ROOT, "web", "css", n), "w", encoding="utf-8", newline=NL).write(after[n])
+    sys.exit(0)
 
 if __name__ == "__main__":
     path = sys.argv[1]

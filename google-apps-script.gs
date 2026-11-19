@@ -22,8 +22,203 @@
  *  - 현장 사진은 링크가 아니라 **이미지 자체**를 해당 칸에 삽입한다
  */
 
+
+// ═══════════════════════════════════════════════════════════════════
+// 설정 · 시트 구조 — 탭 이름 · 머리줄 · 열 너비 · 폴더 · 보관 기간을 **여기 한 곳에** 둔다 (v3.49)
+//
+// 예전에는 각 기능 코드 옆에 흩어져 있어, 탭 하나의 칸 구조를 바꾸려면 3,600줄을 뒤져야 했다.
+// 값과 순서는 그대로 옮겼다 (위에서 아래로 읽히므로 서로 기대는 것은 앞에 둔다).
+//
+// 목차 — 아래 함수들은 이 차례로 놓여 있다 (편집기에서 Ctrl+F 로 찾는다)
+//   doPost · handleRequest       요청 받기 · 리포트 한 줄 올리기 · 같은 리포트 두 번 받지 않기
+//   safeCell                     시트가 글을 수식으로 읽지 않게
+//   arrangeTabs · headerBlocks   탭 순서 · 월별 탭의 머리줄 묶음
+//   handleInventory              차량 재고
+//   handleGuides · handleFields  가이드 · 리포트 항목
+//   handleDriving                운행 일지
+//   saveGuideMedia · sharePublic 드라이브 첨부
+//   handleRelease*               앱 버전 · 설치 링크
+//   handleChanged · dataChangedAt · onEdit   [새 내용] 점
+//   handleReports                리포트 이력 · 상태 · 고쳐 쓰기 · 지우기 · 고객사 번호
+//   handleDrive*                 첨부 정보 · 바이트 · 공개 복구
+//   logChange · putInTrash · touchDevice · handleErrors · handleHealth · backupIfDue   운영
+//   handleMediaUpload            큰 첨부를 조각으로
+//   handleWork                   이슈 유형 목록
+// ═══════════════════════════════════════════════════════════════════
+
 var IMAGE_HEIGHT = 110;      // 시트에 표시할 사진 높이(px)
 var IMAGE_GAP = 8;
+
+// ── 같은 리포트 두 번 받지 않기 (v3.49) ─────────────────────────────
+// 받은 리포트의 고유 번호 → 어디에 적었는지. 스크립트 속성에 하나씩 둔다
+// (값 하나는 9KB 까지라 묶어 두지 않는다). 30일이 지난 것은 지운다 —
+// 태블릿은 그보다 오래 들고 있지 않는다(올린 리포트는 14일 뒤 치운다).
+var UPLOAD_SEEN_PREFIX = 'up:';
+var UPLOAD_SEEN_DAYS = 30;
+var UPLOAD_SEEN_MAX = 400;
+
+// ═══════════════════════════════════════════════════════════════════
+// 탭 순서 — 사람이 정한 자리를 스크립트가 지킨다
+//
+//   [리포트 월 탭 — 최근 달이 앞]  2026-09 · 2026-08 · …
+//   [가이드]                         오류 코드 가이드 · 하드웨어 교체 SOP · SW·명령어
+//   차량재고
+//   [운행일지 — 새 해가 앞, 차량은 재고 탭의 차량 순서]
+//   운행일지 항목 · 리포트 항목 · 앱 설치 링크 · 앱 버전
+//   [그 밖의 탭 — 있던 순서 그대로 맨 뒤]
+//
+// 새 탭이 생기면(insertSheet 는 활성 탭 뒤에 끼운다) 앞쪽에 끼어들어 순서가
+// 흐트러졌다. 그래서 요청을 처리한 뒤 매번 여기서 한 번 맞춘다. 제자리에 있는
+// 탭은 건드리지 않으므로 평소에는 아무 일도 하지 않는다.
+// ═══════════════════════════════════════════════════════════════════
+var TAB_ORDER_TAIL = ['운행일지 항목', '리포트 항목', '이슈 유형 목록', '앱 설치 링크', '앱 버전',
+                      '기기', '변경기록', '오류기록', '휴지통'];
+var INV_SHEET_NAME = '차량재고';
+var INV_HEADER_ROW = 2;
+var INV_DATA_ROW = 3;
+var INV_FIXED = 2;                 // 고정 열(옛 배치): 부품명 · 최소보유
+var INV_CATEGORY_HEADER = '분류';
+var GUIDE_SHEETS = {
+  ERROR_CODE: '오류 코드 가이드',
+  HARDWARE_SOP: '하드웨어 교체 SOP',
+  SOFTWARE_CMD: 'SW·명령어',
+};
+var NEWLINE = String.fromCharCode(10);
+var GUIDE_ID_HEADER = 'ID(고치지 마세요)';
+var GUIDE_PHOTO_HEADER = '단계 사진';
+var GUIDE_ROBOT_HEADER = '로봇';
+var GUIDE_CAT_HEADER = '항목';
+var GUIDE_HEADER = [GUIDE_ROBOT_HEADER, '코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일',
+                    GUIDE_PHOTO_HEADER, GUIDE_CAT_HEADER, GUIDE_ID_HEADER];
+var GUIDE_WIDTHS = [110, 160, 260, 160, 300, 420, 130, 260, 110, 200];
+var GUIDE_MODEL_SHEET = '가이드 로봇';
+var GUIDE_MODEL_HEADER = ['로봇 분류 (앱에서 추가·이름 바꾸기·삭제)'];
+var FIELD_SHEET = '리포트 항목';
+var FIELD_ID_HEADER = 'ID(고치지 마세요)';
+var FIELD_HEADER = ['항목명', '종류', '선택지', '필수', FIELD_ID_HEADER];
+var FIELD_WIDTHS = [200, 140, 280, 70, 200];
+
+// ═══════════════════════════════════════════════════════════════════
+// 차량 운행 일지 — 국세청 '법인 차량 운행 일지' 서식
+//
+// 차량마다 · 해마다 탭이 하나씩 생긴다: [운행일지 2026 스타리아 1호차]
+// 그 탭을 그대로 인쇄해 제출할 수 있게 서식의 항목 번호(①~⑩)를 그대로 쓴다.
+//
+//   1행  제목
+//   2행  법인명 · 사업자등록번호
+//   3행  ①차종 · ②자동차등록번호 · 사업연도
+//   4행  운행 건수 · 주행거리 합계
+//   5행  머리줄 (③~⑩ + 기록 ID)
+//   6행~ 운행 기록
+//
+// **자료는 늘 6행부터**다. 위 다섯 줄의 모양이 바뀌어도 읽는 자리는 그대로다.
+//
+// 부서 · 출발/도착지 선택지는 팀 공통이라 [운행일지 항목] 탭 하나에 둔다.
+// ═══════════════════════════════════════════════════════════════════
+var DRIVING_PREFIX = '운행일지 ';
+var DRIVING_OPTION_SHEET = '운행일지 항목';
+var DRIVING_FIRST_ROW = 6;
+var DRIVING_HEADER = [
+  '③사용일자', '요일', '④부서', '성명',
+  '⑤주행 전 계기판의 거리(㎞)', '⑥주행 후 계기판의 거리(㎞)', '⑦주행거리(㎞)',
+  '⑧출발지', '⑨도착지', '⑩비고', '기록 ID',
+];
+var DRIVING_WIDTHS = [110, 60, 110, 100, 150, 150, 120, 150, 150, 200, 190];
+var COMPANY_NAME = '비욘드허니컴';
+var COMPANY_BIZ_NO = '697-86-01767';
+var GUIDE_CATS_SHEET = '가이드 항목';
+var GUIDE_CATS_HEADER = ['로봇', '항목 이름', '형식', 'ID(고치지 마세요)'];
+var GUIDE_FORM_LABEL = { ERROR_CODE: '오류 코드형', HARDWARE_SOP: '교체 절차형', SOFTWARE_CMD: '명령어형' };
+var SHARED_DRIVE_ID = '0AKL9kurLTHqNUk9PVA';
+var PHOTO_FOLDER_NAME = '사진';
+var VIDEO_FOLDER_NAME = '동영상';
+var FALLBACK_FOLDER_NAME = '현장 리포트 첨부';
+var GUIDE_FOLDER_ROOT = '가이드';
+
+// ═══════════════════════════════════════════════════════════════════
+// 앱 버전 — 태블릿이 "새 버전이 있나" 를 물어보는 곳
+//
+// 빌드 자동화(GitHub Actions)가 APK 를 Dropbox 에 올린 뒤 여기에 한 줄 적는다.
+// 태블릿은 시트를 받아올 때 함께 물어보고, 지금 버전보다 높으면 [업데이트]
+// 띠를 띄운다. 사람이 개입할 지점이 **이 탭**이다 — '공개' 칸을 N 으로 바꾸면
+// 그 버전 안내가 멈추고, 줄을 지우면 없던 일이 된다.
+// ═══════════════════════════════════════════════════════════════════
+var RELEASE_SHEET = '앱 버전';
+var RELEASE_HEADER = ['버전', '빌드', '배포일시', '다운로드 링크', '크기(MB)', '변경 요약', '공개'];
+
+// ═══════════════════════════════════════════════════════════════════
+// 앱 설치 링크 — 사람에게 보내 주는 **바뀌지 않는** 주소
+//
+// 왜 따로 두나 — 앱 안 [업데이트] 는 Dropbox 주소를 쓴다. 그 주소는 버전마다
+// 파일 이름이 달라져서 매번 바뀐다. 사람에게 카톡으로 보내 주는 주소가 매번
+// 바뀌면 예전에 보낸 주소를 받은 사람은 옛 버전을 받는다.
+//
+// 그래서 드라이브에 파일 **하나**를 두고 그 **내용만** 갈아 끼운다. 드라이브
+// 파일은 내용을 바꿔도 ID 가 그대로라, 아래 주소가 영원히 같은 자리를 가리키며
+// 언제 눌러도 그때의 최신 APK 를 준다.
+//
+//   https://drive.google.com/file/d/<파일ID>/view?usp=drive_link
+//
+// 어디에 있나 — <공유 드라이브>/앱 설치 파일/현장포털-설치.apk
+// 주소는 시트 '앱 설치 링크' 탭에 적어 둔다 (사람이 눈으로 찾는 자리).
+// ═══════════════════════════════════════════════════════════════════
+var APK_FOLDER_NAME = '앱 설치 파일';
+var APK_FILE_NAME = '현장포털-설치.apk';
+var APK_MIME = 'application/vnd.android.package-archive';
+var APK_ID_PROP = 'APK_FILE_ID';
+var INSTALL_SHEET = '앱 설치 링크';
+var INSTALL_HEADER = ['설치 링크 (사람에게 보내는 주소)', '바로 내려받기',
+                      '드라이브 파일 ID', '마지막 갱신', '버전'];
+
+// ── 내용이 바뀐 시각 (v3.49) ──────────────────────────────────────────
+var DATA_CHANGED_PROP = 'DATA_CHANGED_AT';
+var READ_VERBS = { pull: true, months: true, numbers: true, list: true, media: true, options: false };
+var DATA_KINDS = ['inventory', 'guides', 'fields', 'reports', 'driving', 'work', 'trash'];
+var STATUS_HEADER = '상태';
+var REPORT_FIRST_HEADER = '작성일시';
+var REPORT_HEADER_ROW = 2;
+var REPORT_DATA_ROW = 3;
+
+// 월 탭 이름. 항목이 바뀌어 갈라진 탭도 같은 달로 본다 — `2026-09`, `2026-09 (2)`
+// 새로 만들 때는 `2026-09` 하나만 쓴다. 예전 판이 만든 `2026-09 (2)` 탭도
+// 목록에는 계속 보여 준다 — 이미 쌓인 리포트를 못 보게 하면 안 된다.
+var MONTH_TAB = /^\d{4}-\d{2}( \(\d+\))?$/;
+var CONSUMER_SS_ID = '1ZUsgwFVX1O97778MKoedU2f-UsnShRcrI85o5WNICwo';
+var CONSUMER_REPORT_GID = 1882930844;     // [리포트] 탭 — 이름이 바뀌어도 gid 는 그대로
+var CONSUMER_REQUEST_MARK = '필드팀';     // '조치결과' 칸에 이 말이 들어 있으면 필드팀 요청 건
+
+// '콘솔 상태' 칸에 이 말들 중 하나가 들어 있으면 아직 안 끝난 건.
+// '진행' 만 본다 — '진행중' / '진행 중' 어느 쪽으로 적혀도 걸리게.
+var CONSUMER_OPEN_MARKS = ['대기', '진행'];
+var REPORT_NO_PREFIX = 'P';
+var BYTES_MAX = 12 * 1024 * 1024;      // 한 번에 실어 보낼 수 있는 한도
+var LOG_SHEET = '변경기록';
+var LOG_HEADER = ['시각', '기기 · 사람', '앱 버전', '종류', '대상', '내용'];
+var LOG_WIDTHS = [140, 130, 80, 110, 220, 520];
+var LOG_KEEP = 5000;                  // 이보다 많으면 오래된 줄부터 지운다
+var TRASH_SHEET = '휴지통';
+var TRASH_HEADER = ['지운 시각', '기기 · 사람', '종류', '이름', '되살림', '자료(고치지 마세요)'];
+var TRASH_WIDTHS = [140, 130, 90, 300, 140, 80];
+var TRASH_KEEP = 1000;                // 휴지통은 최근 1000건까지 (v3.49)
+var DEVICE_SHEET = '기기';
+var DEVICE_HEADER = ['기기 · 사람', '앱 버전', '마지막 연결', '올리지 못한 것', '마지막 오류'];
+var DEVICE_WIDTHS = [160, 90, 150, 110, 420];
+var ERROR_SHEET = '오류기록';
+var ERROR_HEADER = ['시각', '기기 · 사람', '앱 버전', '화면', '내용', '자세히'];
+var ERROR_WIDTHS = [140, 130, 80, 140, 360, 420];
+var BACKUP_FOLDER_NAME = '시트 백업';
+var BACKUP_KEEP_DAYS = 30;
+var BACKUP_PROP = 'LAST_BACKUP_DAY';
+var BACKUP_RUNNING_PROP = 'BACKUP_RUNNING_AT';     // 백업 중 표시 (공용 잠금 대신 — v3.47)
+var CHUNK_FOLDER_NAME = '업로드 조각 (자동 정리)';
+var CHUNK_KEEP_MS = 2 * 86400000;
+var CHUNK_ID_TTL = 21600;
+var WORK_SHEET = '이슈 유형 목록';
+var WORK_SHEET_OLD = '작업 목록';     // v3.31 이름 — 있으면 이름만 바꿔 쓴다
+var WORK_HEADER = ['구분', '대분류', '세부 항목', '별칭 (쉼표로)', '가이드 ID', '상태', 'ID(고치지 마세요)',
+                   '원인 목록 (쉼표로)', '조치 목록 (쉼표로)'];
+var WORK_WIDTHS = [110, 150, 220, 260, 200, 90, 160, 300, 300];
+var WORK_KINDS = ['로봇 이슈', '로봇 외 이슈'];
 
 function doPost(e) {
   var out = handleRequest(e);
@@ -31,9 +226,14 @@ function doPost(e) {
   try {
     asked = (e && e.postData && e.postData.contents) ? JSON.parse(e.postData.contents) : {};
   } catch (err) { asked = {}; }
+  // 내용이 바뀌었으면 그 시각을 남긴다 — 태블릿 위 [새 내용] 점이 이것만 본다 (v3.49)
+  try {
+    if (changesData(asked) && replyOk(out)) markDataChanged();
+  } catch (err) { /* 표시 실패는 응답과 상관없다 */ }
   // 첨부 조각 · 마무리는 가볍게 끝낸다 — 기기 기록 · 탭 순서는 리포트 줄을 올릴 때 한다.
   // (예전에는 사진 조각마다 탭 순서를 맞추느라 재고 탭까지 읽었다: 요청마다 1~2초)
   if (asked.media === 'chunk' || asked.media === 'finish') return out;
+  if (asked.health) return out;              // 매일 점검은 읽기만 한다 — 기기 · 탭 순서도 건드리지 않는다
   try {
     if (asked.device && !asked.changed) touchDevice(SpreadsheetApp.getActiveSpreadsheet(), asked);
   } catch (err) { /* 기기 기록 실패는 응답과 상관없다 */ }
@@ -63,6 +263,11 @@ function handleRequest(e) {
     // 휴지통 — 지운 가이드 · 리포트 목록과 되살리기
     if (body.trash) {
       return handleTrash(ss, body);
+    }
+
+    // 매일 상태 점검 (v3.49 · .github/workflows/health.yml) — 읽기만, 숫자만 (이름 · 내용은 내보내지 않는다)
+    if (body.health) {
+      return handleHealth(ss);
     }
 
     // 기기에서 모은 오류
@@ -158,6 +363,20 @@ function handleRequest(e) {
     var lock = LockService.getScriptLock();
     lock.waitLock(30000);            // 동시에 여러 명이 올려도 줄이 섞이지 않게
     try {
+      // 같은 리포트를 두 번 받았나 (v3.49) — 시트에는 적혔는데 태블릿이 답을 못 받으면
+      // (LTE 가 끊기거나 앱이 꺼지면) 태블릿은 다시 보낸다. 그때 줄을 또 쓰지 않고
+      // 처음 결과를 그대로 돌려준다. 잠금 안이라 겹쳐 온 두 요청도 하나만 쓴다.
+      var uploadId = safeUploadKey(body.uploadId);
+      var already = uploadId ? seenUpload(ss, uploadId) : null;
+      if (already) {
+        return json({
+          ok: true, again: true,
+          sheetName: already.s, row: already.r, reportNumber: already.n || '',
+          created: false, images: 0, media: 0, mediaSkipped: [], mediaShared: true, mediaPrivate: 0,
+          spreadsheetUrl: ss.getUrl()
+        });
+      }
+
       // 한 달은 **표 하나**다 (2행에 항목 줄 하나). 항목이 달라져도 표를
       // 가르지 않고, 항목 **이름**으로 열을 맞춰 적는다. 새 항목은 그 자리에
       // 열을 끼워 넣고, 없어진 항목의 열은 옛 기록 보존을 위해 남긴다.
@@ -204,7 +423,7 @@ function handleRequest(e) {
         aligned[mc - 1] = saved.byColumn[col].join('\n');
       }
 
-      sheet.getRange(target, 1, 1, aligned.length).setValues([aligned]);
+      sheet.getRange(target, 1, 1, aligned.length).setValues(safeRows([aligned]));
       sheet.getRange(target, 1, 1, aligned.length)
         .setVerticalAlignment('top')
         .setWrap(true);
@@ -226,6 +445,7 @@ function handleRequest(e) {
       relinkDriveCells(sheet, target, aligned);
 
       SpreadsheetApp.flush();
+      if (uploadId) rememberUpload(uploadId, sheetName, target, numbered);
       logChange(ss, body, '리포트 추가', sheetName + ' ' + target + '행',
                 (numbered ? numbered + ' · ' : '') + reportSummary(headers, row));
       return json({
@@ -248,6 +468,64 @@ function handleRequest(e) {
     }
   } catch (err) {
     return json({ ok: false, error: String(err) });
+  }
+}
+
+// ── 시트가 글을 수식으로 읽지 않게 (v3.49) ───────────────────────────────
+// "- 배터리 교체" 처럼 - · + · = · @ 로 시작하는 글은 시트가 수식으로 읽어
+// #ERROR! 가 되거나 계산된 값으로 바뀐다. 앞에 ' 를 붙이면 글자 그대로 남는다
+// (시트에는 ' 가 보이지 않고, 다시 읽어도 ' 없이 온다). 숫자(-5, +3)는 숫자로 둔다.
+function safeCell(value) {
+  if (typeof value !== 'string' || !value) return value;
+  var head = value.charAt(0);
+  if (head === '=' || head === '@' || head === "'") return "'" + value;
+  if ((head === '-' || head === '+') && !/^[+-]?\d[\d,]*(\.\d+)?$/.test(value)) return "'" + value;
+  return value;
+}
+
+function safeRows(rows) {
+  return rows.map(function (line) { return line.map(safeCell); });
+}
+
+
+function safeUploadKey(value) {
+  var text = String(value || '');
+  return /^[A-Za-z0-9_.:-]{8,100}$/.test(text) ? text : '';
+}
+
+function seenUpload(ss, id) {
+  var raw = PropertiesService.getScriptProperties().getProperty(UPLOAD_SEEN_PREFIX + id);
+  if (!raw) return null;
+  var seen;
+  try { seen = JSON.parse(raw); } catch (err) { return null; }
+  if (!seen || !seen.s || !seen.r) return null;
+  // 그 사이 탭이나 줄이 없어졌으면(지웠거나 옮김) 처음 받은 것처럼 다시 쓴다
+  var sheet = ss.getSheetByName(String(seen.s));
+  if (!sheet || Number(seen.r) > sheet.getLastRow()) return null;
+  return seen;
+}
+
+function rememberUpload(id, sheetName, row, number) {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(UPLOAD_SEEN_PREFIX + id,
+    JSON.stringify({ s: sheetName, r: row, n: number || '', t: Date.now() }));
+  // 가끔만 치운다 (속성을 모두 읽는 일이라)
+  if (Math.random() < 0.05) pruneSeenUploads(props);
+}
+
+function pruneSeenUploads(props) {
+  var all = props.getProperties();
+  var cut = Date.now() - UPLOAD_SEEN_DAYS * 86400000;
+  var mine = [];
+  for (var key in all) {
+    if (key.indexOf(UPLOAD_SEEN_PREFIX) !== 0) continue;
+    var t = 0;
+    try { t = Number(JSON.parse(all[key]).t) || 0; } catch (err) { t = 0; }
+    mine.push({ key: key, t: t });
+  }
+  mine.sort(function (a, b) { return b.t - a.t; });
+  for (var i = 0; i < mine.length; i++) {
+    if (i >= UPLOAD_SEEN_MAX || mine[i].t < cut) props.deleteProperty(mine[i].key);
   }
 }
 
@@ -301,22 +579,6 @@ function openMonthSheet(ss, name) {
   return { sheet: sheet, created: true };
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// 탭 순서 — 사람이 정한 자리를 스크립트가 지킨다
-//
-//   [리포트 월 탭 — 최근 달이 앞]  2026-09 · 2026-08 · …
-//   [가이드]                         오류 코드 가이드 · 하드웨어 교체 SOP · SW·명령어
-//   차량재고
-//   [운행일지 — 새 해가 앞, 차량은 재고 탭의 차량 순서]
-//   운행일지 항목 · 리포트 항목 · 앱 설치 링크 · 앱 버전
-//   [그 밖의 탭 — 있던 순서 그대로 맨 뒤]
-//
-// 새 탭이 생기면(insertSheet 는 활성 탭 뒤에 끼운다) 앞쪽에 끼어들어 순서가
-// 흐트러졻다. 그래서 요청을 처리한 뒤 매번 여기서 한 번 맞춘다. 제자리에 있는
-// 탭은 건드리지 않으므로 평소에는 아무 일도 하지 않는다.
-// ═══════════════════════════════════════════════════════════════════
-var TAB_ORDER_TAIL = ['운행일지 항목', '리포트 항목', '이슈 유형 목록', '앱 설치 링크', '앱 버전',
-                      '기기', '변경기록', '오류기록', '휴지통'];
 
 function arrangeTabs(ss) {
   var sheets = ss.getSheets();
@@ -541,7 +803,7 @@ function consolidateIfSplit(sheet) {
   writeHeaders(sheet, union, REPORT_HEADER_ROW);
   if (out.length) {
     var range = sheet.getRange(REPORT_DATA_ROW, 1, out.length, union.length);
-    range.setValues(out);
+    range.setValues(safeRows(out));
     range.setVerticalAlignment('top');
     range.setWrap(true);
     for (var r2 = 0; r2 < out.length; r2++) {
@@ -605,11 +867,6 @@ function writeHeaders(sheet, headers, atRow) {
  *  { inventory: 'qty',  ops: [{vehicleName, partName, quantity}, ...] }
  *                                                     → 수량 칸만 갱신 (즉시 공유)
  */
-var INV_SHEET_NAME = '차량재고';
-var INV_HEADER_ROW = 2;
-var INV_DATA_ROW = 3;
-var INV_FIXED = 2;                 // 고정 열(옛 배치): 부품명 · 최소보유
-var INV_CATEGORY_HEADER = '분류';
 
 /**
  * 탭의 열 배치를 머리줄로 알아본다.
@@ -755,7 +1012,7 @@ function writeInventory(sheet, vehicles, items) {
       }
       rows.push(row);
     }
-    sheet.getRange(INV_DATA_ROW, 1, rows.length, header.length).setValues(rows);
+    sheet.getRange(INV_DATA_ROW, 1, rows.length, header.length).setValues(safeRows(rows));
   }
 }
 
@@ -861,7 +1118,7 @@ function applyQuantityOps(sheet, ops) {
       if (cache) cache.put(key, String(target), 21600);
     }
     if (next !== current) {
-      sheet.getRange(row, col).setValue(next);
+      sheet.getRange(row, col).setValue(safeCell(next));
       lines.push(part + ' · ' + vehicle + ' ' + current + '→' + next);
     }
   }
@@ -875,31 +1132,16 @@ function applyQuantityOps(sheet, ops) {
  *  - 1행 : 비워 둠 / 2행 : 헤더 / 3행부터 : 가이드 한 줄씩
  *  - 명령어·단계는 한 칸에 줄바꿈으로 나열한다
  */
-var GUIDE_SHEETS = {
-  ERROR_CODE: '오류 코드 가이드',
-  HARDWARE_SOP: '하드웨어 교체 SOP',
-  SOFTWARE_CMD: 'SW·명령어',
-};
 /** 줄바꿈 한 글자. 시트 칸 안에서 명령어·단계를 나누는 기준이다. */
-var NEWLINE = String.fromCharCode(10);
 
-var GUIDE_ID_HEADER = 'ID(고치지 마세요)';
 /** 단계 사진 — `1. <주소>` 꼴로 단계 번호와 함께 적는다 (번호가 곧 몇 번째 단계인지) */
-var GUIDE_PHOTO_HEADER = '단계 사진';
 /**
  * 로봇 분류 (Gen.1 · Gen.2 · Zephyr …) — 같은 오류 코드라도 로봇마다 절차가 다르다.
  * 맨 앞 열에 둔다. 읽을 때는 **열 이름으로** 찾으므로, 이 열이 없던 예전 탭도
  * 그대로 읽힌다 (그때는 로봇이 비어 있는 것으로 본다).
  */
-var GUIDE_ROBOT_HEADER = '로봇';
 /** 가이드가 속한 로봇별 항목 (v3.40) — 비어 있으면 그 종류의 기본 항목. ID 는 '가이드 항목' 탭에 */
-var GUIDE_CAT_HEADER = '항목';
-var GUIDE_HEADER = [GUIDE_ROBOT_HEADER, '코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일',
-                    GUIDE_PHOTO_HEADER, GUIDE_CAT_HEADER, GUIDE_ID_HEADER];
-var GUIDE_WIDTHS = [110, 160, 260, 160, 300, 420, 130, 260, 110, 200];
 /** 로봇 분류 목록 — 가이드가 하나도 없는 로봇도 팀 전체에 보이도록 따로 둔다. */
-var GUIDE_MODEL_SHEET = '가이드 로봇';
-var GUIDE_MODEL_HEADER = ['로봇 분류 (앱에서 추가·이름 바꾸기·삭제)'];
 
 /* ── 리포트 항목 설정 탭 ──────────────────────────────────────────────
  *
@@ -909,10 +1151,6 @@ var GUIDE_MODEL_HEADER = ['로봇 분류 (앱에서 추가·이름 바꾸기·�
  *  - 1행 : 비워 둠 / 2행 : 헤더 / 3행부터 : 항목 한 줄씩
  *  - 맨 뒤 ID 열로 같은 항목을 알아본다 (고치지 말 것)
  */
-var FIELD_SHEET = '리포트 항목';
-var FIELD_ID_HEADER = 'ID(고치지 마세요)';
-var FIELD_HEADER = ['항목명', '종류', '선택지', '필수', FIELD_ID_HEADER];
-var FIELD_WIDTHS = [200, 140, 280, 70, 200];
 
 function handleFields(ss, body) {
   var fieldItems = function () {
@@ -992,7 +1230,7 @@ function writeFieldSheet(ss, items) {
   var last = sheet.getLastRow();
   if (last >= 3) sheet.getRange(3, 1, last - 2, FIELD_HEADER.length).clearContent();
   if (rows.length) {
-    sheet.getRange(3, 1, rows.length, FIELD_HEADER.length).setValues(rows);
+    sheet.getRange(3, 1, rows.length, FIELD_HEADER.length).setValues(safeRows(rows));
   }
   return rows.length;
 }
@@ -1022,34 +1260,6 @@ function readFieldSheet(sheet) {
   return merged;
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// 차량 운행 일지 — 국세청 '법인 차량 운행 일지' 서식
-//
-// 차량마다 · 해마다 탭이 하나씩 생긴다: [운행일지 2026 스타리아 1호차]
-// 그 탭을 그대로 인쇄해 제출할 수 있게 서식의 항목 번호(①~⑩)를 그대로 쓴다.
-//
-//   1행  제목
-//   2행  법인명 · 사업자등록번호
-//   3행  ①차종 · ②자동차등록번호 · 사업연도
-//   4행  운행 건수 · 주행거리 합계
-//   5행  머리줄 (③~⑩ + 기록 ID)
-//   6행~ 운행 기록
-//
-// **자료는 늘 6행부터**다. 위 다섯 줄의 모양이 바뀌어도 읽는 자리는 그대로다.
-//
-// 부서 · 출발/도착지 선택지는 팀 공통이라 [운행일지 항목] 탭 하나에 둔다.
-// ═══════════════════════════════════════════════════════════════════
-var DRIVING_PREFIX = '운행일지 ';
-var DRIVING_OPTION_SHEET = '운행일지 항목';
-var DRIVING_FIRST_ROW = 6;
-var DRIVING_HEADER = [
-  '③사용일자', '요일', '④부서', '성명',
-  '⑤주행 전 계기판의 거리(㎞)', '⑥주행 후 계기판의 거리(㎞)', '⑦주행거리(㎞)',
-  '⑧출발지', '⑨도착지', '⑩비고', '기록 ID',
-];
-var DRIVING_WIDTHS = [110, 60, 110, 100, 150, 150, 120, 150, 150, 200, 190];
-var COMPANY_NAME = '비욘드허니컴';
-var COMPANY_BIZ_NO = '697-86-01767';
 
 /**
  * 탭 이름 — '운행일지 2026 스타리아 1호차'.
@@ -1212,7 +1422,7 @@ function writeDrivingYear(sheet, vehicle, info, rows, year) {
   }
   if (values.length) {
     sheet.getRange(DRIVING_FIRST_ROW, 1, values.length, DRIVING_HEADER.length)
-      .setValues(values);
+      .setValues(safeRows(values));
     sheet.getRange(DRIVING_FIRST_ROW, 5, values.length, 3).setNumberFormat('#,##0');
   }
 }
@@ -1329,7 +1539,7 @@ function writeDrivingOptions(ss, depts, places) {
 
   var last = sheet.getLastRow();
   if (last >= 3) sheet.getRange(3, 1, last - 2, 2).clearContent();
-  if (rows.length) sheet.getRange(3, 1, rows.length, 2).setValues(rows);
+  if (rows.length) sheet.getRange(3, 1, rows.length, 2).setValues(safeRows(rows));
 }
 
 function handleGuides(ss, body) {
@@ -1584,7 +1794,7 @@ function writeGuideSheet(ss, name, list) {
     ]);
   }
   var range = sheet.getRange(3, 1, rows.length, GUIDE_HEADER.length);
-  range.setValues(rows);
+  range.setValues(safeRows(rows));
   range.setVerticalAlignment('top');
   range.setWrap(true);
   // ID 열은 앱이 같은 가이드를 알아보는 용도라 사람에게는 감춘다.
@@ -1621,7 +1831,7 @@ function writeGuideModels(ss, models) {
   header.setBackground('#eef1f5');
   sheet.setColumnWidth(1, 320);
   if (!names.length) return;
-  sheet.getRange(3, 1, names.length, 1).setValues(names.map(function (n) { return [n]; }));
+  sheet.getRange(3, 1, names.length, 1).setValues(safeRows(names.map(function (n) { return [n]; })));
 }
 
 /* ── 가이드 단계 사진 · 영상 여러 개 · 로봇별 항목 (v3.40) ───────────────────── */
@@ -1663,9 +1873,6 @@ function keepNewGuideFields(oldList, list) {
  * 로봇이 이 탭에 없으면 앱은 기본 세 항목(오류 코드 · 하드웨어 교체 · SW · 명령어)을 쓴다.
  * 기본 항목의 ID 는 형식 이름(ERROR_CODE …)과 같다 — 예전 가이드가 그대로 그 항목에 든다.
  */
-var GUIDE_CATS_SHEET = '가이드 항목';
-var GUIDE_CATS_HEADER = ['로봇', '항목 이름', '형식', 'ID(고치지 마세요)'];
-var GUIDE_FORM_LABEL = { ERROR_CODE: '오류 코드형', HARDWARE_SOP: '교체 절차형', SOFTWARE_CMD: '명령어형' };
 
 function readGuideCats(ss) {
   var sheet = ss.getSheetByName(GUIDE_CATS_SHEET);
@@ -1709,7 +1916,7 @@ function writeGuideCats(ss, cats) {
   sheet.setColumnWidth(2, 200);
   sheet.setColumnWidth(3, 110);
   sheet.setColumnWidth(4, 160);
-  if (rows.length) sheet.getRange(3, 1, rows.length, GUIDE_CATS_HEADER.length).setValues(rows);
+  if (rows.length) sheet.getRange(3, 1, rows.length, GUIDE_CATS_HEADER.length).setValues(safeRows(rows));
 }
 
 /* ============================================================ 첨부 파일(드라이브)
@@ -1738,12 +1945,8 @@ function writeGuideCats(ss, cats) {
  * ▣ 공유 드라이브를 옮기면 아래 SHARED_DRIVE_ID 만 바꾸면 된다.
  *   주소창의 .../drive/folders/여기 부분이 그 값이다.
  */
-var SHARED_DRIVE_ID = '0AKL9kurLTHqNUk9PVA';
-var PHOTO_FOLDER_NAME = '사진';
-var VIDEO_FOLDER_NAME = '동영상';
 
 /** 공유 드라이브에 닿지 못했을 때만 쓰는 대비용 폴더 이름 */
-var FALLBACK_FOLDER_NAME = '현장 리포트 첨부';
 
 /** 이름이 같은 하위 폴더를 찾고, 없으면 만든다. */
 function folderByName(parent, name) {
@@ -1786,7 +1989,6 @@ function safeFolderName(value, fallback) {
 }
 
 /** 가이드 이름표 — 폴더 이름으로도 쓴다 (시트 탭 이름과 같다). */
-var GUIDE_FOLDER_ROOT = '가이드';
 
 /**
  * 가이드 단계 사진이 들어갈 폴더.
@@ -1908,20 +2110,10 @@ function writeLinkCell(sheet, rowIndex, column, urls) {
     sheet.getRange(rowIndex, column).setRichTextValue(builder.build());
   } catch (err) {
     // 서식 있는 값이 안 되면 글자로라도 남긴다 — 주소는 잃지 않는다.
-    sheet.getRange(rowIndex, column).setValue(text);
+    sheet.getRange(rowIndex, column).setValue(safeCell(text));
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// 앱 버전 — 태블릿이 "새 버전이 있나" 를 물어보는 곳
-//
-// 빌드 자동화(GitHub Actions)가 APK 를 Dropbox 에 올린 뒤 여기에 한 줄 적는다.
-// 태블릿은 시트를 받아올 때 함께 물어보고, 지금 버전보다 높으면 [업데이트]
-// 띠를 띄운다. 사람이 개입할 지점이 **이 탭**이다 — '공개' 칸을 N 으로 바꾸면
-// 그 버전 안내가 멈추고, 줄을 지우면 없던 일이 된다.
-// ═══════════════════════════════════════════════════════════════════
-var RELEASE_SHEET = '앱 버전';
-var RELEASE_HEADER = ['버전', '빌드', '배포일시', '다운로드 링크', '크기(MB)', '변경 요약', '공개'];
 
 function releaseSheet(ss, create) {
   var sheet = ss.getSheetByName(RELEASE_SHEET);
@@ -2021,29 +2213,6 @@ function handleReleaseLatest(ss, body) {
   return json(best || empty);
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// 앱 설치 링크 — 사람에게 보내 주는 **바뀌지 않는** 주소
-//
-// 왜 따로 두나 — 앱 안 [업데이트] 는 Dropbox 주소를 쓴다. 그 주소는 버전마다
-// 파일 이름이 달라져서 매번 바뀐다. 사람에게 카톡으로 보내 주는 주소가 매번
-// 바뀌면 예전에 보낸 주소를 받은 사람은 옛 버전을 받는다.
-//
-// 그래서 드라이브에 파일 **하나**를 두고 그 **내용만** 갈아 끼운다. 드라이브
-// 파일은 내용을 바꿔도 ID 가 그대로라, 아래 주소가 영원히 같은 자리를 가리키며
-// 언제 눌러도 그때의 최신 APK 를 준다.
-//
-//   https://drive.google.com/file/d/<파일ID>/view?usp=drive_link
-//
-// 어디에 있나 — <공유 드라이브>/앱 설치 파일/현장포털-설치.apk
-// 주소는 시트 '앱 설치 링크' 탭에 적어 둔다 (사람이 눈으로 찾는 자리).
-// ═══════════════════════════════════════════════════════════════════
-var APK_FOLDER_NAME = '앱 설치 파일';
-var APK_FILE_NAME = '현장포털-설치.apk';
-var APK_MIME = 'application/vnd.android.package-archive';
-var APK_ID_PROP = 'APK_FILE_ID';
-var INSTALL_SHEET = '앱 설치 링크';
-var INSTALL_HEADER = ['설치 링크 (사람에게 보내는 주소)', '바로 내려받기',
-                      '드라이브 파일 ID', '마지막 갱신', '버전'];
 
 function driveViewUrl(id) {
   return 'https://drive.google.com/file/d/' + id + '/view?usp=drive_link';
@@ -2230,14 +2399,60 @@ function handleReleaseInstall(ss, body) {
  * 앱은 빈 값을 "모른다" 로 보고 아무 표시도 하지 않는다.
  */
 function handleChanged(ss, body) {
-  var stamp = '';
-  try {
-    stamp = DriveApp.getFileById(ss.getId()).getLastUpdated().toISOString();
-  } catch (err) { /* 드라이브 권한이 없거나 잠시 안 닿음 */ }
+  // 예전에는 파일의 '마지막 수정 시각' 을 돌려줬다. 그런데 서버가 스스로 적는 것
+  // (기기 탭 · 변경기록 · 탭 순서 · 오류기록) 도 그 시각을 바꿔서, 5분마다 어느 태블릿이
+  // 물어보기만 해도 다른 태블릿에 [새 내용] 점이 켜졌다 (v3.49). 이제 **내용** 이 바뀐
+  // 시각만 따로 둔다: 앱이 올린 것은 doPost 가, 사람이 시트에서 고친 것은 onEdit 가 적는다.
+  var stamp = dataChangedAt();
   // 하루 한 번 백업 · 기기 기록 — 5분마다 오는 이 물음에 얹는다 (트리거가 필요 없다)
   backupIfDue(ss);
   touchDevice(ss, body || {}, { pending: body && body.pending });
   return json({ ok: true, changedAt: stamp, minVersion: minAppVersion(ss) });
+}
+
+
+/** 이 요청이 팀이 보는 내용을 바꾸나 (받기 · 묻기 · 첨부 조각 · 오류 모으기는 아니다) */
+function changesData(asked) {
+  if (!asked || asked.changed || asked.ping || asked.errors || asked.release || asked.drive) return false;
+  if (asked.media === 'chunk' || asked.media === 'finish') return false;
+  for (var i = 0; i < DATA_KINDS.length; i++) {
+    var verb = asked[DATA_KINDS[i]];
+    if (verb) return READ_VERBS[String(verb)] !== true;
+  }
+  return Boolean(asked.sheetName && asked.row);          // 리포트 한 줄 올리기
+}
+
+/** 응답이 성공(ok)이고, 같은 리포트를 다시 받은 것(again)이 아닌가 */
+function replyOk(out) {
+  if (!out || typeof out.getContent !== 'function') return true;
+  var reply = JSON.parse(out.getContent());
+  return reply.ok !== false && !reply.again && !reply.stale;
+}
+
+function markDataChanged() {
+  PropertiesService.getScriptProperties().setProperty(DATA_CHANGED_PROP, new Date().toISOString());
+}
+
+function dataChangedAt() {
+  var props = PropertiesService.getScriptProperties();
+  var stamp = props.getProperty(DATA_CHANGED_PROP);
+  if (!stamp) {                       // 처음 — 지금을 기준으로 삼는다
+    stamp = new Date().toISOString();
+    props.setProperty(DATA_CHANGED_PROP, stamp);
+  }
+  return stamp;
+}
+
+/**
+ * 사람이 시트를 직접 고쳤을 때 (단순 트리거 — 설치나 새 권한이 필요 없다).
+ * 스크립트가 쓴 것으로는 불리지 않는다. 기기 · 변경기록 · 오류기록 탭은 사람이 고쳐도 내용이 아니다.
+ */
+function onEdit(e) {
+  try {
+    var name = e && e.range ? e.range.getSheet().getName() : '';
+    if (name === DEVICE_SHEET || name === LOG_SHEET || name === ERROR_SHEET) return;
+    markDataChanged();
+  } catch (err) { /* 단순 트리거는 조용히 */ }
 }
 
 /** 매장 → 날짜 → 사진/동영상 순으로 내려가며 폴더를 만든다. */
@@ -2332,15 +2547,7 @@ function driveSpace() {
  * '상태' 열은 앱이 리포트를 올릴 때 헤더 맨 뒤에 함께 만든다.
  * 시트에서 직접 고쳐도 되고, 앱이 다음에 읽어 갈 때 그대로 반영된다.
  */
-var STATUS_HEADER = '상태';
 /** 항목 줄의 첫 칸 — 자료 줄과 구분하는 기준이다 (앱의 META_HEADERS[0] 과 같아야 한다) */
-var REPORT_FIRST_HEADER = '작성일시';
-var REPORT_HEADER_ROW = 2;
-var REPORT_DATA_ROW = 3;
-// 월 탭 이름. 항목이 바뀌어 갈라진 탭도 같은 달로 본다 — `2026-09`, `2026-09 (2)`
-// 새로 만들 때는 `2026-09` 하나만 쓴다. 예전 판이 만든 `2026-09 (2)` 탭도
-// 목록에는 계속 보여 준다 — 이미 쌓인 리포트를 못 보게 하면 안 된다.
-var MONTH_TAB = /^\d{4}-\d{2}( \(\d+\))?$/;
 
 /* ── 리포트 번호 목록 (소비자 앱 시트) ─────────────────────────────────
  *
@@ -2354,12 +2561,6 @@ var MONTH_TAB = /^\d{4}-\d{2}( \(\d+\))?$/;
  *
  *  { reports: 'numbers' } → [{ number, store, problem, receivedAt }] 최근 것부터
  */
-var CONSUMER_SS_ID = '1ZUsgwFVX1O97778MKoedU2f-UsnShRcrI85o5WNICwo';
-var CONSUMER_REPORT_GID = 1882930844;     // [리포트] 탭 — 이름이 바뀌어도 gid 는 그대로
-var CONSUMER_REQUEST_MARK = '필드팀';     // '조치결과' 칸에 이 말이 들어 있으면 필드팀 요청 건
-// '콘솔 상태' 칸에 이 말들 중 하나가 들어 있으면 아직 안 끝난 건.
-// '진행' 만 본다 — '진행중' / '진행 중' 어느 쪽으로 적혀도 걸리게.
-var CONSUMER_OPEN_MARKS = ['대기', '진행'];
 
 /** 콘솔에서 아직 끝나지 않은 건인가 ('대기' · '진행중') */
 function isConsoleOpen(value) {
@@ -2402,7 +2603,6 @@ function consumerReportSheet() {
  *   · 소비자 앱 [리포트] 탭의 그날 번호
  * 고객사 접수는 '고객사 리포트' 칸에 따로 적는다 (번호 안에 접수일이 들어 있다).
  */
-var REPORT_NO_PREFIX = 'P';
 
 function nextReportNumber(sheet, ymd, extra) {
   var head = REPORT_NO_PREFIX + ymd + '-';
@@ -2580,7 +2780,7 @@ function handleReports(ss, body) {
         line[idx] = (had ? had + NEWLINE : '') + savedU.byColumn[colU].join(NEWLINE);
       }
 
-      target.getRange(rowIndex, 1, 1, line.length).setValues([line]);
+      target.getRange(rowIndex, 1, 1, line.length).setValues(safeRows([line]));
       target.getRange(rowIndex, 1, 1, line.length)
         .setVerticalAlignment('top').setWrap(true);
       // setValues 는 글자로만 적으므로, 첨부 칸을 다시 파란 링크로 살린다.
@@ -2707,7 +2907,6 @@ function handleDriveInfo(body) {
  * 'thumb' 는 드라이브가 만들어 둔 작은 미리보기라 가볍고 빠르다(목록용).
  * 'full' 은 원본이다 — 너무 큰 파일은 미리보기로 대신한다.
  */
-var BYTES_MAX = 12 * 1024 * 1024;      // 한 번에 실어 보낼 수 있는 한도
 
 function handleDriveBytes(body) {
   var ids = body.ids || [];
@@ -2884,23 +3083,6 @@ function doGet() {
  * 새 권한은 쓰지 않는다 (DriveApp · CacheService 는 이미 있는 권한 안이다) — 권한이 늘면
  * 배포한 사람이 다시 승인할 때까지 태블릿 전체가 시트에 못 닿는다.
  */
-var LOG_SHEET = '변경기록';
-var LOG_HEADER = ['시각', '기기 · 사람', '앱 버전', '종류', '대상', '내용'];
-var LOG_WIDTHS = [140, 130, 80, 110, 220, 520];
-var LOG_KEEP = 5000;                  // 이보다 많으면 오래된 줄부터 지운다
-var TRASH_SHEET = '휴지통';
-var TRASH_HEADER = ['지운 시각', '기기 · 사람', '종류', '이름', '되살림', '자료(고치지 마세요)'];
-var TRASH_WIDTHS = [140, 130, 90, 300, 140, 80];
-var DEVICE_SHEET = '기기';
-var DEVICE_HEADER = ['기기 · 사람', '앱 버전', '마지막 연결', '올리지 못한 것', '마지막 오류'];
-var DEVICE_WIDTHS = [160, 90, 150, 110, 420];
-var ERROR_SHEET = '오류기록';
-var ERROR_HEADER = ['시각', '기기 · 사람', '앱 버전', '화면', '내용', '자세히'];
-var ERROR_WIDTHS = [140, 130, 80, 140, 360, 420];
-var BACKUP_FOLDER_NAME = '시트 백업';
-var BACKUP_KEEP_DAYS = 30;
-var BACKUP_PROP = 'LAST_BACKUP_DAY';
-var BACKUP_RUNNING_PROP = 'BACKUP_RUNNING_AT';     // 백업 중 표시 (공용 잠금 대신 — v3.47)
 
 function nowText() {
   return Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
@@ -2919,7 +3101,7 @@ function opsSheet(ss, name, header, widths) {
 /** 표 끝에 한 줄 (2행이 머리줄) */
 function appendRow(sheet, values) {
   var at = Math.max(sheet.getLastRow(), 2) + 1;
-  sheet.getRange(at, 1, 1, values.length).setValues([values]);
+  sheet.getRange(at, 1, 1, values.length).setValues(safeRows([values]));
   return at;
 }
 
@@ -2949,6 +3131,10 @@ function putInTrash(ss, body, kind, name, data) {
   try {
     var sheet = opsSheet(ss, TRASH_SHEET, TRASH_HEADER, TRASH_WIDTHS);
     appendRow(sheet, [nowText(), who(body), kind, clip(name, 200), '', JSON.stringify(data)]);
+    // 끝없이 커지지 않게 (v3.49) — 줄마다 되살릴 자료(JSON)가 통째로 들어 있어 목록이 점점 느려졌다.
+    // 오래된 것부터 몰아서 지운다 (100줄 넘게 넘쳤을 때만 — 줄 지우기는 느리다)
+    var extra = sheet.getLastRow() - 2 - TRASH_KEEP;
+    if (extra > 100) sheet.deleteRows(3, extra);
   } catch (err) { /* 휴지통 실패가 지우기를 막지는 않는다 */ }
 }
 
@@ -3021,7 +3207,7 @@ function restoreReport(ss, data) {
     var to = placed.map[r] || 0;
     if (to >= 1) aligned[to - 1] = row[r];
   }
-  sheet.getRange(placed.target, 1, 1, aligned.length).setValues([aligned]);
+  sheet.getRange(placed.target, 1, 1, aligned.length).setValues(safeRows([aligned]));
   relinkDriveCells(sheet, placed.target, aligned);
   // 지울 때 드라이브 휴지통에 넣은 사진 · 영상을 꺼낸다 — 링크가 그대로 산다 (v3.38)
   var back = setMediaTrashed(data.media || [], false);
@@ -3134,7 +3320,7 @@ function touchDevice(ss, body, extra) {
     line[2] = nowText();
     if (extra && extra.pending !== undefined) line[3] = Number(extra.pending) || 0;
     if (extra && extra.error) line[4] = clip(extra.error, 300);
-    sheet.getRange(at, 1, 1, DEVICE_HEADER.length).setValues([line]);
+    sheet.getRange(at, 1, 1, DEVICE_HEADER.length).setValues(safeRows([line]));
     cache.put(ckey, String(body.app || ''), 1200);
   } catch (err) { /* 기기 기록 실패는 무시 */ }
 }
@@ -3161,11 +3347,44 @@ function handleErrors(ss, body) {
                clip(e.message, 400), clip(e.detail, 1500)]);
   }
   var at = Math.max(sheet.getLastRow(), 2) + 1;
-  sheet.getRange(at, 1, rows.length, ERROR_HEADER.length).setValues(rows);
+  sheet.getRange(at, 1, rows.length, ERROR_HEADER.length).setValues(safeRows(rows));
   var extra = sheet.getLastRow() - 2 - 3000;
   if (extra > 0) sheet.deleteRows(3, extra);
   touchDevice(ss, body, { error: rows[rows.length - 1][4] });
   return json({ ok: true, saved: rows.length });
+}
+
+/**
+ * 매일 상태 점검 (v3.49) — 오류기록 탭을 아무도 보지 않아, 문제가 쌓여도 몰랐다.
+ * GitHub 가 매일 아침 이것을 묻고 문제가 있으면 이슈로 알린다. 저장소가 공개라
+ * **숫자만** 돌려준다 (기기 이름 · 오류 내용 · 매장은 내보내지 않는다).
+ */
+function handleHealth(ss) {
+  var since = Utilities.formatDate(new Date(Date.now() - 86400000), 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
+  var asText = function (v) {
+    return v instanceof Date ? Utilities.formatDate(v, 'Asia/Seoul', 'yyyy-MM-dd HH:mm') : String(v || '').replace('T', ' ');
+  };
+  var errors = 0;
+  var es = ss.getSheetByName(ERROR_SHEET);
+  if (es && es.getLastRow() >= 3) {
+    var n = Math.min(es.getLastRow() - 2, 500);           // 최근 500줄만 본다
+    var at = es.getRange(es.getLastRow() - n + 1, 1, n, 1).getValues();
+    for (var i = 0; i < at.length; i++) if (asText(at[i][0]) >= since) errors++;
+  }
+  var pending = 0;
+  var ds = ss.getSheetByName(DEVICE_SHEET);
+  if (ds && ds.getLastRow() >= 3) {
+    var dev = ds.getRange(3, 4, ds.getLastRow() - 2, 1).getValues();
+    for (var j = 0; j < dev.length; j++) if (Number(dev[j][0]) > 0) pending++;
+  }
+  return json({
+    ok: true,
+    at: nowText(),
+    errors24h: errors,                                       // 지난 24시간 기기 오류 수
+    devicesWithPending: pending,                             // 올리지 못한 것이 남은 기기 수
+    lastBackup: PropertiesService.getScriptProperties().getProperty(BACKUP_PROP) || '',
+    minVersion: minAppVersion(ss)
+  });
 }
 
 /* ----------------------------------------------------------- 매일 백업 */
@@ -3336,8 +3555,6 @@ function inventoryDiff(before, after) {
  * 폴더 위치는 6시간 기억한다(cachedFolder). 조각 요청은 탭 순서 맞추기를 건너뛴다(doPost).
  * 조각은 '업로드 조각' 폴더에 두었다가 다 붙이면 지운다. 버려진 조각은 이틀 뒤 지운다.
  */
-var CHUNK_FOLDER_NAME = '업로드 조각 (자동 정리)';
-var CHUNK_KEEP_MS = 2 * 86400000;
 
 function chunkFolder(ss) {
   return cachedFolder('fold:chunk', function () { return folderByName(mediaRoot(ss).folder, CHUNK_FOLDER_NAME); });
@@ -3395,7 +3612,6 @@ function trashByName(folder, name) {
  * id 로 여는 것(getFileById)은 바로 된다. 그래서 조각을 만들 때 id 를 적어 두고
  * (캐시 6시간 + 앱에도 돌려준다) 마무리는 id 로 연다. 이름 찾기는 둘 다 없을 때만.
  */
-var CHUNK_ID_TTL = 21600;
 function chunkIdKey(id, index) { return 'chunk:' + id + '.' + index; }
 
 function chunkCache() {
@@ -3513,12 +3729,6 @@ function cleanupChunks(ss) {
  *     {op:'item-learn', id, causes, actions} — 현장에서 새로 적은 원인 · 조치를 **더하기만** (v3.42)
  *     {op:'item-forget', id, causes, actions} — 현장에서 잘못 적은 것을 빼기 (고치기 = 빼기 + 더하기)
  */
-var WORK_SHEET = '이슈 유형 목록';
-var WORK_SHEET_OLD = '작업 목록';     // v3.31 이름 — 있으면 이름만 바꿔 쓴다
-var WORK_HEADER = ['구분', '대분류', '세부 항목', '별칭 (쉼표로)', '가이드 ID', '상태', 'ID(고치지 마세요)',
-                   '원인 목록 (쉼표로)', '조치 목록 (쉼표로)'];
-var WORK_WIDTHS = [110, 150, 220, 260, 200, 90, 160, 300, 300];
-var WORK_KINDS = ['로봇 이슈', '로봇 외 이슈'];
 
 function splitList(text) {
   var out = [];
@@ -3592,7 +3802,7 @@ function writeWork(ss, list) {
   }
   var last = sheet.getLastRow();
   if (last >= 3) sheet.getRange(3, 1, last - 2, WORK_HEADER.length).clearContent();
-  if (lines.length) sheet.getRange(3, 1, lines.length, WORK_HEADER.length).setValues(lines);
+  if (lines.length) sheet.getRange(3, 1, lines.length, WORK_HEADER.length).setValues(safeRows(lines));
 }
 
 function applyWorkOps(list, ops) {

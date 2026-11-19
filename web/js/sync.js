@@ -8,7 +8,6 @@
 // 오프라인에서는 모든 작업이 기기 안에서 끝나고, 온라인이 되면
 // 대기열(outbox)을 구글 시트로 자동 처리한다.
 import * as store from './local/store.js';
-import * as idb from './local/idb.js';
 
 // ------------------------------------------------------------ 네트워크 상태
 
@@ -49,11 +48,6 @@ export const isPackagedApp = () => location.origin === APP_ASSET_ORIGIN;
  * 화면을 내려준 주소. 웹으로 접속했을 때 그 주소에서 사진을 받아오는 데만 쓴다.
  * APK 는 화면이 기기 안에 있으므로 빈 값이다 (그래도 앱은 그대로 동작한다).
  */
-export async function serverBase() {
-  if (isPackagedApp()) return '';
-  if (location.protocol.startsWith('http')) return location.origin;
-  return '';
-}
 
 
 class OfflineError extends Error {
@@ -314,7 +308,7 @@ async function doFlushOutbox(force = false) {
   // 한 건씩 따로 — 한 리포트가 실패해도 뒤의 리포트는 올라간다 (v3.46)
   const { uploadReport } = await import('./sheets.js');
   for (const row of rows.filter((r) => r.type === 'sheet')) {
-    await step('리포트 업로드', async () => {
+    await step('리포트 올리기', async () => {
       const report = await store.getReport(row.reportId);
       if (!report) { await store.dequeue(row.id); return; }
       await uploadReport(report);

@@ -5,9 +5,10 @@
   2) web/js/reportsheet.js  — 그 요청을 보내는 앱 쪽 창구
   3) web/js/sheets.js       — 첨부를 드라이브로 보내고 '상태' 열을 함께 만드는 전송
 
-Apps Script 는 구글 서버에서만 도는 코드라 여기서 실행할 수 없다.
-대신 **양쪽이 같은 이름·같은 낱말을 쓰고 있는지**를 고정한다.
-한쪽만 고치고 재배포하면 이력 화면이 통째로 비는 종류의 사고를 막는 것이 목적이다.
+(43) 예전에는 양쪽이 같은 이름 · 같은 낱말을 쓰는지를 글자로 고정했다. 지금은
+test_apps_script.mjs 가 .gs 를 가짜 시트에서 실제로 돌리고(월 목록 · 읽기 · 상태 · 첨부 ·
+공개 실패 수), e2e(report · v3362 · v346 · upload) 가 앱에서 이력을 받고 상태를 바꾸고
+첨부를 올려 본다. 여기는 그 밖의 것만 — 파일 이름 · 줄 모양에 묶이지 않게 (tests/_src.py).
 
 소스에 섞여 든 NUL(0x00) 문자도 함께 잡는다. 이 저장소에서 두 번 발생했고
 (.gs 편집 중 1회, store.js 1회) Apps Script 편집기가 저장을 거부하거나
@@ -16,12 +17,14 @@ git 이 파일을 바이너리로 취급해 diff 를 볼 수 없게 된다.
 실행: python3 tests/test_report_history.py
 """
 
+import io
+import re
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from webcss import all_store as _all_store  # noqa: E402  (store.js + store-*.js)
+from _src import (CSS_FILES, GS_FILES, JS, JS_FILES, ROOT, calls, count, defines, has,  # noqa: E402
+                  has_re, module_of)
 
 failures = []
 
@@ -33,84 +36,55 @@ def check(label, ok, detail=""):
 
 
 def read(*parts):
-    return open(os.path.join(ROOT, *parts), encoding="utf-8").read()
+    return io.open(os.path.join(ROOT, *parts), encoding="utf-8").read()
 
 
 print("=" * 62)
 print("리포트 이력(C안) 계약 검사")
 print("=" * 62)
 
-gs = read("google-apps-script.gs")
-sheet_js = read("web", "js", "reportsheet.js")
-sheets_js = read("web", "js", "sheets.js")
-sync_js = read("web", "js", "sync.js")
-# 작성 · 이력 · 공통 세 파일을 함께 본다 (v3.30 에 나눔)
-view_js = read("web", "js", "views", "report.js") + "\n".join(read(*p) for p in [("web", "js", "views", "history.js"), ("web", "js", "views", "report-common.js")])
-store_js = _all_store()
+rs = module_of("pushStatusOps")        # 이력 창구 (reportsheet)
+sheets = module_of("seedStatus")       # 시트로 보내는 전송 (sheets)
+sync_mod = module_of("flushOutbox")
+history = module_of("reportListView")  # 이력 화면
+check("이력 창구 · 전송 · 이력 화면이 있다", all([rs, sheets, sync_mod, history]))
 
 # ---------------------------------------------------------- Apps Script 쪽
-check("Apps Script 가 reports 요청을 받는다", "body.reports" in gs)
-check("Apps Script 에 handleReports 가 있다", "function handleReports" in gs)
-for action in ("months", "pull", "status"):
-    check(f"reports '{action}' 처리가 있다", f"'{action}'" in gs)
-check("월별 탭을 읽는 readReportSheet 가 있다", "function readReportSheet" in gs)
-check("'상태' 열을 찾는 statusColumn 이 있다", "function statusColumn" in gs)
-check("첨부를 드라이브에 넣는 saveMediaToDrive 가 있다",
-      "function saveMediaToDrive" in gs)
-check("드라이브 링크를 '링크가 있는 사람은 보기' 로 연다",
-      "ANYONE_WITH_LINK" in gs)
-check("상태 쓰기에 잠금이 걸려 있다 (동시 변경 대비)",
-      "handleReports" in gs and "LockService" in gs)
-check("표시값으로 읽는다 (날짜가 숫자로 오지 않도록)",
-      "getDisplayValues" in gs)
+# 월 목록 · 읽기 · 상태 · 첨부 · 링크 공개 는 test_apps_script.mjs 가 돌려 본다.
+check("상태 쓰기에 잠금이 걸려 있다 (동시 변경 대비)", has_re(r"LockService\.\w+\(", "gs"))
+check("표시값으로 읽는다 (날짜가 숫자로 오지 않도록)", has_re(r"getDisplayValues\(", "gs"))
 
 # ------------------------------------------------------------- 앱 쪽 창구
-for action in ("'months'", "'pull'", "'status'"):
-    check(f"reportsheet.js 가 reports {action} 를 보낸다",
-          f"reports: {action}" in sheet_js)
-check("오프라인이면 마지막으로 받아 둔 내용을 쓴다", "fromCache" in sheet_js)
-check("오프라인 상태 변경을 대기열에 넣는다",
-      "report-status" in sheet_js and "enqueue" in sheet_js)
-check("드라이브 파일 id 를 뽑아 썸네일 주소를 만든다",
-      "driveId" in sheet_js and "thumbnail?id=" in sheet_js)
+# months · pull · status 요청과 오프라인 사본은 e2e(report · v3362 · v346) 가 본다.
+check("오프라인 상태 변경을 대기열에 넣는다", has("'report-status'", rs) and has_re(r"enqueue\(", rs))
+check("드라이브 파일 id 를 뽑아 썸네일 주소를 만든다", defines("driveId") and defines("thumbUrl"))
 check("줄 순서가 아니라 작성일시로 정렬한다 (시트에서 정렬해도 안전)",
-      "createdAt" in sheet_js and ".sort(" in sheet_js)
+      has_re(r"\.sort\([^;]*createdAt", rs))
 
 # --------------------------------------------------------------- 전송 형식
-check("시트 헤더 맨 뒤에 '상태' 열을 만든다", "STATUS_HEADER" in sheets_js)
-check("상태 4종이 정의돼 있다", "STATUS_VALUES" in sheets_js)
+# '상태' 열 · 상태 넷 · 첨부를 드라이브로는 e2e(report · upload) 가 실제로 본다.
 for value in ("조치 완료", "모니터링", "조치 진행 중", "교체 예정"):
-    check(f"상태 '{value}' 가 있다", value in sheets_js)
-check("첫 상태를 [처리 결과]에서 가져온다", "seedStatus" in sheets_js)
+    check(f"상태 '{value}' 가 있다", has(f"'{value}'"))
+check("첫 상태를 [처리 결과]에서 가져온다", defines("seedStatus") and bool(calls("seedStatus")))
 check("[처리 결과]를 덮지 않고 따로 둔다 (열이 분리돼 있다)",
-      "RESULT_TO_STATUS" in sheets_js)
-check("첨부를 media 로 보낸다 (시트 삽입이 아니라 드라이브)",
-      "media," in sheets_js and "mediaSkipped" in sheets_js)
-check("첨부 용량 상한이 있다",
-      "MEDIA_FILE_LIMIT" in sheets_js and "MEDIA_TOTAL_LIMIT" in sheets_js)
+      has_re(r"const\s+\w+\s*=\s*\{[^}]*'[^']+'\s*:\s*'(조치 완료|모니터링|조치 진행 중|교체 예정)'"))
 
 # ------------------------------------------------------------ 대기열 처리
-check("sync.js 가 밀린 상태 변경을 시트에 반영한다",
-      "report-status" in sync_js and "pushStatusOps" in sync_js)
-check("같은 줄의 상태는 마지막 것만 남긴다", "lastStatusByRow" in store_js)
+check("자동 올리기가 밀린 상태 변경을 시트에 반영한다",
+      has("'report-status'", sync_mod) and bool(calls("pushStatusOps")))
+check("같은 줄의 상태는 마지막 것만 남긴다",
+      has_re(r"\$\{\s*\w+\.sheetName\s*\}#\$\{\s*\w+\.row\s*\}", module_of("outbox")))
 
 # ----------------------------------------------------------------- 화면
-check("이력 화면에 상태별 건수 칩이 있다", "hist-chips" in view_js and "function counts()" in view_js)
-check("타일이 필터로 동작한다", "data-act=\"filter\"" in view_js)
-check("검색이 식당명과 날짜를 함께 본다",
-      "e.store" in view_js and "e.date" in view_js)
-check("월 선택기가 있다", "histMonth" in view_js)
+check("이력 화면에 상태별 건수 칩 · 타일이 필터로 동작한다",
+      has("hist-chips") and has('data-act="filter"'))
+check("검색이 식당명과 날짜를 함께 본다", has_re(r"\w+\.store\b", history) and has_re(r"\w+\.date\b", history))
+check("월 선택기가 있다", has('id="histMonth"'))
 
-# ------------------------------------------------- 소스에 NUL 이 없는지
-for rel in ("google-apps-script.gs",
-            os.path.join("web", "js", "reportsheet.js"),
-            os.path.join("web", "js", "sheets.js"),
-            os.path.join("web", "js", "local", "store.js"),
-            os.path.join("web", "js", "views", "report.js"),
-            os.path.join("web", "js", "views", "history.js")):
-    raw = open(os.path.join(ROOT, rel), "rb").read()
-    check(f"{rel} 에 NUL 문자가 없다", b"\x00" not in raw,
-          "" if b"\x00" not in raw else f"{raw.count(chr(0).encode())}개 발견")
+# ------------------------------------------------- 소스에 NUL 이 없는지 (화면 코드 · 스타일 · .gs 전부)
+nul = [rel for rel in list(JS_FILES) + list(CSS_FILES) + list(GS_FILES)
+       if b"\x00" in open(os.path.join(ROOT, rel), "rb").read()]
+check("소스에 NUL 문자가 없다", not nul, ", ".join(nul))
 
 
 # ── 동영상 첨부 — 한도를 고르는 순간 알려 준다 (v3.15) ─────────────────
@@ -121,28 +95,23 @@ for rel in ("google-apps-script.gs",
 # 거짓이 되므로 용량 기준으로 적고 초 환산은 참고로만 붙인다.
 print()
 print("── 동영상 첨부")
-check("한도를 sheets.js 가 내보낸다 (화면과 전송이 같은 숫자를 쓴다)",
-      "export const MEDIA_FILE_LIMIT" in sheets_js
-      and "export const MEDIA_TOTAL_LIMIT" in sheets_js)
-check("화면이 한도를 sheets.js 에서 가져온다 (숫자를 두 곳에 적지 않는다)",
-      "import { MEDIA_FILE_LIMIT, MEDIA_TOTAL_LIMIT" in view_js
-      and "from '../sheets.js'" in view_js
-      and "20 * 1024 * 1024" not in view_js)
-check("[영상 촬영] 타일이 있다", 'data-act="${act}" data-field="${fieldId}"' in view_js
-      and "tile('record', '영상 촬영', ICON_VIDEO)" in view_js)
+check("한도를 한 곳에서 정한다 (화면과 전송이 같은 숫자를 쓴다)",
+      count("const MEDIA_FILE_LIMIT =") == 1 and count("const MEDIA_TOTAL_LIMIT =") == 1
+      and not has("20 * 1024 * 1024"))
+check("[영상 촬영] 타일이 있다", has_re(r"tile\(\s*'record'"))
 check("동영상 촬영 입력은 카메라를 바로 연다",
-      'id="mediaRecord" accept="video/*" capture="environment"' in view_js)
+      has_re(r'<input(?=[^>]*id="mediaRecord")(?=[^>]*accept="video/\*")(?=[^>]*capture="environment")'))
 check("고르는 순간 크기를 확인한다 (저장 때 조용히 빼지 않는다)",
-      "function tooBigReason(file)" in view_js
-      and "const reason = tooBigReason(file);" in view_js
-      and "if (reason) { toast(reason, 'err'); continue; }" in view_js)
+      defines("tooBigReason") and bool(calls("tooBigReason"))
+      and has_re(r"if\s*\(\s*\w+\s*\)\s*\{\s*toast\(\s*\w+\s*,\s*'err'\s*\)\s*;\s*continue\s*;"))
+# 작성 화면을 여러 파일로 나눠도 — 크기를 재는 첫 자리 바로 앞(같은 함수 안)에서 사진을 줄인다
+_size = re.search(r"(?<!function )tooBigReason\(", JS)
 check("사진은 줄인 뒤 크기로 판단한다",
-      view_js.index("const file = await shrinkImage(original);")
-      < view_js.index("const reason = tooBigReason(file);"))
+      bool(_size) and "shrinkImage(" in JS[max(0, _size.start() - 300):_size.start()])
 check("리포트 전체 한도도 고르는 순간 확인한다",
-      "attachedBytes() + file.size > MEDIA_TOTAL_LIMIT" in view_js)
+      has_re(r"\+\s*\w+\.size\s*>\s*MEDIA_TOTAL_LIMIT"))
 check("붙인 첨부에 크기를 남긴다 (전체 한도 계산용)",
-      "originalName: media.originalName, size: media.size," in view_js)
+      has_re(r"originalName\s*:\s*\w+\.originalName\s*,\s*size\s*:\s*\w+\.size"))
 # 20초는 카메라가 실제로 멈추는 한도다(MainActivity 의 EXTRA_DURATION_LIMIT).
 # 그래서 시간 안내를 써도 거짓이 아니다. 용량 한도는 그대로 함께 적는다.
 # v3.23 — 설명은 한 줄로 줄였지만 한도 둘은 그대로 적는다 (거짓이 아니어야 한다).
@@ -150,21 +119,18 @@ check("붙인 첨부에 크기를 남긴다 (전체 한도 계산용)",
 _main = read("android", "app", "src", "main", "java", "com", "beyondhoneycomb", "fieldportal", "MainActivity.java")
 _vc = read("android", "app", "src", "main", "java", "com", "beyondhoneycomb", "fieldportal", "VideoCompressor.java")
 check("안내 문구에 진짜 한도 둘(최대 1분 · 파일당 25MB)이 함께 있다",
-      "영상 최대 1분 · 파일 ${MEDIA_FILE_LIMIT_TEXT}" in view_js
+      has("영상 최대 1분 · 파일 ${MEDIA_FILE_LIMIT_TEXT}")
       and "EXTRA_DURATION_LIMIT, VIDEO_SECONDS_LIMIT" in _main
       and "VIDEO_SECONDS_LIMIT = 60" in _main
-      and "export const MEDIA_FILE_LIMIT = 25 * 1024 * 1024;" in sheets_js)
+      and has("MEDIA_FILE_LIMIT = 25 * 1024 * 1024"))
 check("영상은 고화질로 찍고 앱이 720p · 2.2Mbps 로 줄인다",
       "EXTRA_VIDEO_QUALITY, 1" in _main and "VideoCompressor.needsWork(this, picked)" in _main
       and "VIDEO_BITRATE = 2_200_000" in _vc and "SHORT_SIDE = 720" in _vc
       and "FILE_LIMIT = 25L * 1024 * 1024" in _vc and "MAX_DURATION_MS = 60_000L" in _vc)
-check("Apps Script 가 공개 실패 수를 알려 준다", "mediaPrivate: saved.privateCount || 0" in gs)
 check("전송이 공개 실패 수와 동영상 수를 화면에 넘긴다",
-      "mediaPrivate: Number(result.mediaPrivate || 0)" in sheets_js
-      and "mediaVideos: payload.media.filter" in sheets_js)
-check("동영상이 비공개로 남으면 화면이 알린다 (사진과 달리 우회가 없다)",
-      "function warnPrivateVideo(result)" in view_js
-      and view_js.count("warnPrivateVideo(result);") == 2)
+      has_re(r"mediaPrivate\s*:") and has_re(r"mediaVideos\s*:"))
+check("동영상이 비공개로 남으면 화면이 알린다 (사진과 달리 우회가 없다 · 새로 쓰기와 다시 올리기 둘 다)",
+      defines("warnPrivateVideo") and len(calls("warnPrivateVideo")) >= 2)
 
 print("=" * 62)
 if failures:

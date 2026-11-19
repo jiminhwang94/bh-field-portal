@@ -1028,12 +1028,27 @@ check('연도 없이 만든 옛 탭도 읽는다',
 // 바뀐 시각 — 태블릿이 5분마다 이것만 묻는다
 // ═══════════════════════════════════════════════════════════════════
 console.log('');
-console.log('── 시트가 마지막으로 바뀐 시각');
-const c1 = call({ changed: true });
-check('시각을 ISO 로 돌려준다', c1.ok === true && /^2026-09-14T/.test(c1.changedAt), JSON.stringify(c1));
-env.updatedAt = new Date(2026, 8, 14, 9, 5, 0);
+console.log('── 내용이 마지막으로 바뀐 시각 (v3.49 — 서버가 스스로 적는 것은 세지 않는다)');
+const OLD = '2000-01-01T00:00:00.000Z';
+const c1 = call({ changed: true, device: '태블릿A' });
+check('시각을 ISO 로 돌려준다', c1.ok === true && /^\d{4}-\d{2}-\d{2}T/.test(c1.changedAt), JSON.stringify(c1));
+env.scriptProps.set('DATA_CHANGED_AT', OLD);
+env.updatedAt = new Date(2026, 8, 14, 9, 5, 0);                     // 파일 시각은 바뀌어도
+call({ changed: true, device: '태블릿B' });                          // 다른 기기가 묻기만 함 (기기 탭에 적힌다)
+call({ inventory: 'pull' }); call({ reports: 'months' }); call({ ping: true });
+call({ guides: 'pull' }); call({ driving: 'pull', vehicleName: '옛차량' });
+check('묻기 · 받기로는 바뀌지 않는다 ([새 내용] 점이 늘 켜지던 원인)',
+      call({ changed: true }).changedAt === OLD, call({ changed: true }).changedAt);
+call({ driving: 'push', vehicleName: '시각검사차', info: {}, rows: [] });
 const c2 = call({ changed: true });
-check('시트가 바뀌면 시각도 바뀐다', c2.changedAt !== c1.changedAt);
+check('내용을 올리면 바뀐다', c2.changedAt !== OLD, c2.changedAt);
+env.scriptProps.set('DATA_CHANGED_AT', OLD);
+call({ work: 'nope' });
+check('실패한 요청으로는 바뀌지 않는다', call({ changed: true }).changedAt === OLD);
+env.gs.onEdit({ range: { getSheet: () => ({ getName: () => '기기' }) } });
+check('사람이 기기 탭을 고친 것은 내용이 아니다', call({ changed: true }).changedAt === OLD);
+env.gs.onEdit({ range: { getSheet: () => ({ getName: () => '차량재고' }) } });
+check('사람이 시트에서 고치면 바뀐다 (onEdit)', call({ changed: true }).changedAt !== OLD);
 check('자료는 딸려 오지 않는다 (가벼운 물음 — 최소 버전만 함께)', Object.keys(c2).sort().join(',') === 'changedAt,minVersion,ok', Object.keys(c2).join(','));
 
 
@@ -1642,6 +1657,73 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
   check('한 줄씩 지우지 않고 한 번에 지운다', env.deleteRowsCalls.count >= 1 && env.deleteRowCalls.count === 0,
         `몰아서 ${env.deleteRowsCalls.count}번 · 한 줄씩 ${env.deleteRowCalls.count}번`);
   check('남은 줄은 5000줄 안팎', log.getLastRow() - 2 <= 5001, `${log.getLastRow() - 2}줄`);
+}
+
+{
+  console.log('[두 번 받기] 답을 못 받아 다시 보낸 리포트는 줄을 또 쓰지 않는다 (v3.49)');
+  const sent = { sheetName: '2027-01', headers: HEADERS,
+    row: ['2027-01-02 09:00', '태블릿', '두번매장', '같은 리포트', '조치 필요'] };
+  const first = call({ ...sent, uploadId: 'rep1abcd.k3j2' });
+  const again = call({ ...sent, uploadId: 'rep1abcd.k3j2' });
+  const rows = () => call({ reports: 'pull', sheetName: '2027-01' }).rows.length;
+  check('같은 번호로 두 번 와도 한 줄', rows() === 1, `${rows()}줄`);
+  check('두 번째는 처음 결과를 돌려준다 (같은 줄 · again)',
+        again.ok === true && again.again === true && again.row === first.row && again.sheetName === '2027-01',
+        JSON.stringify(again));
+  call({ ...sent, uploadId: 'rep1abcd.zz99' });
+  check('내용이 바뀐 번호면 새 줄', rows() === 2, `${rows()}줄`);
+  call(sent);
+  check('번호가 없는 옛 앱은 예전처럼 쓴다', rows() === 3, `${rows()}줄`);
+  call({ ...sent, uploadId: '../bad id' });
+  call({ ...sent, uploadId: '../bad id' });
+  check('이상한 번호는 무시하고 예전처럼 쓴다', rows() === 5, `${rows()}줄`);
+  const t = ss.getSheetByName('2027-01');
+  t.deleteRows(3, t.getLastRow() - 2);
+  const after = call({ ...sent, uploadId: 'rep1abcd.k3j2' });
+  check('그 줄이 지워졌으면 다시 쓴다', after.again !== true && rows() === 1, `${rows()}줄`);
+}
+
+{
+  console.log('[수식 막기] - · + · = 로 시작하는 글도 글자 그대로 남는다 (v3.49)');
+  const tricky = ['- 배터리 교체', '=1+1', '+82 10-1234', '@메모', "'따옴표"];
+  call({ sheetName: '2027-02', headers: HEADERS,
+    row: ['2027-02-01 09:00', '태블릿', tricky[0], tricky[1], tricky[2], tricky[3]] });
+  const back = call({ reports: 'pull', sheetName: '2027-02' }).rows[0].cells;
+  check('리포트 칸: #ERROR! 없이 그대로 되읽는다', tricky.slice(0, 4).every((t) => back.includes(t)),
+        JSON.stringify(back));
+  call({ sheetName: '2027-02', headers: HEADERS, row: ['2027-02-01 10:00', '태블릿', tricky[4], '-5', '', ''] });
+  const back2 = call({ reports: 'pull', sheetName: '2027-02' }).rows.find((r) => r.cells.includes(tricky[4]));
+  check("' 로 시작하는 글도 잃지 않는다 · 숫자(-5)는 그대로", Boolean(back2) && back2.cells.includes('-5'),
+        JSON.stringify(back2 && back2.cells));
+  const inv = call({ inventory: 'pull' });
+  call({ inventory: 'push', base: inv.version, vehicles: inv.vehicles,
+         items: [...inv.items, { vehicleName: inv.vehicles[0], partName: '- 예비 퓨즈', category: '', quantity: 1, minQuantity: 0 }] });
+  check('재고 품목 이름도', call({ inventory: 'pull' }).items.some((i) => i.partName === '- 예비 퓨즈'));
+}
+
+{
+  console.log('[휴지통] 1000건을 넘으면 오래된 것부터 지운다 (v3.49)');
+  const trash = ss.getSheetByName('휴지통') || ss.insertSheet('휴지통');
+  if (trash.getLastRow() < 2) trash.getRange(2, 1, 1, 6).setValues([['지운 시각', '기기 · 사람', '종류', '이름', '되살림', '자료(고치지 마세요)']]);
+  const fill = [];
+  for (let i = trash.getLastRow() - 2; i < 1150; i += 1) fill.push(['2026-01-01 00:00', '옛', '가이드', `옛 ${i}`, '', '{}']);
+  if (fill.length) trash.getRange(trash.getLastRow() + 1, 1, fill.length, 6).setValues(fill);
+  const r = call({ sheetName: '2027-03', headers: HEADERS, row: ['2027-03-01 09:00', '태블릿', '휴지통점', '', '', ''] });
+  call({ reports: 'delete', sheetName: '2027-03', row: r.row });
+  check('남은 줄은 1000건 안팎', trash.getLastRow() - 2 <= 1001, `${trash.getLastRow() - 2}줄`);
+  check('방금 지운 것은 남아 있다', call({ trash: 'list' }).items.some((it) => String(it.name).includes('휴지통점')));
+}
+
+{
+  console.log('[상태 점검] 숫자만 · 읽기만 (v3.49)');
+  call({ errors: 'push', device: '점검기기', items: [{ at: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 16).replace('T', ' '), screen: '#/', message: '점검용 오류' }] });
+  const before = JSON.stringify(env.ss.getSheets().map((sh) => [sh.getName(), sh.getLastRow()]));
+  const hp = call({ health: true, device: '점검봇' });
+  check('응답에 숫자가 온다', hp.ok === true && hp.errors24h >= 1 && typeof hp.devicesWithPending === 'number'
+        && 'lastBackup' in hp, JSON.stringify(hp));
+  check('기기 이름 · 오류 내용은 내보내지 않는다', !JSON.stringify(hp).includes('점검기기') && !JSON.stringify(hp).includes('점검용 오류'));
+  check('시트를 건드리지 않는다 (기기 탭에 점검봇이 생기지 않는다)',
+        JSON.stringify(env.ss.getSheets().map((sh) => [sh.getName(), sh.getLastRow()])) === before);
 }
 
 console.log('='.repeat(62));

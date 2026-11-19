@@ -58,6 +58,8 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.ready == 'yes'
         with:
+          # 다른 작업은 모두 24 (.nvmrc). 여기만 20 — 배포에 쓰는 clasp 2.4.2 가 이 버전에서
+          # 검증됐다. 바꾸다 배포가 깨지면 서버가 옛 코드로 남는다 (v3.49 에서 일부러 두었다)
           node-version: '20'
 
       # clasp 는 인증이 잘못돼도 "Could not read API credentials" 한 줄만 준다.

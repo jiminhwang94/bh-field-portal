@@ -8,7 +8,7 @@
 
 쓰는 법:
   python tools/release.py 3.30.0            세 곳 바꾸기 + CHANGELOG 칸 + 검사 + 커밋
-  python tools/release.py 3.30.0 --tag      ↑ + vX.Y.Z 태그 (main 에서만) → push 하면 APK 자동 빌드
+  (태그는 붙이지 않는다 — main 에 합쳐지면 CI 가 vX.Y.Z 태그를 붙이고 APK 를 만든다)
   python tools/release.py --check           세 곳이 같은지만 본다 (CI · 검사가 쓴다)
 
 버전을 올린 PR 이 main 에 합쳐지면 GitHub 가 vX.Y.Z 태그를 저절로 붙이고 APK 를 만든다 (v3.43.1~,
@@ -51,6 +51,21 @@ def git(*args):
     return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
 
 
+PATCH_KEEP = 12
+
+
+def trim_patch_notes(text, keep=PATCH_KEEP):
+    """[패치 내용] 은 최근 keep 개만 둔다 (v3.49) — 버전마다 늘어 창이 끝없이 길어졌다.
+
+    항목은 두 칸 들여 쓴 '{' 다음 줄의 version: 으로 시작한다. 지난 것은 CHANGELOG.md 에 다 있다.
+    """
+    starts = [m.start() for m in re.finditer(r"^  \{\n    version: '", text, re.M)]
+    if len(starts) <= keep:
+        return text
+    end = text.rindex("];")
+    return text[:starts[keep]] + text[end:]
+
+
 def main(argv):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -77,9 +92,14 @@ def main(argv):
         write(rel, text)
     print(f"버전 {old} → {new} (version.js · sw.js · build.gradle)")
 
-    notes = read(os.path.join("web", "js", "patchnotes.js"))
+    notes_rel = os.path.join("web", "js", "patchnotes.js")
+    notes = read(notes_rel)
     if f"version: '{new}'" not in notes:
         print(f"⚠ web/js/patchnotes.js 에 v{new} 패치 내용이 없습니다 — 현장 사람이 볼 짧은 문장을 맨 위에 더해 주세요.")
+    trimmed = trim_patch_notes(notes)
+    if trimmed != notes:
+        write(notes_rel, trimmed)
+        print(f"[패치 내용] 은 최근 {PATCH_KEEP}개만 남겼습니다 (지난 것은 CHANGELOG.md 에 그대로 있습니다).")
 
     changelog = read("CHANGELOG.md")
     if f"## [{new}]" not in changelog:
@@ -97,19 +117,15 @@ def main(argv):
             print("검사가 실패해 커밋하지 않았습니다. 고친 뒤 다시 하세요 (버전 숫자는 이미 바뀌어 있습니다).")
             return code
 
-    git("add", *[rel for rel, _, _ in FILES.values()], "CHANGELOG.md")
+    git("add", *[rel for rel, _, _ in FILES.values()], "CHANGELOG.md", notes_rel)
     msg = f"v{new} — 버전 올림\n\nversion.js · sw.js 캐시 · build.gradle 을 함께 바꿈 (tools/release.py)"
     r = git("commit", "-m", msg)
     print(r.stdout.strip() or r.stderr.strip())
 
     if "--tag" in argv:
-        branch = git("rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-        if branch != "main":
-            print(f"태그는 main 에서만 붙입니다 (지금 {branch}). PR 을 합친 뒤 main 에서 --tag 로 다시 하세요.")
-            return 0
-        r = git("tag", "-a", f"v{new}", "-m", f"v{new}")
-        print(r.stderr.strip() or f"태그 v{new} 를 붙였습니다.")
-        print(f"이제: git push origin main && git push origin v{new}   (태그가 올라가면 APK 가 자동으로 만들어집니다)")
+        # v3.43.1 부터 태그는 CI 가 붙인다 (main 에 build.gradle 이 바뀌어 올라가면 android.yml 의 gate).
+        # 손으로 붙이면 합치기 전 커밋에 붙는 사고가 났다 (v3.43.0) — 이제 붙이지 않고 알려만 준다.
+        print("--tag 는 더 쓰지 않습니다. PR 이 main 에 합쳐지면 CI 가 태그를 붙이고 APK 를 만듭니다.")
     return 0
 
 

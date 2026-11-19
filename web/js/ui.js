@@ -1,4 +1,5 @@
 // 공통 UI 헬퍼 (이스케이프, 토스트, 모달, 클립보드)
+import { attach } from './bloburls.js';
 
 export function h(value) {
   if (value === null || value === undefined) return '';
@@ -27,6 +28,20 @@ export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel
  *  · 오류는 [닫기] 를 누를 때까지 남는다. 로봇 부품을 든 채로 4초 안에 읽을 수는 없다.
  */
 const TOAST_MAX = 2;
+/**
+ * [⋯] · [관리 ⋯] 메뉴 (details.rf-more) — 메뉴 안의 버튼을 누르거나 바깥을 누르면 닫는다 (v3.49).
+ * details 는 스스로 닫히지 않아, 품목을 추가하고 돌아와도 메뉴가 열린 채 남았다.
+ */
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', (ev) => {
+    const target = /** @type {Element} */ (ev.target);
+    document.querySelectorAll('details.rf-more[open]').forEach((menu) => {
+      const inMenu = target && target.closest && target.closest('.rf-more__menu');
+      if (!menu.contains(target) || (inMenu && target.closest('button, a'))) /** @type {HTMLDetailsElement} */ (menu).open = false;
+    });
+  });
+}
+
 export function toast(message, type = '') {
   const root = $('#toasts');
   if (!root) return;
@@ -271,10 +286,7 @@ export async function hydrateMedia(root = document) {
     + 'video[data-media]:not([data-media-done]),'
     + 'a[data-media]:not([data-media-done])');
   if (!nodes.length) return;
-  const [store, sync] = await Promise.all([
-    import('./local/store.js'), import('./sync.js'),
-  ]);
-  const base = await sync.serverBase();
+  const store = await import('./local/store.js');
   const { previewUrl, thumbUrl } = await import('./reportsheet.js');
   for (const el of nodes) {
     el.setAttribute('data-media-done', '1');
@@ -300,14 +312,14 @@ export async function hydrateMedia(root = document) {
       try {
         const blob = await store.getMediaBlob(filename);
         if (blob) url = URL.createObjectURL(blob);
-      } catch { /* 아래에서 접속한 주소로 시도한다 */ }
-      // 기기에 없다 — 웹으로 접속했으면 그 주소에서 받아 본다.
-      if (!url && base) url = base + raw;
+      } catch { /* 기기에 없다 — 아래에서 '찾을 수 없음' 으로 */ }
+      // 예전에는 사무실 서버(/media/…)에서 받아 봤다. 그 서버는 이제 없다 (v3.49)
     }
 
     if (!url) { el.replaceWith(brokenNote()); continue; }
     if (el.tagName === 'A') el.href = url;
     else el.src = url;
+    attach(el, url);                 // 화면에서 빠지면 메모리를 돌려준다 (v3.49)
   }
 }
 

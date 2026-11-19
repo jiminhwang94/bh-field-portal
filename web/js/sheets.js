@@ -6,7 +6,8 @@ import * as store from './local/store.js';
 import { isOnline, OfflineError } from './sync.js';
 import { testMode } from './mode.js';
 import { APP_VERSION } from './version.js';
-import { uploadResumable, prefetchChunks, forgetUploads } from './mediaupload.js';
+import { blobToBase64, uploadResumable, prefetchChunks, forgetUploads } from './mediaupload.js';
+import { noSpace } from './text.js';
 
 const META_HEADERS = ['작성일시', '작성자'];
 
@@ -90,13 +91,20 @@ function monthSheetName(createdAt) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function blobToBase64(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-    reader.onerror = () => reject(new Error('사진을 읽지 못했습니다.'));
-    reader.readAsDataURL(blob);
-  });
+
+/**
+ * 리포트마다 고유 번호 (v3.49) — 시트가 "이미 받은 리포트" 를 알아보게 한다.
+ * 시트에는 적혔는데 답을 못 받아 다시 보내도 줄이 두 개가 되지 않는다.
+ * 내용이 같으면 같은 번호다. 고쳐서 다시 올리면 내용이 달라 새 번호가 된다.
+ * (상태 · 오류 문구가 바뀌어도 번호는 그대로 — 내용과 작성일시만 본다)
+ */
+export function uploadIdOf(report) {
+  // uploadRound — [다시 올리기] 로 일부러 한 번 더 올릴 때만 바뀐다 (api.markReuploadRound)
+  const text = JSON.stringify([report.createdAt || '', report.payload || [], Number(report.uploadRound) || 0]);
+  let hash = 5381;
+  for (let i = 0; i < text.length; i += 1) hash = ((hash * 33) ^ text.charCodeAt(i)) >>> 0;
+  const id = String(report.id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'r';
+  return `${id}.${hash.toString(36)}`;
 }
 
 /**
@@ -187,9 +195,8 @@ export async function buildPayload(report, fields, deviceName, { chunked = false
 
   // 리포트 번호 (v3.39) — '고객사 리포트' 칸이 있는 구성이면 번호는 시트가 매긴다 (P + 작성일 + 차례).
   // 비어 있을 때만 부탁한다 (고친 리포트 · 손으로 적은 번호는 그대로).
-  const squash = (t) => String(t || '').replace(/\s/g, '');
-  const numberLabel = labels.find((l) => squash(l).includes('리포트번호'));
-  const hasCustomer = labels.some((l) => squash(l).includes('고객사'));
+  const numberLabel = labels.find((l) => noSpace(l).includes('리포트번호'));
+  const hasCustomer = labels.some((l) => noSpace(l).includes('고객사'));
   const numberItem = numberLabel ? byLabel.get(numberLabel) : null;
   const created = String(report.createdAt || '');
   const autoNumber = numberLabel && hasCustomer && !String((numberItem && numberItem.value) || '').trim()
@@ -202,6 +209,7 @@ export async function buildPayload(report, fields, deviceName, { chunked = false
   return {
     sheetName: monthSheetName(report.createdAt),
     headers, row, media, mediaSkipped: skipped, uploaded, autoNumber, dropMedia,
+    uploadId: uploadIdOf(report),
   };
 }
 

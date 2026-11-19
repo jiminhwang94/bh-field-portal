@@ -9,9 +9,9 @@
 import { api } from '../api.js';
 import { $, closeModal, confirmDialog, h, loading, openSheet, promptDialog, toast } from '../ui.js';
 import { findWork, issuesOf, loadEntries, matchWork, workPath, workUsage } from '../insights.js';
+import { fold } from '../text.js';
 
 const KINDS = ['로봇 이슈', '로봇 외 이슈'];
-const squash = (t) => String(t || '').toLowerCase().replace(/\s+/g, '');
 
 /** 글자 두 개가 얼마나 다른가 (고치기 · 넣기 · 빼기 횟수) */
 function distance(a, b) {
@@ -34,7 +34,7 @@ function mergeCandidates(list, usage) {
     for (let j = i + 1; j < items.length; j += 1) {
       const a = items[i]; const b = items[j];
       if (a.kind !== b.kind) continue;
-      const x = squash(a.name); const y = squash(b.name);
+      const x = fold(a.name); const y = fold(b.name);
       const close = x.includes(y) || y.includes(x)
         || (Math.min(x.length, y.length) >= 3 && distance(x, y) <= 1)
         || (a.cat === b.cat && x.length >= 3 && y.length >= 3 && x.slice(-2) === y.slice(-2) && distance(x, y) <= 2);

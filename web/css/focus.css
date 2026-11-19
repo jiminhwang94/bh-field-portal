@@ -11,10 +11,6 @@
 
 /* ── 셸: 왼쪽 메뉴 ───────────────────────────────────────────────── */
 .tabbar {
-  background: var(--nav-bg);
-  border-right: 0;
-  padding: 18px 12px 14px;
-  gap: 6px;
   overflow-y: auto;
 }
 .tabbar__brand {
@@ -31,13 +27,9 @@
 .tabbar__name { font-size: 18px; font-weight: 800; letter-spacing: -0.02em; }
 .tab {
   flex-direction: row; justify-content: flex-start; gap: 14px;
-  height: var(--rail-item-h); padding: 0 14px;
-  border-radius: 12px;
-  font-size: 17px; font-weight: 600; color: var(--nav-fg);
+  padding: 0 14px;
 }
-.tab:hover { background: var(--nav-hover); color: #fff; }
-.tab[aria-current="page"] { background: var(--nav-active); color: #fff; font-weight: 800; box-shadow: none; }
-.tab svg { width: 24px; height: 24px; flex: none; }
+
 .tab__label { flex: 1; text-align: left; white-space: nowrap; }
 .tab__badge {
   min-width: 28px; height: 28px; padding: 0 8px; border-radius: 14px;
@@ -48,32 +40,30 @@
 
 /* ── 셸: 상단바 — 메뉴에 이름이 있으니 브랜드는 좁은 화면에서만 ───────── */
 .topbar { height: var(--topbar-h); padding: 0 28px; }
-.topbar__brand { display: none; }
+
 .btn-update, .btn-topaction { min-height: 56px; padding: 0 24px; font-size: 17px; border-radius: 14px; }
-.sync { height: 44px; font-size: 15px; }
-.topbar .btn--icon { min-width: 56px; min-height: 56px; }
 
 /* ── 본문 ─────────────────────────────────────────────────────────── */
 .screen { padding: 24px 28px; gap: 18px; }
 .page-stack { display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; }
-.page-head { gap: 12px; }
-.page-head__title { font-size: 26px; font-weight: 800; }
-.page-head__meta { font-size: 15px; }
+
 .crumb {
-  font-size: 16px; font-weight: 700; color: var(--color-muted);
+  color: var(--color-muted);
   display: inline-flex; align-items: center; min-height: 44px;
+  font-size: 16px;
+  font-weight: 700;
 }
 .crumb::after { content: "›"; margin-left: 10px; color: var(--color-disabled); }
 
 /* ── 손가락(장갑) 크기 ─────────────────────────────────────────────── */
-.btn { min-height: 56px; padding: 0 20px; font-size: 17px; border-radius: 14px; }
-.btn--sm { min-height: 48px; padding: 0 16px; font-size: 16px; }
+.btn { padding: 0 20px; font-size: 17px; border-radius: 14px; }
+.btn--sm { padding: 0 16px; font-size: 16px; }
 .btn--block { width: 100%; }
 .page-head .btn, .toolbar .btn { min-height: 56px; }
-.input, .select { min-height: 56px; font-size: 18px; border-radius: 12px; border-width: 1.5px; }
-.select { padding: 0 16px; font-weight: 600; }
+.input, .select { border-radius: 12px; border-width: 1.5px; min-height: 56px; font-size: 18px; }
+
 .field > label { font-size: 16px; font-weight: 700; color: var(--color-text-2); }
-.filter-toggle { min-height: 56px; font-size: 16px; border-radius: 14px; }
+
 .chip {
   display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px;
   border-radius: 999px; background: var(--color-surface); border: 1px solid var(--color-border);
@@ -98,6 +88,8 @@
   min-height: 84px; padding: 0 20px;
   border-radius: 16px;
   background: var(--color-bg); color: var(--color-text); text-decoration: none;
+  border: 0;
+  box-shadow: var(--shadow-sm);
 }
 .guide-cat:hover { border-color: var(--color-accent); color: var(--color-text); }
 .guide-cat.is-on { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
@@ -106,7 +98,7 @@
 .guide-list { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 .guide-list .scroll { padding-right: 2px; }
 .rows > .guide-row { min-height: 76px; gap: 18px; }
-.guide-row .row__code { width: auto; min-width: 72px; font-size: 18px; font-weight: 800; }
+.guide-row .row__code { width: auto; min-width: 72px; font-weight: 800; font-size: 20px; }
 .guide-row .row__title { font-size: 18px; font-weight: 700; }
 
 /* ── 가이드: 상세 — 한눈에 ───────────────────────────────────────────── */
@@ -140,7 +132,7 @@
 .gd-progress__bar { flex: 1; height: 10px; border-radius: 5px; background: var(--color-surface-2); overflow: hidden; }
 .gd-progress__bar i { display: block; height: 100%; background: var(--color-accent); border-radius: 5px; transition: width .2s ease; }
 .gd-steps { gap: 10px; }
-.gd-steps .step { min-height: 76px; padding: 16px 18px; gap: 16px; border-width: 1.5px; }
+.gd-steps .step { min-height: 76px; padding: 16px 18px; gap: 16px; border-width: 1.5px; border: 0; box-shadow: var(--shadow-sm); }
 .gd-steps .step__no {
   width: 44px; height: 44px; border-radius: 50%;
   display: grid; place-items: center;
@@ -161,11 +153,11 @@
 .gd-meta { margin: 0; font-size: 14px; color: var(--color-muted); padding: 0 4px; }
 
 /* ── 차량 재고: 거르기 칩 · 목록 + 큰 패널 ─────────────────────────────── */
-.veh-tabs { align-self: auto; flex-wrap: nowrap; flex: none; max-width: 100%; overflow-x: auto; }
+
 .page-head > .veh-tabs { flex-direction: row; gap: 4px; }   /* .page-head > div 의 세로 쌓기를 받지 않는다 */
-.veh-tab { min-height: 52px; font-size: 17px; }
+
 .veh-tab.is-active { background: var(--color-text); color: #fff; }
-.inv-filter { display: flex; align-items: flex-start; gap: 12px; }
+.inv-filter { display: flex; gap: 12px; position: sticky; top: -24px; z-index: 5; align-items: center; margin: 0 -4px; padding: 8px 4px; background: var(--color-page); }
 .inv-chips { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .inv-chip {
   flex: none; display: inline-flex; align-items: center; gap: 8px;
@@ -173,11 +165,13 @@
   border: 2px solid var(--color-border-strong); border-radius: 14px;
   background: var(--color-bg); color: var(--color-text);
   font: inherit; font-size: 17px; font-weight: 750; cursor: pointer; white-space: nowrap;
+  border-width: 0;
+  box-shadow: var(--shadow-sm);
 }
 .inv-chip .tnum { color: var(--color-muted); font-weight: 700; }
 .inv-chip.is-on { background: var(--color-text); border-color: var(--color-text); color: #fff; }
 .inv-chip.is-on .tnum { color: var(--color-on-dark-muted); }
-.inv-chip--low { border-color: var(--color-danger-border); color: var(--color-danger); }
+.inv-chip--low { border-color: var(--color-danger-border); color: var(--color-danger); box-shadow: inset 0 0 0 2px var(--color-danger-border); }
 .inv-chip--low .tnum { color: var(--color-danger); }
 .inv-chip--low.is-on { background: var(--color-danger); border-color: var(--color-danger); color: #fff; }
 .inv-chip__low {
@@ -199,6 +193,9 @@
   display: flex; flex-direction: column; gap: 16px;
   padding: 22px; background: var(--color-bg);
   min-height: 0; overflow-y: auto;
+  border: 0;
+  border-radius: 22px;
+  box-shadow: var(--shadow-sm);
 }
 .inv-panel__empty { margin: auto; text-align: center; color: var(--color-muted); font-size: 17px; line-height: 1.7; }
 .inv-panel__head { display: flex; flex-direction: column; gap: 4px; }
@@ -226,6 +223,9 @@
 /* ── 새 리포트 — 흰 카드 하나에 깔끔하게, 증상 · 조치는 크게 ───────────── */
 .report-form {
   padding: 22px 24px; background: var(--color-bg);
+  border: 0;
+  border-radius: 22px;
+  box-shadow: var(--shadow-sm);
 }
 .report-form .form-grid { gap: 18px 20px; }
 .report-form .field { margin-bottom: 0; gap: 8px; }
@@ -254,27 +254,37 @@
 .hist-chip .tnum { color: var(--track, var(--color-muted)); font-weight: 850; }
 .hist-chip.is-on { background: var(--color-text); border-color: var(--color-text); color: #fff; }
 .hist-chip.is-on .tnum { color: #fff; }
-.hist-search { width: 260px; flex: none; }
-.hist-split { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
-.hist-list { display: flex; flex-direction: column; gap: 10px; }
+.hist-search { width: 260px; flex: none; min-width: 320px; }
+.hist-split { display: grid; gap: 16px; flex: 1; min-height: 0; grid-template-columns: 420px minmax(0, 1fr); }
+
 .hist-rows {
-  display: flex; flex-direction: column;
-  background: var(--color-bg);
+  flex-direction: column;
 }
 .hist-row {
   display: flex;
   border: 2px solid transparent; background: none;
   font: inherit; color: inherit; text-align: left; cursor: pointer; width: 100%;
+  flex-direction: column;
+  align-items: stretch;
+  min-height: 84px;
+  border-radius: 14px;
+  gap: 6px;
+  padding: 14px 16px 14px 20px;
+  position: relative;
 }
 .hist-row:hover { background: var(--color-surface); }
 
 .hist-row__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.hist-row__store { font-weight: 800; }
+.hist-row__store { font-weight: 800; font-size: 21px; letter-spacing: -0.02em; }
 .hist-row__sub { font-size: 15px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hist-row__status { flex: none; }
+.hist-row__status { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-weight: 850; color: var(--track); font-size: 15px; }
 .hist-panel {
   min-height: 0; overflow-y: auto;
   background: var(--color-bg);
+  padding: 0;
+  border: 0;
+  border-radius: 20px;
+  box-shadow: var(--shadow-sm);
 }
 .hist-panel__empty { margin: 60px auto; text-align: center; color: var(--color-muted); font-size: 17px; line-height: 1.7; }
 .hd { display: flex; flex-direction: column; gap: 18px; }
@@ -307,7 +317,6 @@
   font: inherit; font-size: 16px; font-weight: 800; color: var(--color-text); cursor: pointer;
 }
 .status-pick__btn.is-on { background: var(--track, var(--color-accent)); border-color: var(--track, var(--color-accent)); color: #fff; }
-.hist-actions .btn { min-height: 56px; font-size: 16px; }
 
 /* ── 중간 폭 (세로 태블릿 · 작은 노트북) — 메뉴는 아이콘 + 짧은 글자 레일 ── */
 @media (max-width: 1100px) {
@@ -325,7 +334,7 @@
 }
 /* 패널을 옆에 둘 자리가 없으면 목록만 — 고르면 창으로 연다 (inventory.js · report.js 와 같은 기준) */
 @media (max-width: 999px) {
-  .hist-split { grid-template-columns: minmax(0, 1fr); }
+
   .hist-split > .hist-panel { display: none; }
   .inv-filter, .hist-filter { flex-wrap: wrap; }
   .inv-search, .hist-search { width: 100%; }
@@ -333,10 +342,10 @@
 
 /* ── 좁은 화면 (폰) — 메뉴는 아래쪽 탭바 ─────────────────────────────── */
 @media (max-width: 720px) {
-  .tabbar { flex-direction: row; padding: 6px 4px; gap: 2px; overflow-x: auto; border-top: 0; }
+
   .tabbar__brand { display: none; }
-  .topbar__brand { display: block; }
-  .tab { flex: 1; min-width: 64px; height: 64px; font-size: 15px; }
+  .topbar__brand { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .tab { flex: 1; }
   .tab[data-tab="settings"] { margin-top: 0; }
   .screen { padding: 16px; }
   .guide-browse { grid-template-columns: minmax(0, 1fr); }

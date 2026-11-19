@@ -1,10 +1,10 @@
 // 가이드 탭 · 로봇 · 목록 · 로봇 한 번에 지정 (오류코드 · HW SOP · SW 명령어). 상세 · 편집은 views/guide-page.js
 import { api } from '../api.js';
 import {
-  $, $$, h, CATEGORY, closeModal, confirmDialog, copyText, hydrateMedia, loading,
-  openSheet, promptDialog, toast, when,
+  $, h, CATEGORY, closeModal, confirmDialog, loading, openSheet, promptDialog, toast, when
 } from '../ui.js';
 import { isCodeShaped } from '../insights.js';
+import { guideCatOf } from '../local/store-guides.js';
 
 export const DONE_KEY = (id) => `bh_steps_done_${id}`;
 
@@ -104,7 +104,7 @@ const CAT_FORM = {
   SOFTWARE_CMD: { label: '명령어형', hint: '복사해서 쓰는 명령어와 단계 — 설정 · 펌웨어.' },
 };
 /** 가이드가 든 항목 id — 비면 종류의 기본 항목 (v3.40) */
-export const guideCatOf = (g) => (g && g.category) || (g && g.categoryType) || '';
+export { guideCatOf };                       // 가이드 화면들이 여기서 가져간다 (본래 자리는 store-guides.js)
 const CAT_TINY = { ERROR_CODE: '오류', HARDWARE_SOP: '하드웨어', SOFTWARE_CMD: 'SW' };
 const CAT_ICON = {
   ERROR_CODE: 'M12 8v5M12 16.5v.01M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18',
@@ -270,11 +270,17 @@ export async function guideHubView(view) {
                     aria-label="${h(key)} 이름 바꾸기 · 삭제">⋯</button>` : ''}
         </div>
         <div class="rband__cats">
-          ${(catsBy[key] || []).map((c) => `
-            <a class="rcat" data-cat="${h(c.form)}" data-item="${h(c.id)}" href="${modelHref(key, c.id)}">
+          ${(catsBy[key] || []).map((c) => {
+            // 0건이면 '보기 ›' 대신 바로 [＋ 작성] (v3.49) — 빈 목록으로 들어가 한 번 더 누르지 않게
+            const n = list.filter((g) => guideCatOf(g) === c.id).length;
+            const href = n ? modelHref(key, c.id) : `#/guides/new/${c.form}?${new URLSearchParams({
+              ...(key === NONE ? {} : { model: key }), cat: c.id })}`;
+            return `
+            <a class="rcat${n ? '' : ' rcat--empty'}" data-cat="${h(c.form)}" data-item="${h(c.id)}" href="${h(href)}">
               <span class="rcat__name">${catIcon(c.form)}${h(c.name)}</span>
-              <span class="rcat__foot"><b class="rcat__n tnum">${list.filter((g) => guideCatOf(g) === c.id).length}</b><span>보기 ›</span></span>
-            </a>`).join('')}
+              <span class="rcat__foot"><b class="rcat__n tnum">${n}</b><span>${n ? '보기 ›' : '＋ 작성'}</span></span>
+            </a>`;
+          }).join('')}
         </div>
       </section>`;
   };
@@ -284,8 +290,13 @@ export async function guideHubView(view) {
       <div class="page-head">
         <h1 class="page-head__title">가이드</h1>
         <span class="page-head__spacer"></span>
-        <button class="btn btn-secondary" data-act="add-model" type="button">＋ 로봇</button>
         <a class="btn btn-secondary" href="#/guides/new">＋ 가이드 작성</a>
+        <details class="rf-more more-menu">
+          <summary class="btn btn-secondary" aria-label="가이드 관리">⋯</summary>
+          <div class="rf-more__menu">
+            <button class="btn btn-secondary" data-act="add-model" type="button">＋ 로봇 추가</button>
+          </div>
+        </details>
       </div>
       ${orphans.length ? `
         <section class="gh-orphans" role="status">
@@ -518,7 +529,8 @@ export async function guideModelView(view, key, catParam) {
     if (list.length) return list.map((g) => row(g, false)).join('');
     return `<div class="empty">${query.trim()
       ? `'${h(query.trim())}' 에 맞는 가이드가 없습니다.`
-      : `${h(modelLabel(key))} · ${h(cur().name)} 가이드가 아직 없습니다.<br />[＋ 가이드 작성] 으로 추가하세요.`}</div>`;
+      : `${h(modelLabel(key))} · ${h(cur().name)} 가이드가 아직 없습니다.
+        <div class="empty__acts"><a class="btn btn-primary" href="${h(newHref())}">＋ 가이드 작성</a></div>`}</div>`;
   };
   const newHref = () => `#/guides/new/${cur().form}?${new URLSearchParams({
     ...(key === NONE ? {} : { model: key }), cat: cur().id })}`;
