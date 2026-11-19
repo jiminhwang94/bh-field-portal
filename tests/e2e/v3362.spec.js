@@ -1,5 +1,5 @@
 // v3.36.2 — 이력 [새로고침] · 재고 분류 머리줄
-const { test, expect, openApp } = require('./fixtures.js');
+const { test, expect, openApp, refreshAndWait } = require('./fixtures.js');
 const { NOW } = require('./seed.js');   // 시험 자료가 10월 탭이라 시계를 10월에 둔다 (11월이 되자 이번 달 이력이 비어 깨졌다)
 
 const H = ['작성일시', '작성자', '리포트 번호', '매장명', '로봇 시리얼', '로봇 모델', '증상 요약', '조치 내용', '처리 결과', '현장 사진', '상태'];
@@ -41,7 +41,7 @@ test('위 [새로고침] — 재고 받기가 실패해도 이력을 새로 받�
   await sheet.call({ sheetName: '2026-10', headers: H, row: report('2026-10-22 09:10', '다른기기점') });   // 다른 태블릿이 올렸다
   inventoryDown = true;
   calls.length = 0;
-  await page.locator('#btn-update').click();
+  await refreshAndWait(page);
   await expect(page.locator('#view')).toContainText('다른기기점', { timeout: 15000 });
   expect(calls).toContain('reports:months');
 });
@@ -58,7 +58,7 @@ const INV = (() => {
 test('재고 — 분류 머리줄을 누르면 접히지 않고 그 분류 부품만 보인다 · 다시 누르면 전체', async ({ page, sheet }) => {
   await sheet.call({ inventory: 'push', ...INV });
   await openApp(page, '#/inventory');
-  await page.locator('#btn-update').click();
+  await refreshAndWait(page);
   await expect(page.locator('.inv-card')).toHaveCount(9, { timeout: 15000 });
   await page.locator('.grp-toggle', { hasText: '페리페럴' }).click();
   await expect(page.locator('.inv-card')).toHaveCount(4);
@@ -73,6 +73,6 @@ test('재고 — 예전 버전이 접어 둔 분류가 있어도 부품이 다 �
   await sheet.call({ inventory: 'push', ...INV });
   await page.addInitScript(() => localStorage.setItem('bh_inv_collapsed', JSON.stringify(['페리페럴', '소모품'])));
   await openApp(page, '#/inventory');
-  await page.locator('#btn-update').click();
+  await refreshAndWait(page);
   await expect(page.locator('.inv-card')).toHaveCount(9);
 });

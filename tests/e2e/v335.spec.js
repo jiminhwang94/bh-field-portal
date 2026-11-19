@@ -1,5 +1,5 @@
 // v3.35 현장 우선 (A안) — 세 개의 문 · 단계식 리포트 · 이어 쓰기 · 이력 카드 · 지난번 · 한 단계씩 가이드.
-const { test, expect, openApp, pick } = require('./fixtures.js');
+const { test, expect, openApp, pick, refreshAndWait } = require('./fixtures.js');
 const { seed, NOW, GUIDES } = require('./seed.js');
 
 const field = (page, label) => page.locator('#reportForm .field', {
@@ -173,7 +173,7 @@ test('시트에서 한꺼번에 지운 가이드가 기기에 남으면 — 가�
   // 누군가 시트에서 5건을 한꺼번에 지웠다 (절반 넘게 — 기기는 안전하게 바로 지우지 않는다)
   await sheet.call({ guides: 'push', items: many.slice(0, 3) });
   await openApp(page, '#/guides');
-  await page.locator('#btn-update').click();                                // 받기
+  await refreshAndWait(page);                                // 받기
   await openApp(page, '#/guides');
   const band = page.locator('.gh-orphans');
   await expect(band).toContainText('시트에 없는 가이드 5건', { timeout: 15000 });
@@ -264,7 +264,7 @@ test('가이드 단계에 여러 줄을 쓰면 시트를 다녀와도 한 단계
   await expect(page).toHaveURL(/#\/guides\/[0-9a-f]{6,}$/);
   // 시트에 올라간 뒤 받아 와도
   await expect.poll(async () => JSON.stringify(await sheet.dump()), { timeout: 15000 }).toContain('여러 줄 단계 검사');
-  await page.locator('#btn-update').click();
+  await refreshAndWait(page);
   await page.waitForTimeout(1500);
   await page.reload();
   await expect(page.locator('.gs-no')).toHaveText(/^1 \/ \d+ 단계/);

@@ -142,3 +142,22 @@ test('브라우저 — PC 폴더에 새 화면이 있으면 띠 · [다시 열�
   await page.waitForTimeout(800);
   await expect(page.locator('#update-banner')).toBeHidden();
 });
+
+test('화면을 빠르게 연달아 옮겨도 마지막 주소의 화면이 남는다 (늦게 끝난 앞 화면이 덮지 않는다)', async ({ page, sheet }) => {
+  const { seed: seedAll } = require('./seed.js');
+  await seedAll(sheet);
+  await openApp(page, '#/');
+  // 이력 화면은 일부러 느리게 (시트 받기를 1.5초 늦춘다) — 그 사이 설정으로 옮긴다
+  await page.route(`${SHEET}/exec`, async (route) => {
+    if (/"reports":"(pull|months)"/.test(route.request().postData() || '')) await new Promise((r) => setTimeout(r, 1500));
+    try { await route.continue(); } catch { /* 닫힘 */ }
+  });
+  await page.evaluate(async () => (await import('/js/local/idb.js')).clear('meta'));
+  await page.evaluate(() => { location.hash = '#/reports'; });
+  await page.waitForTimeout(100);
+  await page.evaluate(() => { location.hash = '#/settings'; });
+  await expect(page.locator('#sDevice')).toBeVisible();
+  await page.waitForTimeout(2500);                                               // 느린 이력이 끝난 뒤에도
+  await expect(page.locator('#sDevice')).toBeVisible();                          // 설정이 그대로 보인다
+  await expect(page).toHaveURL(/#\/settings$/);
+});

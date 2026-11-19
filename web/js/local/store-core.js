@@ -196,6 +196,7 @@ export async function compactOutbox() {
   const lastByTarget = new Map();
   const lastPushByType = new Map();      // '*-push' 는 종류별 마지막 1건만
   const lastStatusByRow = new Map();     // 같은 줄의 상태는 마지막 것만
+  const firstStatusBefore = new Map();   // 그 줄의 되돌릴 상태는 맨 처음 것 (v3.49 — 중간값으로 돌아갔다)
   const firstBefore = new Map();         // 되돌릴 값은 맨 처음 것
   const firstOpId = new Map();           // 작업 번호도 맨 처음 것 (시트가 이미 받은 만큼을 안다)
   const mergedChanges = new Map();       // 종류별로 합친 changes
@@ -212,7 +213,9 @@ export async function compactOutbox() {
       continue;
     }
     if (row.type === 'report-status') {
-      lastStatusByRow.set(`${row.sheetName}#${row.row}`, row.id);
+      const at = `${row.sheetName}#${row.row}`;
+      lastStatusByRow.set(at, row.id);
+      if (!firstStatusBefore.has(at)) firstStatusBefore.set(at, row.before);
       continue;
     }
     if (row.type !== 'quantity' && row.type !== 'quantity-delete') continue;
@@ -234,9 +237,14 @@ export async function compactOutbox() {
       continue;
     }
     if (row.type === 'report-status') {
-      if (row.id !== lastStatusByRow.get(`${row.sheetName}#${row.row}`)) {
+      const at = `${row.sheetName}#${row.row}`;
+      if (row.id !== lastStatusByRow.get(at)) {
         await idb.remove('outbox', row.id);
+        continue;
       }
+      // 남는 한 건이 맨 처음의 '바꾸기 전' 상태를 이어받는다 — 수량과 같은 규칙
+      const origin = firstStatusBefore.get(at);
+      if (row.before !== origin) await idb.put('outbox', { ...row, before: origin });
       continue;
     }
     if (row.type !== 'quantity' && row.type !== 'quantity-delete') continue;

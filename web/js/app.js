@@ -110,7 +110,14 @@ function syncTopActionLabel() {
   }
 }
 
+// 화면 그리기 차례 (v3.49.1) — 화면을 빠르게 연달아 옮기면 앞 화면이 늦게 끝나
+// 나중 화면을 덮을 수 있었다 (느린 태블릿에서 탭을 연달아 누를 때). 늦게 끝난 옛 화면이
+// 이미 그려진 마지막 화면을 덮었으면, 지금 주소의 화면을 한 번 더 그린다.
+let renderSeq = 0;
+let doneSeq = 0;
+
 async function render() {
+  const seq = ++renderSeq;
   const { path, query } = parseHash();
   closeModal();   // 화면을 이동하면 열려 있던 모달/시트를 닫는다
   $('#backBtn').hidden = (path === '/' || path === '');
@@ -123,11 +130,17 @@ async function render() {
     if (match) {
       try {
         await handler(match, query);
-        syncTopActionLabel();
       } catch (err) {
         console.error(err);
-        errorView(view, err.message || '알 수 없는 오류가 발생했습니다.');
+        if (seq === renderSeq) errorView(view, err.message || '알 수 없는 오류가 발생했습니다.');
       }
+      if (seq !== renderSeq) {
+        // 더 새 화면이 이미 끝났는데 내가 그 위에 그렸다 → 지금 주소로 다시
+        if (doneSeq === renderSeq) render();
+        return;
+      }
+      doneSeq = seq;
+      syncTopActionLabel();
       return;
     }
   }

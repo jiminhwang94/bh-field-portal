@@ -1726,6 +1726,43 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
         JSON.stringify(env.ss.getSheets().map((sh) => [sh.getName(), sh.getLastRow()])) === before);
 }
 
+{
+  console.log('[옛 단계 표기] "(기준: …)" 과 "(공구: …)" 를 모두 읽는다 (동작 시험 보강 ⑮)');
+  const tab = ss.insertSheet('옛 기준 표기 가이드');
+  tab.getRange(2, 1, 1, 8).setValues([['코드/제목', '요약', '필요 공구', '명령어', '단계', '수정일', '단계 사진', 'ID(고치지 마세요)']]);
+  tab.getRange(3, 1, 1, 8).setValues([['E-901 옛 표기', '', '렌치', '',
+    '1. 전압을 잰다  (기준: 24V)\n2. 벨트를 조인다\n   두 번째 줄  (공구: 렌치)\n3. 끝', '2026-01-01 10:00', '', 'g-901']]);
+  const steps = gs.readGuideSheet(tab, 'ERROR_CODE')[0].steps;
+  check('옛 "(기준: …)" 은 단계 값으로 · 글에서는 뺀다', steps[0].instruction === '전압을 잰다' && steps[0].expectedMetric === '24V',
+        JSON.stringify(steps[0]));
+  check('여러 줄 단계 끝의 "(공구: …)" 도 읽는다', steps[1].instruction.endsWith('두 번째 줄') && steps[1].expectedMetric === '렌치',
+        JSON.stringify(steps[1]));
+  check('값이 없는 단계는 빈 값', steps[2].instruction === '끝' && !steps[2].expectedMetric);
+}
+
+{
+  console.log('[잠금] 다른 요청이 잠금을 쥐고 있으면 쓰기는 거절하고 반쯤 쓰지 않는다 · 받기는 된다 (⑮)');
+  const before = call({ reports: 'pull', sheetName: '2026-09' }).rows.length;
+  const invBefore = JSON.stringify(call({ inventory: 'pull' }).items);
+  env.lockBusy = true;
+  const writes = [
+    call({ sheetName: '2026-09', headers: HEADERS, row: ['2026-09-30 10:00', '태블릿', '잠금매장', '', '', ''] }),
+    call({ inventory: 'qty', ops: [{ vehicleName: 'x', partName: 'y', quantity: 1 }] }),
+    call({ work: 'push', ops: [{ op: 'cat-add', kind: '로봇 이슈', name: '잠금 검사' }] }),
+  ];
+  // 재고 받기는 일부러 잠금을 쓴다 — 탭을 통째로 다시 쓰는 중에 읽으면 반쯤 쓴 표를 받는다
+  const invRead = call({ inventory: 'pull' });
+  const reads = [call({ reports: 'pull', sheetName: '2026-09' }), call({ guides: 'pull' })];
+  env.lockBusy = false;
+  check('쓰기는 잠금 시간 초과로 거절된다', writes.every((r) => r.ok === false && /Lock/i.test(String(r.error))),
+        JSON.stringify(writes.map((r) => r.error)));
+  check('거절된 쓰기는 아무것도 남기지 않는다',
+        call({ reports: 'pull', sheetName: '2026-09' }).rows.length === before
+        && JSON.stringify(call({ inventory: 'pull' }).items) === invBefore);
+  check('이력 · 가이드 받기는 잠금 없이 된다', reads.every((r) => r.ok !== false), JSON.stringify(reads.map((r) => r.error || 'ok')));
+  check('재고 받기는 쓰는 중이면 기다린다 (반쯤 쓴 표를 받지 않게)', invRead.ok === false);
+}
+
 console.log('='.repeat(62));
 if (failures.length) {
   console.log(`❌ 실패 ${failures.length}건: ${failures.join(', ')}`);

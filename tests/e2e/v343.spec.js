@@ -69,7 +69,7 @@ test('가이드 사진 — 처음엔 받아서 담고, 다음부터는 기기에
   await page.evaluate((id) => { location.hash = `#/guides/${id}`; }, GUIDE.id);
   await page.evaluate(() => { location.hash = '#/guides'; });
   await page.evaluate((id) => { location.hash = `#/guides/${id}`; }, GUIDE.id);
-  await expect(page.locator('.media-missing', { hasText: '영상은 인터넷이 연결되면' })).toBeVisible();
+  await expect(page.locator('.media-missing', { hasText: '영상은 인터넷이 연결되면' })).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.media-missing', { hasText: '이 사진은 아직 이 기기에 없어요' })).toBeVisible({ timeout: 15000 });
   await page.context().setOffline(false);
 });

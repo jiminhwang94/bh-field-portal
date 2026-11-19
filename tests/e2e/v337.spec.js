@@ -1,5 +1,5 @@
 // v3.37 — 차량 재고: 카드 2칸 · 순서는 [순서 바꾸기] 모드에서만
-const { test, expect, openApp } = require('./fixtures.js');
+const { test, expect, openApp, refreshAndWait } = require('./fixtures.js');
 
 const rowsOf = async (sheet, name) => ((await sheet.dump())[name] || []).slice(2);
 const CATS = {
@@ -15,7 +15,7 @@ for (const [category, names] of Object.entries(CATS)) {
 async function openInventory(page, sheet) {
   await sheet.call({ inventory: 'push', ...INV });
   await openApp(page, '#/inventory');
-  await page.locator('#btn-update').click();
+  await refreshAndWait(page);
   await expect(page.locator('.inv-card')).toHaveCount(13);
   await expect(page.locator('#btn-update')).toBeEnabled();      // 받기가 끝나 목록을 다시 그린 뒤
 }
@@ -94,7 +94,7 @@ test('제목 줄 — 버튼은 한 묶음 · 보충 필요 띠가 거르기 줄�
   for (const [w, hgt] of [[1280, 800], [962, 601], [800, 1280]]) {
     await page.setViewportSize({ width: w, height: hgt });
     await openApp(page, '#/inventory');
-    await page.locator('#btn-update').click();
+    await refreshAndWait(page);
     await expect(page.locator('.inv-alert')).toBeVisible({ timeout: 15000 });
     const tops = await page.locator('.inv-head__acts .btn:visible').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().top)));
     expect(new Set(tops).size, `${w} 버튼이 한 줄`).toBe(1);
