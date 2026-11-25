@@ -1763,6 +1763,89 @@ check('운영 탭은 알려진 탭 맨 뒤에 차례대로 모인다 (모르는 
   check('재고 받기는 쓰는 중이면 기다린다 (반쯤 쓴 표를 받지 않게)', invRead.ok === false);
 }
 
+{
+  console.log('[날짜순] 운행일지 · 리포트 · 오류기록은 날짜 순서로 쌓인다 (v3.49.2)');
+  const D = (id, date, before, after) => ({ id, date, dept: 'BS', driverName: '홍길동', odoBefore: before, odoAfter: after,
+    fromPlace: '사무실', toPlace: '현장', note: '' });
+  // 앱은 최근 것을 위에 두고, 다른 기기와 합칠 때 새 줄을 맨 끝에 붙인다 — 그 차례 그대로 온다
+  call({ driving: 'push', vehicleName: '정렬 5868', info: {}, rows: [
+    D('r3', '2026-10-03', 300, 350), D('r1', '2026-10-01', 100, 200), D('r5', '2026-10-02', 250, 300),
+    D('r2', '2026-10-02', 200, 250), D('r0', '2025-12-30', 50, 100)] });
+  const tab26 = ss.getSheetByName('운행일지 2026 정렬 5868');
+  const ids26 = [6, 7, 8, 9].map((r) => tab26.getRange(r, 11).getValue()).join(',');
+  check('운행일지는 사용일자순 — 같은 날은 계기판 거리순', ids26 === 'r1,r2,r5,r3', ids26);
+  check('지난해 줄은 지난해 탭으로', ss.getSheetByName('운행일지 2025 정렬 5868').getRange(6, 11).getValue() === 'r0');
+  const pulledSorted = call({ driving: 'pull', vehicleName: '정렬 5868', year: '2026' });
+  check('읽어도 그 차례 그대로', pulledSorted.rows.map((r) => r.id).join(',') === 'r1,r2,r5,r3');
+
+  // 리포트 — 지난 작업을 나중에 쓰면 그 작성일시 자리에 끼운다
+  const H = ['작성일시', '작성자', '매장명', '증상'];
+  const add = (at, store) => call({ sheetName: '2097-05', headers: H, row: [at, '태블릿', store, ''] });
+  add('2097-05-03 09:00', 'A');
+  add('2097-05-10 09:00', 'B');
+  env.insertRowCalls.count = 0;
+  const late = add('2097-05-20 09:00', 'C');
+  check('평소(가장 최근)는 맨 끝에 붙고 줄을 끼우지 않는다', late.row === 5 && env.insertRowCalls.count === 0, `${late.row}행`);
+  const past = add('2097-05-07 14:30', 'P');
+  const rt = ss.getSheetByName('2097-05');
+  const order = [3, 4, 5, 6].map((r) => rt.getRange(r, 3).getValue()).join(',');
+  check('지난 작업은 그 날짜 자리에 들어간다', past.row === 4 && order === 'A,P,B,C', `${past.row}행 · ${order}`);
+  const st = call({ reports: 'status', sheetName: '2097-05', row: 4, status: '조치 완료',      // 밀리기 전 줄 번호
+    expect: { createdAt: '2097-05-10 09:00', store: 'B' } });
+  check('밀린 줄도 작성일시 · 매장으로 찾아 바꾼다', st.ok === true && rt.getRange(5, 3).getValue() === 'B'
+        && String(rt.getRange(5, 5).getValue() || rt.getRange(5, rt.getLastColumn()).getValue()) === '조치 완료', JSON.stringify(st).slice(0, 120));
+  const first = add('2097-05-01 08:00', 'Z');
+  check('맨 앞 날짜면 첫 줄로', first.row === 3 && rt.getRange(3, 3).getValue() === 'Z', `${first.row}행`);
+  const same = add('2097-05-20 09:00', 'C2');
+  check('같은 시각이면 뒤에 붙는다 (먼저 온 것이 위)', same.row === rt.getLastRow(), `${same.row}행`);
+
+  // 오류기록 — 기기가 모아 보낸 것은 시각순
+  call({ errors: 'push', device: '정렬기기', items: [
+    { at: '2097-05-02 10:00', screen: 's', message: '둘째' }, { at: '2097-05-01 10:00', screen: 's', message: '첫째' }] });
+  const et = ss.getSheetByName('오류기록');
+  const last = et.getLastRow();
+  check('오류기록도 시각순', et.getRange(last - 1, 5).getValue() === '첫째' && et.getRange(last, 5).getValue() === '둘째');
+
+  // 이미 뒤섞인 탭 — 시트 메뉴 [현장 포털 → 날짜순으로 정리]
+  gs.onOpen();
+  const menu = env.menus().find((m) => m.title === '현장 포털');
+  check('시트를 열면 [현장 포털] 메뉴가 생긴다', !!menu && menu.items.some((i) => i.fn === 'sortTabsByDate'),
+        JSON.stringify(env.menus()));
+  const messy = ss.insertSheet('운행일지 2026 뒤섞인차');
+  messy.getRange(5, 1).setValue('③사용일자');
+  [['2026-11-03', 30], ['2026-11-01', 10], ['2026-11-02', 20]].forEach(([d, km], i) => {
+    messy.getRange(6 + i, 1).setValue(new Date(d + 'T00:00:00'));
+    messy.getRange(6 + i, 5).setValue(km);
+    messy.getRange(6 + i, 11).setValue('m' + km);
+  });
+  const mt = ss.insertSheet('2097-06');
+  mt.getRange(2, 1, 1, 3).setValues([['작성일시', '작성자', '매장명']]);
+  mt.getRange(3, 1, 3, 3).setValues([['2097-06-09 10:00', '가', 'X'], ['2097-06-02 10:00', '가', 'Y'], ['2097-06-05 10:00', '가', 'W']]);
+  mt.links.set('4,3', [{ start: 0, end: 1, url: 'https://drive.google.com/y' }]);
+  const pics = ss.insertSheet('2097-07');
+  pics.getRange(2, 1, 1, 2).setValues([['작성일시', '매장명']]);
+  pics.getRange(3, 1, 2, 2).setValues([['2097-07-09 10:00', '나중'], ['2097-07-01 10:00', '먼저']]);
+  pics.images = [{}];
+  const gap = ss.insertSheet('운행일지 2026 빈줄차');
+  gap.getRange(6, 1).setValue('2026-11-02');
+  gap.getRange(8, 1).setValue('2026-11-01');
+  const res = gs.sortTabsByDate();
+  const messyOrder = [6, 7, 8].map((r) => messy.getRange(r, 11).getValue()).join(',');
+  check('운행일지 탭을 날짜순으로 정렬한다', messyOrder === 'm10,m20,m30' && res.sorted.includes('운행일지 2026 뒤섞인차'), messyOrder);
+  check('리포트 월 탭도 — 링크가 줄을 따라간다', [3, 4, 5].map((r) => mt.getRange(r, 3).getValue()).join(',') === 'Y,W,X'
+        && (mt.links.get('3,3') || [])[0]?.url === 'https://drive.google.com/y', JSON.stringify([...mt.links]));
+  check('머리줄은 그대로', mt.getRange(2, 1).getValue() === '작성일시' && messy.getRange(5, 1).getValue() === '③사용일자');
+  check('칸에 박힌 사진이 있는 탭은 건드리지 않는다', pics.getRange(3, 2).getValue() === '나중'
+        && res.skipped.some((x) => x.startsWith('2097-07')), res.skipped.join(' / '));
+  check('날짜 없는 줄이 낀 탭은 건드리지 않는다', gap.getRange(6, 1).getValue() === '2026-11-02'
+        && res.skipped.some((x) => x.startsWith('운행일지 2026 빈줄차')));
+  check('이미 날짜순인 탭은 손대지 않는다', !res.sorted.includes('운행일지 2026 정렬 5868') && !res.sorted.includes('2097-05'));
+  check('정리 결과를 시트에 알린다', env.toasts.some((t) => /정렬함/.test(t.msg)), JSON.stringify(env.toasts));
+  env.sortCalls.count = 0;
+  const again = gs.sortTabsByDate();
+  check('두 번 눌러도 다시 정렬하지 않는다', env.sortCalls.count === 0 && again.sorted.length === 0);
+}
+
 console.log('='.repeat(62));
 if (failures.length) {
   console.log(`❌ 실패 ${failures.length}건: ${failures.join(', ')}`);

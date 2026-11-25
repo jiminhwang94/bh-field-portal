@@ -39,6 +39,7 @@
 //   saveGuideMedia · sharePublic 드라이브 첨부
 //   handleRelease*               앱 버전 · 설치 링크
 //   handleChanged · dataChangedAt · onEdit   [새 내용] 점
+//   onOpen · sortTabsByDate       시트 메뉴 [현장 포털 → 날짜순으로 정리]
 //   handleReports                리포트 이력 · 상태 · 고쳐 쓰기 · 지우기 · 고객사 번호
 //   handleDrive*                 첨부 정보 · 바이트 · 공개 복구
 //   logChange · putInTrash · touchDevice · handleErrors · handleHealth · backupIfDue   운영
@@ -389,7 +390,9 @@ function handleRequest(e) {
 
       // 쌓을 자리와 열 배치. map[i] = 앱의 i번째 칸이 갈 시트 열(1-based).
       var placed = placeForRow(sheet, headers, created);
-      var target = placed.target;
+      // 날짜 순서 (v3.49.2) — 지난 작업을 나중에 쓰면 그 작성일시 자리에 줄을 끼운다.
+      // 평소(지금 쓴 리포트)는 맨 끝이 제자리라 아무것도 옮기지 않는다.
+      var target = placeByDate(sheet, placed, createdTextOf(headers, row, placed));
 
       // 앱이 보낸 값을 시트 열 배치에 맞춰 다시 늘어놓는다.
       var aligned = [];
@@ -682,6 +685,50 @@ function blockForRow(sheet, rowIndex) {
   return found;
 }
 
+// ── 날짜 순서 (v3.49.2) ─────────────────────────────────────────────
+// 시트는 받은 차례대로 쌓았다. 그래서 지난 작업을 나중에 쓰거나(작성일시를 고른 리포트)
+// 오프라인으로 며칠 들고 있다 올리면 날짜가 뒤섞였다. 엑셀로 내려받아 보면 더 눈에 띈다.
+
+/** 날짜 · 일시 칸 → 비교용 'yyyyMMddHHmmss'. 날짜가 아니면 ''. (시트가 날짜로 바꿔 담은 것도 읽는다) */
+function dateKey(value) {
+  if (value instanceof Date) return Utilities.formatDate(value, 'Asia/Seoul', 'yyyyMMddHHmmss');
+  var text = String(value === undefined || value === null ? '' : value).trim();
+  var m = /^(\d{4})[-.\/]\s*(\d{1,2})[-.\/]\s*(\d{1,2})\.?(?:[ T]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/.exec(text);
+  if (!m) return '';
+  var two = function (x) { return ('0' + (x || '0')).slice(-2); };
+  return m[1] + two(m[2]) + two(m[3]) + two(m[4]) + two(m[5]) + two(m[6]);
+}
+
+/** 이 리포트의 작성일시 — 시트의 A열(작성일시)로 가는 값일 때만. 아니면 '' (자리를 옮기지 않는다) */
+function createdTextOf(headers, row, placed) {
+  var i = (headers || []).indexOf(REPORT_FIRST_HEADER);
+  if (i < 0 || (placed.map || [])[i] !== 1) return '';
+  return String((row || [])[i] || '');
+}
+
+/**
+ * 새 줄을 놓을 자리 — 작성일시가 앞서는 줄들 바로 뒤.
+ * 끝에서부터 거슬러 올라가며 나보다 늦은 줄만 건너뛴다. 날짜를 못 읽는 줄을 만나면
+ * 거기서 멈춘다 (사람이 적은 메모 줄 같은 것을 넘어 끼우지 않는다).
+ * 끼울 자리가 끝이 아니면 빈 줄을 하나 넣는다 — 그 아래 줄들은 한 칸씩 내려가고,
+ * 앱은 작성일시 · 매장으로 줄을 다시 찾으므로(resolveReportRow) 상태 바꾸기 등은 그대로 맞는다.
+ */
+function placeByDate(sheet, placed, createdText) {
+  var target = placed.target;
+  var first = placed.first || target;
+  var key = dateKey(createdText);
+  if (!key || target <= first) return target;
+  var firsts = sheet.getRange(first, 1, target - first, 1).getValues();
+  var at = target;
+  for (var i = firsts.length - 1; i >= 0; i--) {
+    var k = dateKey(firsts[i][0]);
+    if (!k || k <= key) break;
+    at = first + i;
+  }
+  if (at < target) sheet.insertRowBefore(at);
+  return at;
+}
+
 /**
  * 이 리포트를 적을 줄 번호를 정한다.
  *
@@ -691,7 +738,7 @@ function blockForRow(sheet, rowIndex) {
 function placeForRow(sheet, headers, created) {
   if (created) {
     writeHeaders(sheet, headers, REPORT_HEADER_ROW);   // 1행은 비우고 2행에 항목명
-    return { target: REPORT_DATA_ROW,
+    return { target: REPORT_DATA_ROW, first: REPORT_DATA_ROW,
              map: identityMap(headers.length), width: headers.length };
   }
   var block = lastHeaderBlock(sheet);
@@ -700,12 +747,12 @@ function placeForRow(sheet, headers, created) {
   if (!block.row) {                    // 항목 줄이 아예 없다 (사람이 만든 빈 탭)
     var at = Math.max(lastRow + 1, REPORT_HEADER_ROW);
     writeHeaders(sheet, headers, at);
-    return { target: at + 1,
+    return { target: at + 1, first: at + 1,
              map: identityMap(headers.length), width: headers.length };
   }
   if (!headers.length) {               // 항목을 안 보낸 옛 요청 — 자리 그대로 적는다
     var plainWidth = Math.max(block.headers.length, 1);
-    return { target: Math.max(lastRow + 1, block.row + 1),
+    return { target: Math.max(lastRow + 1, block.row + 1), first: block.row + 1,
              map: identityMap(plainWidth), width: plainWidth };
   }
 
@@ -730,7 +777,7 @@ function placeForRow(sheet, headers, created) {
     map.push(idx >= 0 ? idx + 1 : 0);
     if (idx >= 0) prevIdx = idx;
   }
-  return { target: Math.max(sheet.getLastRow() + 1, block.row + 1),
+  return { target: Math.max(sheet.getLastRow() + 1, block.row + 1), first: block.row + 1,
            map: map, width: sheetHead.length };
 }
 
@@ -1390,6 +1437,7 @@ function handleDrivingPush(ss, body) {
 
 /** 한 해치 탭 하나를 통째로 다시 쓴다. */
 function writeDrivingYear(sheet, vehicle, info, rows, year) {
+  rows = sortDrivingRows(rows);
   writeDrivingHead(sheet, vehicle, info, rows, year);
 
   var values = [];
@@ -1425,6 +1473,28 @@ function writeDrivingYear(sheet, vehicle, info, rows, year) {
       .setValues(safeRows(values));
     sheet.getRange(DRIVING_FIRST_ROW, 5, values.length, 3).setNumberFormat('#,##0');
   }
+}
+
+/**
+ * 운행 기록을 날짜순으로 (v3.49.2) — 오래된 것이 위. 같은 날은 계기판 거리 순.
+ *
+ * 예전에는 앱이 보낸 차례 그대로 적었다. 앱은 최근 것을 위에 두고, 다른 기기와 합칠 때는
+ * 새 줄을 맨 끝에 붙여서, 시트(엑셀로 내려받은 것)에서 날짜가 뒤섞였다.
+ * 국세청 서식도 사용일자 순이다.
+ */
+function sortDrivingRows(rows) {
+  var list = (rows || []).slice();
+  var odo = function (v) { var n = Number(v); return isFinite(n) && String(v) !== '' ? n : Infinity; };
+  list.sort(function (a, b) {
+    var da = dateKey(a.date), db = dateKey(b.date);
+    if (da !== db) return da < db ? -1 : 1;
+    var oa = odo(a.odoBefore), ob = odo(b.odoBefore);
+    if (oa !== ob) return oa < ob ? -1 : 1;
+    var aa = odo(a.odoAfter), ab = odo(b.odoAfter);
+    if (aa !== ab) return aa < ab ? -1 : 1;
+    return String(a.id || '') < String(b.id || '') ? -1 : String(a.id || '') > String(b.id || '') ? 1 : 0;
+  });
+  return list;
 }
 
 /** 서식의 머리 다섯 줄. 매번 다시 쓴다 — 사람이 지워도 되살아난다. */
@@ -2455,6 +2525,86 @@ function onEdit(e) {
   } catch (err) { /* 단순 트리거는 조용히 */ }
 }
 
+// ── 이미 쌓인 탭을 날짜순으로 (v3.49.2) ──────────────────────────────────
+// 지금부터 쓰는 것은 제자리에 들어간다(운행일지는 쓸 때마다 날짜순, 리포트는 작성일시 자리).
+// 그 전에 뒤섞인 탭은 시트 메뉴 [현장 포털 → 날짜순으로 정리] 를 한 번 누르면 맞춰진다.
+
+/** 시트를 열면 메뉴를 단다 (단순 트리거 — 설치나 새 권한이 필요 없다) */
+function onOpen() {
+  try {
+    SpreadsheetApp.getUi().createMenu('현장 포털')
+      .addItem('날짜순으로 정리 (운행일지 · 리포트)', 'sortTabsByDate')
+      .addToUi();
+  } catch (err) { /* 시트 화면 없이 불렸을 때 */ }
+}
+
+/**
+ * 운행일지 탭 · 리포트 월 탭의 자료 줄을 날짜순으로 정렬한다 (오래된 것이 위).
+ * 시트의 정렬 기능을 그대로 써서 링크 · 서식 · 상태 칸이 줄과 함께 움직인다.
+ * 확실하지 않은 탭은 **건드리지 않고** 이유를 알려 준다:
+ *   - 날짜를 못 읽는 줄(빈 줄 · 메모)이 끼어 있다
+ *   - 날짜 칸이 날짜 값과 글자로 섞여 있다 (시트 정렬이 글자를 맨 뒤로 보낸다)
+ *   - 리포트 탭에 항목 묶음이 여럿이거나, 칸에 박힌 사진이 있다 (사진은 줄을 따라가지 않는다)
+ */
+function sortTabsByDate() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sorted = [];
+  var skipped = [];
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var sheets = ss.getSheets();
+    for (var i = 0; i < sheets.length; i++) {
+      var sheet = sheets[i];
+      var name = sheet.getName();
+      var result = '';
+      if (name !== DRIVING_OPTION_SHEET && drivingTabOf(name)) {
+        result = sortDataRows(sheet, DRIVING_FIRST_ROW, DRIVING_HEADER.length, [
+          { column: 1, ascending: true }, { column: 5, ascending: true }]);
+      } else if (/^\d{4}-\d{2}$/.test(name)) {
+        var blocks = headerBlocks(sheet);
+        if (blocks.length !== 1) result = '항목 줄이 ' + blocks.length + '개';
+        else if (sheet.getImages().length) result = '칸에 박힌 사진이 있음';
+        else result = sortDataRows(sheet, blocks[0].row + 1, Math.max(sheet.getLastColumn(), 1), [
+          { column: 1, ascending: true }]);
+      } else {
+        continue;
+      }
+      if (result === 'sorted') sorted.push(name);
+      else if (result !== 'already') skipped.push(name + ' (' + result + ')');
+    }
+    if (sorted.length) markDataChanged();
+  } finally {
+    lock.releaseLock();
+  }
+  var msg = sorted.length ? '정렬함: ' + sorted.join(', ') : '이미 모두 날짜순입니다.';
+  if (skipped.length) msg += ' / 건너뜀: ' + skipped.join(', ');
+  try { ss.toast(msg, '날짜순 정리', 15); } catch (err) { /* 편집기에서 실행 */ }
+  return { sorted: sorted, skipped: skipped };
+}
+
+/** first 줄부터 끝까지를 A열 날짜로 정렬. 'sorted' · 'already' · 건너뛴 이유 */
+function sortDataRows(sheet, first, width, spec) {
+  var last = sheet.getLastRow();
+  if (last <= first) return 'already';
+  var n = last - first + 1;
+  var col = sheet.getRange(first, 1, n, 1).getValues();
+  var keys = [];
+  var dates = 0;
+  for (var i = 0; i < n; i++) {
+    var k = dateKey(col[i][0]);
+    if (!k) return (first + i) + '행 날짜를 읽지 못함';
+    if (col[i][0] instanceof Date) dates++;
+    keys.push(k);
+  }
+  if (dates && dates !== n) return '날짜 칸 형식이 섞여 있음';
+  var inOrder = true;
+  for (var j = 1; j < n; j++) if (keys[j] < keys[j - 1]) { inOrder = false; break; }
+  if (inOrder) return 'already';
+  sheet.getRange(first, 1, n, width).sort(spec);
+  return 'sorted';
+}
+
 /** 매장 → 날짜 → 사진/동영상 순으로 내려가며 폴더를 만든다. */
 function mediaTargetFolder(root, mimeType, storeName, dateText) {
   var store = folderByName(root, safeFolderName(storeName, '매장 미지정'));
@@ -3200,6 +3350,7 @@ function restoreReport(ss, data) {
   var picked = openMonthSheet(ss, data.sheetName);
   var sheet = picked.sheet;
   var placed = placeForRow(sheet, data.headers || [], picked.created);
+  placed.target = placeByDate(sheet, placed, createdTextOf(data.headers || [], data.row || [], placed));
   var aligned = [];
   for (var f = 0; f < placed.width; f++) aligned.push('');
   var row = data.row || [];
@@ -3346,6 +3497,8 @@ function handleErrors(ss, body) {
     rows.push([clip(e.at || nowText(), 40), who(body), String(body.app || ''), clip(e.screen, 80),
                clip(e.message, 400), clip(e.detail, 1500)]);
   }
+  // 기기가 모아 두었다 한 번에 보낸 것은 시각순으로 (v3.49.2)
+  rows.sort(function (a, b) { var x = dateKey(a[0]), y = dateKey(b[0]); return x < y ? -1 : x > y ? 1 : 0; });
   var at = Math.max(sheet.getLastRow(), 2) + 1;
   sheet.getRange(at, 1, rows.length, ERROR_HEADER.length).setValues(safeRows(rows));
   var extra = sheet.getLastRow() - 2 - 3000;
