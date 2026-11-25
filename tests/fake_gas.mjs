@@ -18,6 +18,10 @@ export function createFakeGas() {
   let lockBusy = false;
   const deleteRowCalls = { count: 0 };    // 한 줄씩 지운 횟수
   const deleteRowsCalls = { count: 0 };   // 몰아서 지운 횟수
+  const insertRowCalls = { count: 0 };    // 줄을 끼워 넣은 횟수 (v3.49.2 — 날짜 자리)
+  const sortCalls = { count: 0 };         // 시트 정렬 횟수
+  const toasts = [];
+  let menus = [];
   // ─────────────────────────────────────────────── 가짜 스프레드시트
 
   /**
@@ -96,6 +100,38 @@ export function createFakeGas() {
     setVerticalAlignment() { return this; }
     setWrap() { return this; }
     setNumberFormat() { return this; }
+    /** 시트 정렬 — 줄째로 옮긴다(링크도 함께). 날짜 값은 글자보다 앞에 온다 (실제 시트처럼) */
+    sort(spec) {
+      const specs = (Array.isArray(spec) ? spec : [spec]).map((x) => (typeof x === 'number' ? { column: x, ascending: true } : x));
+      const lines = [];
+      for (let r = 0; r < this.rows; r += 1) {
+        const cells = [];
+        const links = [];
+        for (let c = 0; c < this.cols; c += 1) {
+          const key = `${this.row + r},${this.col + c}`;
+          cells.push(this.sheet.cells.get(key));
+          links.push(this.sheet.links.get(key));
+        }
+        lines.push({ cells, links, at: r });
+      }
+      const rank = (v) => (v instanceof Date ? [0, v.getTime()] : typeof v === 'number' ? [0, v] : v === undefined ? [2, ''] : [1, String(v)]);
+      lines.sort((a, b) => {
+        for (const sp of specs) {
+          const x = rank(a.cells[sp.column - this.col]);
+          const y = rank(b.cells[sp.column - this.col]);
+          const d = x[0] - y[0] || (x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0);
+          if (d) return sp.ascending === false ? -d : d;
+        }
+        return a.at - b.at;
+      });
+      lines.forEach((line, r) => line.cells.forEach((v, c) => {
+        const key = `${this.row + r},${this.col + c}`;
+        if (v === undefined) this.sheet.cells.delete(key); else this.sheet.cells.set(key, v);
+        if (line.links[c] === undefined) this.sheet.links.delete(key); else this.sheet.links.set(key, line.links[c]);
+      }));
+      sortCalls.count += 1;
+      return this;
+    }
   }
 
   class FakeSheet {
@@ -134,6 +170,22 @@ export function createFakeGas() {
     setRowHeight() { return this; }
     hideColumns() { return this; }
     insertImage() { throw new Error('테스트에서는 이미지 삽입을 쓰지 않습니다.'); }
+    getImages() { return this.images || []; }
+    /** 줄 끼워 넣기 — at 이상이던 줄(값 · 링크)이 한 칸씩 내려간다 */
+    insertRowBefore(at) {
+      const shift = (map) => {
+        const next = new Map();
+        for (const [k, v] of map) {
+          const [r, c] = k.split(',').map(Number);
+          next.set(`${r >= at ? r + 1 : r},${c}`, v);
+        }
+        return next;
+      };
+      this.cells = shift(this.cells);
+      this.links = shift(this.links);
+      insertRowCalls.count += 1;
+      return this;
+    }
     // 여러 줄을 한 번에 — 실제 Sheet.deleteRows(시작, 개수). 한 줄씩 지우기는 느리다 (v3.47)
     deleteRows(row, count) {
       deleteRowsCalls.count += 1;
@@ -178,6 +230,7 @@ export function createFakeGas() {
     constructor() { this.sheets = []; this.active = null; }
     getName() { return '테스트 시트'; }
     getUrl() { return 'https://docs.google.com/spreadsheets/d/test/edit'; }
+    toast(msg, title) { toasts.push({ msg: String(msg), title }); }
     getId() { return 'testid'; }
     getSheets() { return [...this.sheets]; }
     getSheetByName(name) { return this.sheets.find((s) => s.name === name) || null; }
@@ -458,6 +511,15 @@ export function createFakeGas() {
   const sandbox = {
     SpreadsheetApp: {
       getActiveSpreadsheet: () => ss,
+      getUi: () => {
+        const menu = { title: '', items: [] };
+        const b = {
+          createMenu(title) { menu.title = title; return b; },
+          addItem(label, fn) { menu.items.push({ label, fn }); return b; },
+          addToUi() { menus.push(menu); },
+        };
+        return b;
+      },
       openById: (id) => {
         if (id === CONSUMER_ID) return consumerSS;
         throw new Error(`열 수 없는 문서: ${id}`);
@@ -522,7 +584,8 @@ export function createFakeGas() {
           .replace('MM', pad(date.getMonth() + 1))
           .replace('dd', pad(date.getDate()))
           .replace('HH', pad(date.getHours()))
-          .replace('mm', pad(date.getMinutes()));
+          .replace('mm', pad(date.getMinutes()))
+          .replace('ss', pad(date.getSeconds()));
       },
     },
   };
@@ -534,7 +597,7 @@ export function createFakeGas() {
              GUIDE_HEADER: GUIDE_HEADER, GUIDE_SHEETS: GUIDE_SHEETS,
              RELEASE_HEADER: RELEASE_HEADER, compareVersions: compareVersions,
              readInventory: readInventory,
-             isReleasePublic: isReleasePublic, onEdit: onEdit };
+             isReleasePublic: isReleasePublic, onEdit: onEdit, onOpen: onOpen, sortTabsByDate: sortTabsByDate };
   `;
   const factory = new Function(...Object.keys(sandbox), wrapper);
   const gs = factory(...Object.values(sandbox));
@@ -545,7 +608,7 @@ export function createFakeGas() {
   }
 
   return {
-    gs, ss, consumerSS, call, findPath, allFiles, fetchCalls, driveUpdates, scriptProps, scriptCache, driveCalls, cellReads, deleteRowCalls, deleteRowsCalls,
+    gs, ss, consumerSS, call, findPath, allFiles, fetchCalls, driveUpdates, scriptProps, scriptCache, driveCalls, cellReads, deleteRowCalls, deleteRowsCalls, insertRowCalls, sortCalls, toasts, menus: () => menus,
     FakeSheet, FakeSpreadsheet,
     get driveTree() { return driveTree; },
     set blockSharing(v) { SHARED_DRIVE_BLOCKS_LINK_SHARING = v; },
